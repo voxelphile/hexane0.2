@@ -1,4 +1,5 @@
 use crate::{Error, Result};
+use crate::device;
 
 use std::ffi;
 use std::os::raw;
@@ -26,7 +27,7 @@ pub struct Context {
     debug_utils: Option<(ext::DebugUtils, vk::DebugUtilsMessengerEXT)>,
 }
 
-pub struct ContextInfo<'a> {
+pub struct Info<'a> {
     pub enable_validation: bool,
     pub application_name: &'a str,
     pub application_version: Version,
@@ -34,7 +35,7 @@ pub struct ContextInfo<'a> {
     pub engine_version: Version,
 }
 
-impl Default for ContextInfo<'_> {
+impl Default for Info<'_> {
     fn default() -> Self {
         Self {
             enable_validation: false,
@@ -155,5 +156,61 @@ impl Context {
             instance,
             debug_utils,
         })
+    }
+
+    pub fn select_device(&self, info: device::Info) -> Result<device::Device<'_>> {
+        use device::*;
+
+        let context::Context { instance, .. } = &self;
+
+        //SAFETY instance is initialized
+        let physical_devices = unsafe { instance.enumerate_physical_devices() }
+            .map_err(|_| Error::Creation)?
+            .into_iter()
+            .filter_map(|physical_device| {
+                instance
+                    .get_physical_device_queue_family_properties(physical_device)
+                    .into_iter()
+                    .enumerate()
+                    .find_map(|(index, info)| {
+                        let graphics_support = info.queue_flags.contains(vk::QueueFlags::GRAPHICS);
+                        let compute_support = info.queue_flags.contains(vk::QueueFlags::COMPUTE);
+                        let surface_support = surface_loader.get_physical_device_surface_support(
+                            physical_device,
+                            index as u32,
+                            surface,
+                        );
+
+                        if graphics_support && compute_support && surface_support {
+                            Some((physical_device, index))
+                        } else {
+                            None
+                        }
+                    })
+            })
+            .map(|(physical_device, index)| {
+                let properties = instance
+                    .get_physical_device_properties(physical_device)
+                    .into();
+                let features = instance
+                    .get_physical_device_features(physical_device)
+                    .into();
+
+                let details = Details {
+                    properties,
+                    features,
+                };
+
+                let score = info.selector(details);
+
+                (score, physical_device, index)
+            })
+            .collect::<Vec<_>>();
+
+        physical_devices.sort_by(|(a, _, _), (b, _, _)| b.cmp(a));
+
+        let (_, physical_device, queue_family_index) = physical_devices.pop();
+
+        todo!()
     }
 }

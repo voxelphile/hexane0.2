@@ -1,6 +1,8 @@
 mod context;
+mod device;
 
 pub use context::*;
+pub use device::*;
 
 use std::error;
 use std::fmt;
