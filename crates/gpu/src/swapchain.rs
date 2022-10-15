@@ -31,10 +31,10 @@ impl From<PresentMode> for vk::PresentModeKHR {
         use PresentMode::*;
 
         match present_mode {
-                DoNotWaitForVBlank => Self::IMMEDIATE,
-                TripleBufferWaitForVBlank => Self::MAILBOX,
-                DoubleBufferWaitForVBlank => Self::FIFO,
-                DoubleBufferWaitForVBlankRelaxed => Self::FIFO_RELAXED,
+            DoNotWaitForVBlank => Self::IMMEDIATE,
+            TripleBufferWaitForVBlank => Self::MAILBOX,
+            DoubleBufferWaitForVBlank => Self::FIFO,
+            DoubleBufferWaitForVBlankRelaxed => Self::FIFO_RELAXED,
         }
     }
 }

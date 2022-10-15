@@ -9,3 +9,4 @@ edition = "2021"
 gpu = { path = "../gpu" }
 
 winit = "*"
+raw-window-handle = "0.5.0"

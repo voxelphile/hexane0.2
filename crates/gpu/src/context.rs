@@ -1,13 +1,17 @@
 use crate::prelude::*;
 
+use std::borrow;
 use std::ffi;
 use std::os::raw;
-use std::borrow;
 
 use ash::extensions::{ext, khr};
 use ash::{vk, Entry, Instance};
 
 use semver::Version;
+
+use raw_window_handle::{
+    HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle, RawWindowHandle,
+};
 
 const API_VERSION: u32 = vk::make_api_version(0, 1, 0, 0);
 
@@ -186,23 +190,15 @@ impl Context {
             debug,
         })
     }
-
     pub fn create_device(&self, info: DeviceInfo<'_>) -> Result<Device<'_>> {
         let Context {
             entry, instance, ..
         } = &self;
 
         let surface_loader = khr::Surface::new(entry, instance);
-        let surface_handle = unsafe {
-            ash_window::create_surface(
-                entry,
-                instance,
-                info.display.raw_display_handle(),
-                info.window.raw_window_handle(),
-                None,
-            )
-        }
-        .map_err(|_| Error::Creation)?;
+        let surface_handle =
+            unsafe { ash_window::create_surface(entry, instance, info.display, info.window, None) }
+                .map_err(|_| Error::Creation)?;
 
         //SAFETY instance is initialized
         let mut physical_devices = unsafe { instance.enumerate_physical_devices() }

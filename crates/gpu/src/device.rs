@@ -13,6 +13,9 @@ use raw_window_handle::{
     HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle, RawWindowHandle,
 };
 
+#[cfg(target_os = "windows")]
+use raw_window_handle::{WindowsDisplayHandle, Win32WindowHandle};
+
 pub fn default_device_selector(details: Details) -> usize {
     let mut score = 0;
 
@@ -32,22 +35,6 @@ pub fn default_device_selector(details: Details) -> usize {
 
 pub trait DeviceSelector = ops::Fn(Details) -> usize;
 
-pub trait Window: HasRawDisplayHandle + HasRawWindowHandle {}
-
-struct Empty;
-
-unsafe impl HasRawWindowHandle for Empty {
-    fn raw_window_handle(&self) -> RawWindowHandle {
-        panic!("window must be provided as part of device info");
-    }
-}
-
-unsafe impl HasRawDisplayHandle for Empty {
-    fn raw_display_handle(&self) -> RawDisplayHandle {
-        panic!("display must be provided as part of device info");
-    }
-}
-
 pub struct Device<'a> {
     pub(crate) context: &'a Context,
     pub(crate) physical_device: vk::PhysicalDevice,
@@ -57,8 +44,8 @@ pub struct Device<'a> {
 }
 
 pub struct Info<'a> {
-    pub window: &'a dyn HasRawWindowHandle,
-    pub display: &'a dyn HasRawDisplayHandle,
+    pub display: RawDisplayHandle,
+    pub window: RawWindowHandle,
     pub selector: &'a dyn DeviceSelector,
     pub features: Features,
     pub debug_name: &'a str,
@@ -67,8 +54,10 @@ pub struct Info<'a> {
 impl Default for Info<'_> {
     fn default() -> Self {
         Self {
-            window: &Empty,
-            display: &Empty,
+            #[cfg(target_os = "windows")]
+            display: RawDisplayHandle::Windows(WindowsDisplayHandle::empty()),
+            #[cfg(target_os = "windows")]
+            window: RawWindowHandle::Win32(Win32WindowHandle::empty()),
             selector: &default_device_selector,
             features: Default::default(),
             debug_name: "Device",
@@ -560,37 +549,29 @@ impl From<vk::PhysicalDeviceLimits> for Limits {
             ),
             framebuffer_depth_sample_counts: SampleCount::from_bits_truncate(
                 limits.framebuffer_depth_sample_counts.as_raw(),
-            )
-            ,
+            ),
             framebuffer_stencil_sample_counts: SampleCount::from_bits_truncate(
                 limits.framebuffer_stencil_sample_counts.as_raw(),
-            )
-            ,
+            ),
             framebuffer_no_attachments_sample_counts: SampleCount::from_bits_truncate(
                 limits.framebuffer_no_attachments_sample_counts.as_raw(),
-            )
-            ,
+            ),
             max_color_attachments: limits.max_color_attachments as _,
             sampled_image_color_sample_counts: SampleCount::from_bits_truncate(
                 limits.sampled_image_color_sample_counts.as_raw(),
-            )
-            ,
+            ),
             sampled_image_integer_sample_counts: SampleCount::from_bits_truncate(
                 limits.sampled_image_integer_sample_counts.as_raw(),
-            )
-            ,
+            ),
             sampled_image_depth_sample_counts: SampleCount::from_bits_truncate(
                 limits.sampled_image_depth_sample_counts.as_raw(),
-            )
-            ,
+            ),
             sampled_image_stencil_sample_counts: SampleCount::from_bits_truncate(
                 limits.sampled_image_stencil_sample_counts.as_raw(),
-            )
-            ,
+            ),
             storage_image_sample_counts: SampleCount::from_bits_truncate(
                 limits.storage_image_sample_counts.as_raw(),
-            )
-            ,
+            ),
             max_sample_mask_words: limits.max_sample_mask_words as _,
             timestamp_compute_and_graphics: limits.timestamp_compute_and_graphics != 0,
             timestamp_period: limits.timestamp_period as _,
@@ -622,24 +603,27 @@ impl Device<'_> {
             queue_family_indices,
         } = &self;
 
-        let mut surface_formats = unsafe { surface_loader
-            .get_physical_device_surface_formats(*physical_device, *surface_handle)
-        }.map_err(|_| Error::Creation)?
-            .into_iter()
-            .filter_map(|surface_format| {
-                let selector = info.surface_format_selector;
+        let mut surface_formats = unsafe {
+            surface_loader.get_physical_device_surface_formats(*physical_device, *surface_handle)
+        }
+        .map_err(|_| Error::Creation)?
+        .into_iter()
+        .filter_map(|surface_format| {
+            let selector = info.surface_format_selector;
 
-                let score = selector(surface_format.format.try_into().ok()?);
+            let score = selector(surface_format.format.try_into().ok()?);
 
-                Some((score, surface_format))
-            })
-            .collect::<Vec<_>>();
+            Some((score, surface_format))
+        })
+        .collect::<Vec<_>>();
 
         surface_formats.sort_by(|(a, _), (b, _)| b.cmp(a));
 
-        let surface_capabilities = unsafe { surface_loader
-            .get_physical_device_surface_capabilities(*physical_device, *surface_handle)
-        }.map_err(|_| Error::Creation)?;
+        let surface_capabilities = unsafe {
+            surface_loader
+                .get_physical_device_surface_capabilities(*physical_device, *surface_handle)
+        }
+        .map_err(|_| Error::Creation)?;
 
         let Context { instance, .. } = &context;
 
@@ -652,7 +636,9 @@ impl Device<'_> {
 
             let min_image_count = match info.present_mode {
                 TripleBufferWaitForVBlank => 3,
-                DoNotWaitForVBlank | DoubleBufferWaitForVBlank | DoubleBufferWaitForVBlankRelaxed => 2,
+                DoNotWaitForVBlank
+                | DoubleBufferWaitForVBlank
+                | DoubleBufferWaitForVBlankRelaxed => 2,
             };
 
             let Some((_, vk::SurfaceFormatKHR { format: image_format, color_space: image_color_space })) = surface_formats.pop() else {
@@ -688,9 +674,11 @@ impl Device<'_> {
 
             let preferred_present_mode = vk::PresentModeKHR::from(info.present_mode);
 
-            let present_modes = unsafe{  surface_loader
-                .get_physical_device_surface_present_modes(*physical_device, *surface_handle)
-            }.map_err(|_| Error::Creation)?;
+            let present_modes = unsafe {
+                surface_loader
+                    .get_physical_device_surface_present_modes(*physical_device, *surface_handle)
+            }
+            .map_err(|_| Error::Creation)?;
 
             let present_mode = present_modes
                 .into_iter()
@@ -703,7 +691,8 @@ impl Device<'_> {
                 .old_swapchain
                 .map(
                     |Swapchain {
-                         swapchain: (_, handle), ..
+                         swapchain: (_, handle),
+                         ..
                      }| *handle,
                 )
                 .unwrap_or(vk::SwapchainKHR::null());
@@ -728,9 +717,9 @@ impl Device<'_> {
             }
         };
 
-        let swapchain_handle = unsafe { swapchain_loader
-            .create_swapchain(&swapchain_create_info, None)
-        }.map_err(|_| Error::Creation)?;
+        let swapchain_handle =
+            unsafe { swapchain_loader.create_swapchain(&swapchain_create_info, None) }
+                .map_err(|_| Error::Creation)?;
 
         Ok(Swapchain {
             device: &self,

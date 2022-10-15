@@ -21,7 +21,7 @@ impl TryFrom<vk::Format> for Format {
             vk::Format::R8G8B8A8_UNORM => Rgba8Srgb,
             vk::Format::B8G8R8A8_UNORM => Bgra8Unorm,
             vk::Format::B8G8R8A8_SRGB => Bgra8Srgb,
-            _ => Err(())?
+            _ => Err(())?,
         })
     }
 }

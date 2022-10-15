@@ -9,5 +9,5 @@ edition = "2021"
 ash = { version = "*", features = ["linked"] }
 ash-window = "*"
 semver = "*"
-raw-window-handle = "*"
+raw-window-handle = "0.5.0"
 bitflags = "*"

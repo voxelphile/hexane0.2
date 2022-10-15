@@ -1,12 +1,14 @@
 #![feature(let_else)]
 
+use gpu::prelude::*;
+
 use winit::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     window::WindowBuilder,
 };
 
-use gpu::prelude::*;
+use raw_window_handle::{HasRawWindowHandle, HasRawDisplayHandle};
 
 fn main() {
     println!("Hello, world!");
@@ -27,8 +29,8 @@ fn main() {
 
     let device = context
         .create_device(DeviceInfo {
-            window: &window,
-            display: &window,
+            display: window.raw_display_handle(),
+            window: window.raw_window_handle(),
             ..Default::default()
         })
         .expect("failed to create device");
