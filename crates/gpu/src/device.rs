@@ -14,7 +14,7 @@ use raw_window_handle::{
 };
 
 #[cfg(target_os = "windows")]
-use raw_window_handle::{WindowsDisplayHandle, Win32WindowHandle};
+use raw_window_handle::{Win32WindowHandle, WindowsDisplayHandle};
 
 pub fn default_device_selector(details: Details) -> usize {
     let mut score = 0;
@@ -726,4 +726,6 @@ impl Device<'_> {
             swapchain: (swapchain_loader, swapchain_handle),
         })
     }
+
+    pub fn create_pipeline_compiler(info: PipelineCompilerInfo<'_>) -> PipelineCompiler {}
 }

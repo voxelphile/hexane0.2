@@ -5,6 +5,7 @@ mod context;
 mod device;
 mod format;
 mod image;
+mod pipeline;
 mod swapchain;
 
 pub use context::Info as ContextInfo;
@@ -13,6 +14,7 @@ pub use device::Info as DeviceInfo;
 pub use device::*;
 pub use format::*;
 pub use image::*;
+pub use pipeline::*;
 pub use swapchain::Info as SwapchainInfo;
 pub use swapchain::*;
 
@@ -30,6 +32,8 @@ pub mod prelude {
 #[derive(Debug)]
 pub enum Error {
     Creation,
+    ShaderCompilerNotFound,
+    ShaderCompilationError { message: String },
 }
 
 impl fmt::Display for Error {
