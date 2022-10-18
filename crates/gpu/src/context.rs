@@ -56,7 +56,7 @@ pub struct Context {
     debug: Option<(ext::DebugUtils, vk::DebugUtilsMessengerEXT)>,
 }
 
-pub struct Info<'a> {
+pub struct ContextInfo<'a> {
     pub enable_validation: bool,
     pub application_name: &'a str,
     pub application_version: Version,
@@ -64,7 +64,7 @@ pub struct Info<'a> {
     pub engine_version: Version,
 }
 
-impl Default for Info<'_> {
+impl Default for ContextInfo<'_> {
     fn default() -> Self {
         Self {
             enable_validation: false,
@@ -77,7 +77,7 @@ impl Default for Info<'_> {
 }
 
 impl Context {
-    pub fn new(info: Info<'_>) -> Result<Self> {
+    pub fn new(info: ContextInfo<'_>) -> Result<Self> {
         let entry = Entry::linked();
 
         let application_name =
@@ -233,7 +233,7 @@ impl Context {
                 let features =
                     unsafe { instance.get_physical_device_features(physical_device) }.into();
 
-                let details = crate::Details {
+                let details = crate::device::Details {
                     properties,
                     features,
                 };

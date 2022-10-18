@@ -1,6 +1,11 @@
 #![feature(try_blocks)]
+#![feature(default_free_fn)]
 
 use gpu::prelude::*;
+
+use std::default::default;
+use std::env; 
+use std::path;
 
 use winit::{
     event::{Event, WindowEvent},
@@ -10,22 +15,24 @@ use winit::{
 
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 
-fn root_path() -> Option<PathBuf> {
+fn root_path() -> Option<path::PathBuf> {
     let current_dir = env::current_dir().ok()?;
 
     let valid_parents = ["/target/debug", "/target/release", "/bin"];
 
     for valid_parent in valid_parents {
-        if current_dir.ends_with(valid_parent) {}
+        if !current_dir.ends_with(valid_parent) {
+            continue;
+        }
 
-        let root_dir = try {
-            let current_dir = current_dir;
+        let root_dir: Option<path::PathBuf> = try {
+            let cursor = current_dir;
 
-            for i in 0..valid_parents.split("/").len() {
-                current_dir = current_dir.parent()?;
+            for i in 0..valid_parent.split("/").count() {
+                cursor = cursor.parent().map(path::Path::to_path_buf)?;
             }
 
-            current_dir
+            cursor
         };
 
         if root_dir.is_some() {
@@ -33,20 +40,16 @@ fn root_path() -> Option<PathBuf> {
         }
     }
 
-    return current_dir;
+    Some(current_dir)
 }
 
 fn main() {
     println!("Hello, world!");
 
-    let root_path = root_path();
+    let root_path = root_path().expect("failed to get root path");
 
-    let source_path = source_path.join("source");
+    let source_path = root_path.join("source");
     let asset_path = root_path.join("assets");
-
-    if root_paths.len() == 0 {
-        panic!("must have at least one root path");
-    }
 
     let event_loop = EventLoop::new();
 
@@ -82,8 +85,8 @@ fn main() {
         //default language for shader compiler is glsl
         #[cfg(debug_assertions)]
         compiler: ShaderCompiler::glslc(default()),
-        source_path,
-        asset_path,
+        source_path: &source_path,
+        output_path: &asset_path,
         ..default()
     });
 
@@ -93,9 +96,9 @@ fn main() {
 
     let fragment = Shader(Fragment, "triangle", &["common"]);
 
-    let pipeline = pipeline_compiler.create_pipeline(PipelineInfo::Graphics {
+    let pipeline = pipeline_compiler.create_graphics_pipeline(GraphicsPipelineInfo {
         shaders: &[vertex, fragment],
-        attachments: &[Attachment {
+        color: &[Attachment {
             format: swapchain.format(),
             ..default()
         }],

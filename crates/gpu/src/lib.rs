@@ -1,3 +1,5 @@
+#![feature(default_free_fn)]
+#![feature(exit_status_error)]
 #![feature(trait_alias)]
 #![feature(let_else)]
 
@@ -8,25 +10,21 @@ mod image;
 mod pipeline;
 mod swapchain;
 
-pub use context::Info as ContextInfo;
-pub use context::*;
-pub use device::Info as DeviceInfo;
-pub use device::*;
-pub use format::*;
-pub use image::*;
-pub use pipeline::*;
-pub use swapchain::Info as SwapchainInfo;
-pub use swapchain::*;
-
 use std::error;
 use std::fmt;
 use std::result;
 
 pub mod prelude {
-    pub use crate::{
-        Context, ContextInfo, Device, DeviceInfo, DeviceSelector, Error, Format, ImageUsage,
-        PresentMode, Result, SurfaceFormatSelector, Swapchain, SwapchainInfo,
+    pub use crate::context::{Context, ContextInfo};
+    pub use crate::device::{Device, DeviceInfo, DeviceSelector};
+    pub use crate::format::Format;
+    pub use crate::image::ImageUsage;
+    pub use crate::pipeline::{
+        Attachment, ComputePipelineInfo, GraphicsPipelineInfo, Pipeline, PipelineCompiler,
+        PipelineCompilerInfo, Shader, ShaderType, ShaderCompiler,
     };
+    pub use crate::swapchain::{PresentMode, SurfaceFormatSelector, Swapchain, SwapchainInfo};
+    pub use crate::{Error, Result};
 }
 
 #[derive(Debug)]

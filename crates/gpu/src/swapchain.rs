@@ -39,17 +39,17 @@ impl From<PresentMode> for vk::PresentModeKHR {
     }
 }
 
-pub struct Info<'a> {
+pub struct SwapchainInfo<'a> {
     pub present_mode: PresentMode,
     pub image_usage: ImageUsage,
     pub width: u32,
     pub height: u32,
     pub surface_format_selector: &'a dyn SurfaceFormatSelector,
-    pub old_swapchain: Option<&'a Swapchain<'a>>,
+    pub old_swapchain: Option<Swapchain<'a>>,
     pub debug_name: &'a str,
 }
 
-impl Default for Info<'_> {
+impl Default for SwapchainInfo<'_> {
     fn default() -> Self {
         Self {
             present_mode: PresentMode::DoNotWaitForVBlank,

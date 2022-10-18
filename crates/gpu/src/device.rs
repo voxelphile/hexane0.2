@@ -43,7 +43,7 @@ pub struct Device<'a> {
     pub(crate) queue_family_indices: Vec<u32>,
 }
 
-pub struct Info<'a> {
+pub struct DeviceInfo<'a> {
     pub display: RawDisplayHandle,
     pub window: RawWindowHandle,
     pub selector: &'a dyn DeviceSelector,
@@ -51,7 +51,7 @@ pub struct Info<'a> {
     pub debug_name: &'a str,
 }
 
-impl Default for Info<'_> {
+impl Default for DeviceInfo<'_> {
     fn default() -> Self {
         Self {
             #[cfg(target_os = "windows")]
@@ -693,7 +693,7 @@ impl Device<'_> {
                     |Swapchain {
                          swapchain: (_, handle),
                          ..
-                     }| *handle,
+                     }| handle,
                 )
                 .unwrap_or(vk::SwapchainKHR::null());
 
@@ -727,5 +727,7 @@ impl Device<'_> {
         })
     }
 
-    pub fn create_pipeline_compiler(info: PipelineCompilerInfo<'_>) -> PipelineCompiler {}
+    pub fn create_pipeline_compiler(&self, info: PipelineCompilerInfo<'_>) -> PipelineCompiler {
+        todo!()
+    }
 }

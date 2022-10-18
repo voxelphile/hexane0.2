@@ -2,8 +2,11 @@ use std::mem;
 
 use ash::vk;
 
+#[derive(Default)]
 #[repr(u32)]
 pub enum Format {
+    #[default]
+    Undefined = 0,
     Rgba8Unorm = 37,
     Rgba8Srgb = 43,
     Bgra8Unorm = 44,
@@ -17,6 +20,7 @@ impl TryFrom<vk::Format> for Format {
         use Format::*;
 
         Ok(match format {
+            vk::Format::UNDEFINED => Undefined,
             vk::Format::R8G8B8A8_UNORM => Rgba8Unorm,
             vk::Format::R8G8B8A8_UNORM => Rgba8Srgb,
             vk::Format::B8G8R8A8_UNORM => Bgra8Unorm,
@@ -31,6 +35,7 @@ impl From<Format> for vk::Format {
         use Format::*;
 
         match format {
+            Undefined => Self::UNDEFINED,
             Rgba8Unorm => Self::R8G8B8A8_UNORM,
             Rgba8Srgb => Self::R8G8B8A8_SRGB,
             Bgra8Unorm => Self::B8G8R8A8_UNORM,
