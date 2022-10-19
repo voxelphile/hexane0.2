@@ -2,11 +2,13 @@
 #![feature(exit_status_error)]
 #![feature(trait_alias)]
 #![feature(let_else)]
+#![feature(box_syntax)]
 
 mod context;
 mod device;
 mod format;
 mod image;
+mod graph;
 mod pipeline;
 mod swapchain;
 
