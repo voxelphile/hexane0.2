@@ -15,6 +15,8 @@ use winit::{
 
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 
+const REALLY_LARGE_SIZE: usize = 1_000_000;
+
 fn root_path() -> Option<path::PathBuf> {
     let current_dir = env::current_dir().ok()?;
 
@@ -99,12 +101,13 @@ fn main() {
     let pipeline = pipeline_compiler.create_graphics_pipeline(GraphicsPipelineInfo {
         shaders: &[vertex, fragment],
         color: &[Attachment {
-            format: swapchain.format(),
+            format: Format::Undefined,
+            //format: swapchain.format(),
             ..default()
         }],
         ..default()
     });
-
+/*
     let staging_buffer = device.create_buffer(BufferInfo {
         size: REALLY_LARGE_SIZE,
         memory: Memory::HOST_ACCESS_RANDOM,
@@ -127,38 +130,27 @@ fn main() {
         debug_name: "Present Semaphore",
         ..default(),
     });
-
+*/
     loop {}
 }
 
 fn record_task_list(data: &mut GpuData) -> Graph<Task> {
     //takes a type which implements the trait Optimizer
     //NonOptimizer does nothing to the graph
+    let GpuData { 
+        general_buffer,
+        staging_buffer,
+        ..
+    } = &mut data;
+
     let task_graph = Graph::new(non_optimizer);
 
     use Access::*;
 
-    task_graph.add(Task {
-        usages: (Usage::Buffer(&mut staging_buffer, WRITE)),
-        task: |cmd, staging_buffer| {
+    task_graph.add(task! {
+        |cmd, &mut staging_buffer| {
             //write to staging buffer
-        },
-        ..default(),
-    });
-
-    task_graph.add(Task {
-        usages: (
-            Usage::Buffer(&mut general_buffer, WRITE),
-            Usage::Buffer(&mut staging_buffer, READ)
-        ),
-        task: |cmd, staging_buffer, general_buffer| {
-            cmd.copy_buffer_to_buffer(BufferCopyInfo {
-                from: &staging_buffer,
-                to: &mut general_buffer,
-                size: REALLY_LARGE_SIZE,
-            });
-        },
-        ..default(),
+        }
     });
 
 }

@@ -1,15 +1,7 @@
 use std::ops;
-    
-pub trait Optimizer<T, U> = ops::Fn(&mut Graph<T, U>);   
-
-pub trait Executor<T: ?Sized> {
-    fn new(&mut Graph<T>) -> Self;
-    fn execute(&mut self);
-}
 
 pub trait Node {
-    type Executor: Executor<Self>;
-    fn execute(mut self);
+    fn execute(&mut self); 
 }
 
 pub enum Dependency {
@@ -17,15 +9,15 @@ pub enum Dependency {
     Explicit(usize, usize),
 }
 
-pub struct Graph<'a, T: Node, U: Executor<T>> {
-    optimizer: &'a dyn Optimizer<T, U>,
-    executor: Option<U>,
-    nodes: Vec<Box<dyn Node<Executor = U>>>,
+pub struct Graph<'a> {
+    optimizer: &'a dyn ops::Fn(&mut Graph<'a>),
+    executor: Option<Executor>,
+    nodes: Vec<Box<dyn Node + 'a>>,
     dependencies: Vec<Dependency>,
 }
 
-impl<T: Node, U: Executor<T>> Graph<'_, T, U> {
-    fn new(optimizer: &dyn Optimizer<T, U>) -> Self {
+impl<'a> Graph<'a> {
+    fn new(optimizer: &'a dyn ops::Fn(&mut Graph<'a>)) -> Self {
         Self {
             optimizer,
             executor: None,
@@ -34,17 +26,29 @@ impl<T: Node, U: Executor<T>> Graph<'_, T, U> {
         }
     }
 
-    fn add(&mut self, node: impl Node) {
-        let _ = self.state.take();
+    fn add(&mut self, node: impl Node + 'a) {
+        let _ = self.executor.take();
         self.nodes.push(box node);
-        self.optimizer.optimize(&mut self);
+        (self.optimizer)(self);
     }
 
     fn execute(&mut self) {
         if let None = self.executor { 
-            self.executor = Some(U::new(&mut self));
+            self.executor = Some(Executor::new(&self));
         }
 
         self.executor.as_mut().unwrap().execute();
+    }
+}
+
+pub struct Executor;
+
+impl Executor {
+    fn new(graph: &'_ Graph<'_>) -> Self {
+        todo!()
+    }
+
+    fn execute(&mut self) {
+        todo!()
     }
 }

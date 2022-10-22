@@ -1,4 +1,9 @@
+use crate::graph::{Node, Graph};
+use crate::buffer::Buffer;
+
 use std::ops;
+
+use bitflags::bitflags;
 
 pub struct Commands {
 
@@ -11,46 +16,35 @@ bitflags! {
     }
 }
 
-
-pub enum Usage<T> {
-    Image(&mut T, Access),
-    Buffer(&mut T, Access),
+pub trait Accessable {
 }
 
-macro_rules! task {
-    () => {
-        pub struct Task {
-            usages: (),
-            task: ops::FnOnce(Commands),
-        }
-    }
-    ($x: ident $(, $y: ident)*) => {
-        pub struct Task<$x $(, $y)*> {
-            usages: (Usage<$x>$(, Usage<$y>)*),
-            task: ops::FnOnce(Commands, &mut x $(, &mut $y)*),
-        }
-        task!($y)
-    }
+impl Accessable for () { }
+
+pub enum Usage<'a, T: Accessable> {
+    Ref(&'a T),
+    Mut(&'a mut T)
 }
 
-task!(A, B, C, D, E, F, G, H, I, J, K, L, M, N, O, P);
-       
-impl Node for Task {
-    type Executor = TaskExecutor;
-    fn execute(mut self) {
-        self.task(self.cmds);
+pub struct Task1<'a, T: Accessable> {
+    data: (Usage<'a, T>),
+    call: &'a mut dyn ops::FnOnce(Commands, &mut T),
+}
+
+impl<'a, T: Accessable> ops::FnOnce(Commands) for Task1<'a, T> {
+    type Output = ();
+    fn call_once(self) {
+
     }
 }
 
-impl Node for Task<A> {
-    type Executor = Task::Executor;
+impl<A> Node for Task<A> {
     fn execute(mut self) {
         self.task(self.cmds, self.usages.0.0);
     }
 }
 
-impl Node for Task<A, B> {
-    type Executor = Task::Executor;
+impl<A, B> Node for Task<A, B> {
     fn execute(mut self) {
         self.task(
             self.cmds, 
@@ -60,22 +54,16 @@ impl Node for Task<A, B> {
     }
 }
 
-impl Node for Task<A, B, C> {
-    type Executor = Task::Executor;
+impl<A, B, C> Node for Task<A, B, C> {
     fn execute(mut self) {
         self.task(self.cmds, self.usages.0.0, self.usages.1.0, self.usages.2.0);
     }
 }
 
-impl Node for Task<A, B, C, D> {
-    type Executor = Task::Executor;
+impl<A, B, C, D> Node for Task<A, B, C, D> {
     fn execute(mut self) {
         self.task(self.cmds, self.usages.0.0, self.usages.1.0, self.usages.2.0, self.usages.3.0);
     }
 }
 
-pub fn non_optimizer(graph: &mut Graph<Task, TaskExecutor>) { }
-
-pub struct TaskExecutor {
-
-}
+pub fn non_optimizer(graph: &mut Graph<'_>) { }

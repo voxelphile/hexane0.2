@@ -8,9 +8,11 @@ mod context;
 mod device;
 mod format;
 mod image;
+mod task;
 mod graph;
 mod pipeline;
 mod swapchain;
+mod buffer;
 
 use std::error;
 use std::fmt;
@@ -26,6 +28,9 @@ pub mod prelude {
         PipelineCompilerInfo, Shader, ShaderType, ShaderCompiler,
     };
     pub use crate::swapchain::{PresentMode, SurfaceFormatSelector, Swapchain, SwapchainInfo};
+    pub use crate::buffer::{Buffer};
+    pub use crate::graph::{Graph, Node, Executor};
+    pub use crate::task::{Task, Access, Usage};
     pub use crate::{Error, Result};
 }
 
