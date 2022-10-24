@@ -1,5 +1,8 @@
 use bitflags::bitflags;
 
+#[derive(Clone, Copy)]
+pub struct Image(usize);
+
 bitflags! {
     pub struct ImageUsage: u32 {
         const TRANSFER_SRC = 0x00000001;

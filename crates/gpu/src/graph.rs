@@ -1,8 +1,5 @@
 use std::ops;
-
-pub trait Node {
-    fn execute(&mut self); 
-}
+use crate::task::Commands;
 
 pub enum Dependency {
     Implicit,
@@ -12,27 +9,27 @@ pub enum Dependency {
 pub struct Graph<'a> {
     optimizer: &'a dyn ops::Fn(&mut Graph<'a>),
     executor: Option<Executor>,
-    nodes: Vec<Box<dyn Node + 'a>>,
+    tasks: Vec<Box<dyn ops::FnOnce(&'a mut Commands) + 'a>>,
     dependencies: Vec<Dependency>,
 }
 
 impl<'a> Graph<'a> {
-    fn new(optimizer: &'a dyn ops::Fn(&mut Graph<'a>)) -> Self {
+    pub fn new(optimizer: &'a dyn ops::Fn(&mut Graph<'a>)) -> Self {
         Self {
             optimizer,
             executor: None,
-            nodes: vec![],
+            tasks: vec![],
             dependencies: vec![],
         }
     }
 
-    fn add(&mut self, node: impl Node + 'a) {
+    pub fn add(&mut self, task: impl ops::FnOnce(&'a mut Commands) + 'a) {
         let _ = self.executor.take();
-        self.nodes.push(box node);
+        self.tasks.push(box task);
         (self.optimizer)(self);
     }
 
-    fn execute(&mut self) {
+    pub fn execute(&mut self) {
         if let None = self.executor { 
             self.executor = Some(Executor::new(&self));
         }

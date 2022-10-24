@@ -3,14 +3,16 @@
 #![feature(trait_alias)]
 #![feature(let_else)]
 #![feature(box_syntax)]
+#![feature(unboxed_closures)]
+#![feature(fn_traits)]
 
 mod context;
 mod device;
 mod format;
 mod image;
 mod task;
-mod graph;
 mod pipeline;
+mod commands;
 mod swapchain;
 mod buffer;
 
@@ -22,15 +24,15 @@ pub mod prelude {
     pub use crate::context::{Context, ContextInfo};
     pub use crate::device::{Device, DeviceInfo, DeviceSelector};
     pub use crate::format::Format;
-    pub use crate::image::ImageUsage;
+    pub use crate::image::{Image, ImageUsage};
     pub use crate::pipeline::{
-        Attachment, ComputePipelineInfo, GraphicsPipelineInfo, Pipeline, PipelineCompiler,
+        Color, ComputePipelineInfo, GraphicsPipelineInfo, Pipeline, PipelineCompiler,
         PipelineCompilerInfo, Shader, ShaderType, ShaderCompiler,
     };
     pub use crate::swapchain::{PresentMode, SurfaceFormatSelector, Swapchain, SwapchainInfo};
     pub use crate::buffer::{Buffer};
-    pub use crate::graph::{Graph, Node, Executor};
-    pub use crate::task::{Task, Access, Usage};
+    pub use crate::task::{Task, non_optimizer, Resource, BufferAccess, ImageAccess, Graph, Executor};
+    pub use crate::commands::{BufferWrite, Commands};
     pub use crate::{Error, Result};
 }
 

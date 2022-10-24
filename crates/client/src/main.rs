@@ -6,6 +6,7 @@ use gpu::prelude::*;
 use std::default::default;
 use std::env; 
 use std::path;
+use std::mem;
 
 use winit::{
     event::{Event, WindowEvent},
@@ -16,6 +17,9 @@ use winit::{
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 
 const REALLY_LARGE_SIZE: usize = 1_000_000;
+
+pub type Vertex = (f32, f32, f32);
+pub type Index = u32;
 
 fn root_path() -> Option<path::PathBuf> {
     let current_dir = env::current_dir().ok()?;
@@ -28,7 +32,7 @@ fn root_path() -> Option<path::PathBuf> {
         }
 
         let root_dir: Option<path::PathBuf> = try {
-            let cursor = current_dir;
+            let mut cursor = current_dir.clone();
 
             for i in 0..valid_parent.split("/").count() {
                 cursor = cursor.parent().map(path::Path::to_path_buf)?;
@@ -57,7 +61,9 @@ fn main() {
 
     let window = WindowBuilder::new().build(&event_loop).unwrap();
 
-    let (width, height) = window.inner_size().into();
+    let resolution = window.inner_size().into();
+
+    let (width, height) = resolution;
 
     let context = Context::new(ContextInfo {
         enable_validation: true,
@@ -100,14 +106,14 @@ fn main() {
 
     let pipeline = pipeline_compiler.create_graphics_pipeline(GraphicsPipelineInfo {
         shaders: &[vertex, fragment],
-        color: &[Attachment {
+        color: &[Color {
             format: Format::Undefined,
             //format: swapchain.format(),
             ..default()
         }],
         ..default()
-    });
-/*
+    }).expect("failed to create pipeline");
+
     let staging_buffer = device.create_buffer(BufferInfo {
         size: REALLY_LARGE_SIZE,
         memory: Memory::HOST_ACCESS_RANDOM,
@@ -130,27 +136,111 @@ fn main() {
         debug_name: "Present Semaphore",
         ..default(),
     });
-*/
-    loop {}
+
+    let graph = Graph::new(&non_optimizer);
+
+    loop {
+        let gpu = GpuData {
+            resolution,
+            vertices: &[
+                (0.0, -0.5, 0.0),
+                (0.5, 0.5, 0.0),
+                (-0.5, 0.5, 0.0),
+            ],
+            indices: &[0, 1, 2],
+            present_image: swapchain.acquire(),
+            pipeline,
+            general_buffer,
+            staging_buffer,
+        };
+
+        record_update(&mut graph, gpu);
+        record_draw(&mut graph, gpu);
+
+        graph.execute();
+    }
 }
 
-fn record_task_list(data: &mut GpuData) -> Graph<Task> {
-    //takes a type which implements the trait Optimizer
-    //NonOptimizer does nothing to the graph
-    let GpuData { 
-        general_buffer,
-        staging_buffer,
-        ..
-    } = &mut data;
+#[derive(Clone, Copy)]
+struct GpuData<'a> {
+    resolution: (u32, u32),
+    vertices: &'a [Vertex],
+    indices: &'a [Index],
+    pipeline: Pipeline,
+    general_buffer: Buffer,
+    staging_buffer: Buffer,
+    present_image: Image,
+}
 
-    let task_graph = Graph::new(non_optimizer);
+fn record_draw<'a>(graph: &mut Graph<'a>, gpu: GpuData<'a>) {
+    let (width, height) = gpu.resolution;
 
-    use Access::*;
+    use Resource::*;
 
-    task_graph.add(task! {
-        |cmd, &mut staging_buffer| {
-            //write to staging buffer
+    graph.add(Task {
+        resources: vec![Image(gpu.present_image, ImageAccess::ColorAttachment)],
+        task: &|commands| {
+            commands.begin_render_pass(RenderPassInfo {
+                color: &[ColorAttachment {
+                    image: gpu.present_image, 
+                    load_op: LoadOp::Clear,
+                    clear_value: (0.0, 0.0, 0.0, 1.0),
+                }],
+                depth: None,
+                render_area: RenderArea {
+                    width,
+                    height,
+                    ..default()
+                },
+            });
+
+            commands.set_pipeline(gpu.pipeline);
+
+            commands.draw_indexed(DrawIndexed {
+                index_count: gpu.indices.len()
+            });
+
+            commands.end_render_pass();
         }
     });
+}
 
+fn record_update<'a>(graph: &mut Graph<'a>, gpu: GpuData<'a>) {
+    use Resource::*;
+
+    let vertex_size = gpu.vertices.len() * mem::size_of::<Vertex>();
+
+    let index_offset = ((vertex_size as f32 / 64.0).ceil() * 64.0) as usize;
+
+    graph.add(Task {
+        resources: vec![Buffer(gpu.staging_buffer, BufferAccess::HostTransferWrite)],
+        task: &|commands| {
+            commands.write_buffer(BufferWrite {
+                buffer: gpu.staging_buffer,
+                offset: 0, 
+                source: gpu.vertices
+            });
+            
+            commands.write_buffer(BufferWrite {
+                buffer: gpu.staging_buffer,
+                offset: index_offset, 
+                source: gpu.indices
+            });
+        },
+    });
+
+    graph.add(Task {
+        resources: vec![
+            Buffer(gpu.staging_buffer, TransferRead),
+            Buffer(gpu.general_buffer, TransferWrite)
+        ],
+        task: &|commands| {
+            commands.copy_buffer_to_buffer(BufferCopy {
+                from: gpu.staging_buffer,
+                to: gpu.general_buffer,
+                offset: 0,
+                size: REALLY_LARGE_SIZE
+            })
+        }
+    }
 }

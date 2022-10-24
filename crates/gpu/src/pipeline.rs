@@ -128,10 +128,10 @@ lazy_static! {
 }
 
 pub struct PipelineCompilerInfo<'a> {
-    compiler: ShaderCompiler,
-    source_path: &'a path::Path,
-    output_path: &'a path::Path,
-    debug_name: &'a str,
+    pub compiler: ShaderCompiler,
+    pub source_path: &'a path::Path,
+    pub output_path: &'a path::Path,
+    pub debug_name: &'a str,
 }
 
 impl Default for PipelineCompilerInfo<'_> {
@@ -197,14 +197,14 @@ bitflags! {
 }
 
 pub struct Raster {
-    polygon_mode: PolygonMode,
-    face_cull: FaceCull,
-    depth_clamp: bool,
-    rasterizer_discard: bool,
-    depth_bias: bool,
-    depth_bias_constant_factor: f32,
-    depth_bias_clamp: f32,
-    depth_bias_slope_factor: f32,
+    pub polygon_mode: PolygonMode, pub
+    face_cull: FaceCull, pub
+    depth_clamp: bool, pub
+    rasterizer_discard: bool, pub
+    depth_bias: bool, pub
+    depth_bias_constant_factor: f32, pub
+    depth_bias_clamp: f32, pub
+    depth_bias_slope_factor: f32, pub
     line_width: f32,
 }
 
@@ -251,13 +251,13 @@ pub enum BlendOp {
 }
 
 pub struct Blend {
-    src_color: BlendFactor,
-    dst_color: BlendFactor,
-    color_blend: BlendOp,
-    src_alpha: BlendFactor,
-    dst_alpha: BlendFactor,
-    alpha_blend: BlendOp,
-    color_write: ColorComponent,
+    pub src_color: BlendFactor,
+    pub dst_color: BlendFactor,
+    pub color_blend: BlendOp,
+    pub src_alpha: BlendFactor,
+    pub dst_alpha: BlendFactor,
+    pub alpha_blend: BlendOp,
+    pub color_write: ColorComponent,
 }
 
 impl Default for Blend {
@@ -275,9 +275,9 @@ impl Default for Blend {
 }
 
 #[derive(Default)]
-pub struct Attachment {
-    format: Format,
-    blend: Option<Blend>,
+pub struct Color {
+    pub format: Format,
+    pub blend: Option<Blend>,
 }
 
 #[derive(Default)]
@@ -294,9 +294,9 @@ pub enum CompareOp {
 }
 
 pub struct Depth {
-    write: bool,
-    compare: CompareOp,
-    bounds: (f32, f32),
+    pub write: bool,
+    pub compare: CompareOp,
+    pub bounds: (f32, f32),
 }
 
 impl Default for Depth {
@@ -310,12 +310,12 @@ impl Default for Depth {
 }
 
 pub struct GraphicsPipelineInfo<'a> {
-    shaders: &'a [Shader<'a>],
-    color: &'a [Attachment],
-    depth: Option<Depth>,
-    raster: Raster,
-    push_constant_size: usize,
-    debug_name: &'a str,
+    pub shaders: &'a [Shader<'a>],
+    pub color: &'a [Color], pub
+    depth: Option<Depth>, pub
+    raster: Raster, pub
+    push_constant_size: usize, pub
+    debug_name: &'a str, 
 }
 
 impl Default for GraphicsPipelineInfo<'_> {
@@ -332,9 +332,9 @@ impl Default for GraphicsPipelineInfo<'_> {
 }
 
 pub struct ComputePipelineInfo<'a> {
-    shader: Shader<'a>,
-    push_constant_size: usize,
-    debug_name: &'a str,
+    pub shader: Shader<'a>, pub
+    push_constant_size: usize, pub
+    debug_name: &'a str, 
 }
 
 impl Default for ComputePipelineInfo<'_> {
@@ -347,6 +347,5 @@ impl Default for ComputePipelineInfo<'_> {
     }
 }
 
-pub struct Pipeline {
-    pipeline: vk::Pipeline,
-}
+#[derive(Clone, Copy)]
+pub struct Pipeline(usize);
