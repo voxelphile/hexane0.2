@@ -9,54 +9,26 @@ use std::marker::PhantomData;
 
 use bitflags::bitflags;
 
-pub enum Dependency {
-    Implicit,
-    Explicit(usize, usize),
-}
-
-pub struct Graph<'a> {
-    optimizer: &'a dyn ops::Fn(&mut Graph<'a>),
-    executor: Option<Executor>,
+pub struct Executor<'a> {
+    optimizer: &'a dyn ops::Fn(&mut Executor<'a>),
     tasks: Vec<Task<'a>>,
-    dependencies: Vec<Dependency>,
 }
 
-impl<'a> Graph<'a> {
-    pub fn new(optimizer: &'a dyn ops::Fn(&mut Graph<'a>)) -> Self {
+impl<'a> Executor<'a> {
+    pub fn new(optimizer: &'a dyn ops::Fn(&mut Executor<'a>)) -> Self {
         Self {
             optimizer,
-            executor: None,
             tasks: vec![],
-            dependencies: vec![],
         }
     }
 
     pub fn add(&mut self, task: Task<'a>) {
-        let _ = self.executor.take();
-
         self.tasks.push(task);
 
         (self.optimizer)(self);
     }
 
     pub fn execute(&mut self) {
-        if let None = self.executor { 
-            self.executor = Some(Executor::new(&self));
-        }
-
-        self.executor.as_mut().unwrap().execute();
-    }
-}
-
-pub struct Executor;
-
-impl Executor {
-    fn new(graph: &'_ Graph<'_>) -> Self {
-        todo!()
-    }
-
-    fn execute(&mut self) {
-        todo!()
     }
 }
 
@@ -121,4 +93,4 @@ pub struct Task<'a>
     pub task: &'a dyn ops::FnMut(&'a mut Commands),
 }
 
-pub fn non_optimizer(graph: &mut Graph<'_>) { }
+pub fn non_optimizer(graph: &mut Executor<'_>) { }

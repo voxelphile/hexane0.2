@@ -180,7 +180,7 @@ fn record_draw<'a>(graph: &mut Graph<'a>, gpu: GpuData<'a>) {
     graph.add(Task {
         resources: vec![Image(gpu.present_image, ImageAccess::ColorAttachment)],
         task: &|commands| {
-            commands.begin_render_pass(RenderPassInfo {
+            commands.begin_render_pass(RenderPass {
                 color: &[ColorAttachment {
                     image: gpu.present_image, 
                     load_op: LoadOp::Clear,
@@ -238,8 +238,7 @@ fn record_update<'a>(graph: &mut Graph<'a>, gpu: GpuData<'a>) {
             commands.copy_buffer_to_buffer(BufferCopy {
                 from: gpu.staging_buffer,
                 to: gpu.general_buffer,
-                offset: 0,
-                size: REALLY_LARGE_SIZE
+                range: 0..REALLY_LARGE_SIZE,
             })
         }
     }

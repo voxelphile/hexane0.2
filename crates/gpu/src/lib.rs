@@ -31,7 +31,7 @@ pub mod prelude {
     };
     pub use crate::swapchain::{PresentMode, SurfaceFormatSelector, Swapchain, SwapchainInfo};
     pub use crate::buffer::{Buffer};
-    pub use crate::task::{Task, non_optimizer, Resource, BufferAccess, ImageAccess, Graph, Executor};
+    pub use crate::task::{Task, non_optimizer, Resource, BufferAccess, ImageAccess, Executor};
     pub use crate::commands::{BufferWrite, Commands};
     pub use crate::{Error, Result};
 }
