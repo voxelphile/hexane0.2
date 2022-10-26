@@ -129,15 +129,15 @@ fn main() {
 
     let acquire_semaphore = device.create_binary_semaphore(BinarySemaphoreInfo {
         debug_name: "Acquire Semaphore",
-        ..default(),
+        ..default()
     });
     
     let present_semaphore = device.create_binary_semaphore(BinarySemaphoreInfo {
         debug_name: "Present Semaphore",
-        ..default(),
+        ..default()
     });
 
-    let graph = Graph::new(&non_optimizer);
+    let executor = Executor::new(&non_optimizer);
 
     loop {
         let gpu = GpuData {
@@ -154,10 +154,10 @@ fn main() {
             staging_buffer,
         };
 
-        record_update(&mut graph, gpu);
-        record_draw(&mut graph, gpu);
+        record_update(&mut executor, gpu);
+        record_draw(&mut executor, gpu);
 
-        graph.execute();
+        executor.execute();
     }
 }
 
@@ -172,19 +172,19 @@ struct GpuData<'a> {
     present_image: Image,
 }
 
-fn record_draw<'a>(graph: &mut Graph<'a>, gpu: GpuData<'a>) {
+fn record_draw<'a>(executor: &mut Executor<'a>, gpu: GpuData<'a>) {
     let (width, height) = gpu.resolution;
 
     use Resource::*;
 
-    graph.add(Task {
+    executor.add(Task {
         resources: vec![Image(gpu.present_image, ImageAccess::ColorAttachment)],
         task: &|commands| {
             commands.begin_render_pass(RenderPass {
-                color: &[ColorAttachment {
+                color: &[Attachment {
                     image: gpu.present_image, 
                     load_op: LoadOp::Clear,
-                    clear_value: (0.0, 0.0, 0.0, 1.0),
+                    clear: Clear::Color(0.0, 0.0, 0.0, 1.0),
                 }],
                 depth: None,
                 render_area: RenderArea {
@@ -205,41 +205,41 @@ fn record_draw<'a>(graph: &mut Graph<'a>, gpu: GpuData<'a>) {
     });
 }
 
-fn record_update<'a>(graph: &mut Graph<'a>, gpu: GpuData<'a>) {
+fn record_update<'a>(executor: &mut Executor<'a>, gpu: GpuData<'a>) {
     use Resource::*;
 
     let vertex_size = gpu.vertices.len() * mem::size_of::<Vertex>();
 
     let index_offset = ((vertex_size as f32 / 64.0).ceil() * 64.0) as usize;
 
-    graph.add(Task {
+    executor.add(Task {
         resources: vec![Buffer(gpu.staging_buffer, BufferAccess::HostTransferWrite)],
         task: &|commands| {
             commands.write_buffer(BufferWrite {
-                buffer: gpu.staging_buffer,
+                buffer: &mut gpu.staging_buffer,
                 offset: 0, 
                 source: gpu.vertices
             });
             
             commands.write_buffer(BufferWrite {
-                buffer: gpu.staging_buffer,
+                buffer: &mut gpu.staging_buffer,
                 offset: index_offset, 
                 source: gpu.indices
             });
         },
     });
 
-    graph.add(Task {
+    executor.add(Task {
         resources: vec![
-            Buffer(gpu.staging_buffer, TransferRead),
-            Buffer(gpu.general_buffer, TransferWrite)
+            Buffer(gpu.staging_buffer, BufferAccess::TransferRead),
+            Buffer(gpu.general_buffer, BufferAccess::TransferWrite)
         ],
         task: &|commands| {
             commands.copy_buffer_to_buffer(BufferCopy {
-                from: gpu.staging_buffer,
-                to: gpu.general_buffer,
+                from: &gpu.staging_buffer,
+                to: &mut gpu.general_buffer,
                 range: 0..REALLY_LARGE_SIZE,
             })
         }
-    }
+    });
 }

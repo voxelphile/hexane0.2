@@ -1,2 +1,2 @@
 #[derive(Clone, Copy)]
-pub struct Buffer(usize);
+pub struct Buffer(pub(crate) usize);

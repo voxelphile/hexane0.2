@@ -32,7 +32,7 @@ pub mod prelude {
     pub use crate::swapchain::{PresentMode, SurfaceFormatSelector, Swapchain, SwapchainInfo};
     pub use crate::buffer::{Buffer};
     pub use crate::task::{Task, non_optimizer, Resource, BufferAccess, ImageAccess, Executor};
-    pub use crate::commands::{BufferWrite, Commands};
+    pub use crate::commands::{BufferWrite, BufferCopy, Commands, RenderPass, Attachment, DrawIndexed, Clear, LoadOp, RenderArea};
     pub use crate::{Error, Result};
 }
 

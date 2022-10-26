@@ -1,7 +1,7 @@
 use bitflags::bitflags;
 
 #[derive(Clone, Copy)]
-pub struct Image(usize);
+pub struct Image(pub(crate) usize);
 
 bitflags! {
     pub struct ImageUsage: u32 {
