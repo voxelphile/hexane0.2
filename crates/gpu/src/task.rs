@@ -1,50 +1,54 @@
-use crate::image::Image;
-use crate::commands::Commands;
 use crate::buffer::Buffer;
+use crate::commands::Commands;
+use crate::image::Image;
 
-use std::ops;
-use std::mem;
 use std::borrow::{Borrow, BorrowMut};
 use std::marker::PhantomData;
+use std::mem;
+use std::ops;
 
 use bitflags::bitflags;
 
 pub struct Executor<'a> {
     optimizer: &'a dyn ops::Fn(&mut Executor<'a>),
-    tasks: Vec<Task<'a>>,
+    nodes: Vec<Node<'a>>,
 }
 
 impl<'a> Executor<'a> {
     pub fn new(optimizer: &'a dyn ops::Fn(&mut Executor<'a>)) -> Self {
         Self {
             optimizer,
-            tasks: vec![],
+            nodes: vec![],
         }
     }
 
-    pub fn add(&mut self, task: Task<'a>) {
-        self.tasks.push(task);
+    pub fn add<'b, F: ops::FnMut(&mut Commands) + 'a>(&mut self, task: Task<'b, F>) {
+        let Task { task, resources } = task;
+
+        self.nodes.push(Node {
+            resources: resources.iter().cloned().collect(),
+            task: box task,
+        });
 
         (self.optimizer)(self);
     }
 
-    pub fn execute(&mut self) {
-    }
+    pub fn execute(&mut self) {}
 }
 
 #[derive(Clone, Copy)]
 pub enum ImageAccess {
     None,
     ShaderReadOnly,
-    VertexShaderReadOnly, 
+    VertexShaderReadOnly,
     FragmentShaderReadOnly,
     ComputeShaderReadOnly,
     ShaderWriteOnly,
-    VertexShaderWriteOnly, 
+    VertexShaderWriteOnly,
     FragmentShaderWriteOnly,
     ComputeShaderWriteOnly,
     ShaderReadWrite,
-    VertexShaderReadWrite, 
+    VertexShaderReadWrite,
     FragmentShaderReadWrite,
     ComputeShaderReadWrite,
     TransferRead,
@@ -57,22 +61,22 @@ pub enum ImageAccess {
     StencilAttachmentReadOnly,
     DepthStencilAttachmentReadOnly,
     ResolveWrite,
-    Present
+    Present,
 }
 
 #[derive(Clone, Copy)]
 pub enum BufferAccess {
     None,
     ShaderReadOnly,
-    VertexShaderReadOnly, 
+    VertexShaderReadOnly,
     FragmentShaderReadOnly,
     ComputeShaderReadOnly,
     ShaderWriteOnly,
-    VertexShaderWriteOnly, 
+    VertexShaderWriteOnly,
     FragmentShaderWriteOnly,
     ComputeShaderWriteOnly,
     ShaderReadWrite,
-    VertexShaderReadWrite, 
+    VertexShaderReadWrite,
     FragmentShaderReadWrite,
     ComputeShaderReadWrite,
     TransferRead,
@@ -87,10 +91,14 @@ pub enum Resource {
     Image(Image, ImageAccess),
 }
 
-pub struct Task<'a> 
-{
-    pub resources: Vec<Resource>,
-    pub task: &'a dyn ops::FnMut(&'a mut Commands),
+pub struct Task<'a, F: ops::FnMut(&mut Commands)> {
+    pub resources: &'a [Resource],
+    pub task: F,
 }
 
-pub fn non_optimizer(graph: &mut Executor<'_>) { }
+pub struct Node<'a> {
+    pub resources: Vec<Resource>,
+    pub task: Box<dyn ops::FnMut(&mut Commands) + 'a>,
+}
+
+pub fn non_optimizer(graph: &mut Executor<'_>) {}

@@ -41,6 +41,8 @@ pub struct Device<'a> {
     pub(crate) logical_device: ash::Device,
     pub(crate) surface: (khr::Surface, vk::SurfaceKHR),
     pub(crate) queue_family_indices: Vec<u32>,
+    pub(crate) descriptor_pool: vk::DescriptorPool,
+    pub(crate) descriptor_set: vk::DescriptorSet,
 }
 
 pub struct DeviceInfo<'a> {
@@ -594,6 +596,14 @@ impl From<vk::PhysicalDeviceLimits> for Limits {
 }
 
 impl Device<'_> {
+    pub fn create_buffer(&self, info: BufferInfo<'_>) -> Result<Buffer> {
+        todo!()
+    }
+
+    pub fn create_binary_semaphore(&self, info: BinarySemaphoreInfo<'_>) -> Result<Semaphore> {
+        todo!()
+    }
+
     pub fn create_swapchain(&self, info: SwapchainInfo<'_>) -> Result<Swapchain<'_>> {
         let Device {
             context,
@@ -601,6 +611,7 @@ impl Device<'_> {
             physical_device,
             logical_device,
             queue_family_indices,
+            ..
         } = &self;
 
         let mut surface_formats = unsafe {
@@ -728,6 +739,12 @@ impl Device<'_> {
     }
 
     pub fn create_pipeline_compiler(&self, info: PipelineCompilerInfo<'_>) -> PipelineCompiler {
-        todo!()
+        PipelineCompiler {
+            pipelines: vec![],
+            compiler: info.compiler,
+            source_path: info.source_path.to_path_buf(),
+            output_path: info.output_path.to_path_buf(),
+            debug_name: info.debug_name.to_owned(),
+        }
     }
 }

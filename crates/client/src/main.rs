@@ -4,9 +4,9 @@
 use gpu::prelude::*;
 
 use std::default::default;
-use std::env; 
-use std::path;
+use std::env;
 use std::mem;
+use std::path;
 
 use winit::{
     event::{Event, WindowEvent},
@@ -81,7 +81,7 @@ fn main() {
         })
         .expect("failed to create device");
 
-    let swapchain = device
+    let mut swapchain = device
         .create_swapchain(SwapchainInfo {
             width,
             height,
@@ -104,49 +104,51 @@ fn main() {
 
     let fragment = Shader(Fragment, "triangle", &["common"]);
 
-    let pipeline = pipeline_compiler.create_graphics_pipeline(GraphicsPipelineInfo {
-        shaders: &[vertex, fragment],
-        color: &[Color {
-            format: Format::Undefined,
-            //format: swapchain.format(),
+    let pipeline = pipeline_compiler
+        .create_graphics_pipeline(GraphicsPipelineInfo {
+            shaders: &[vertex, fragment],
+            color: &[Color {
+                format: Format::Undefined,
+                //format: swapchain.format(),
+                ..default()
+            }],
             ..default()
-        }],
-        ..default()
-    }).expect("failed to create pipeline");
+        })
+        .expect("failed to create pipeline");
 
-    let staging_buffer = device.create_buffer(BufferInfo {
-        size: REALLY_LARGE_SIZE,
-        memory: Memory::HOST_ACCESS_RANDOM,
-        debug_name: "Staging Buffer",
-        ..default()
-    });
+    let staging_buffer = device
+        .create_buffer(BufferInfo {
+            size: REALLY_LARGE_SIZE,
+            memory: Memory::HOST_ACCESS_RANDOM,
+            debug_name: "Staging Buffer",
+            ..default()
+        })
+        .expect("failed to create buffer");
 
-    let general_buffer = device.create_buffer(BufferInfo {
-        size: REALLY_LARGE_SIZE,
-        debug_name: "General Buffer",
-        ..default()
-    });
+    let general_buffer = device
+        .create_buffer(BufferInfo {
+            size: REALLY_LARGE_SIZE,
+            debug_name: "General Buffer",
+            ..default()
+        })
+        .expect("failed to create buffer");
 
     let acquire_semaphore = device.create_binary_semaphore(BinarySemaphoreInfo {
         debug_name: "Acquire Semaphore",
         ..default()
     });
-    
+
     let present_semaphore = device.create_binary_semaphore(BinarySemaphoreInfo {
         debug_name: "Present Semaphore",
         ..default()
     });
 
-    let executor = Executor::new(&non_optimizer);
+    let mut executor = Executor::new(&non_optimizer);
 
     loop {
-        let gpu = GpuData {
+        let mut gpu = GpuData {
             resolution,
-            vertices: &[
-                (0.0, -0.5, 0.0),
-                (0.5, 0.5, 0.0),
-                (-0.5, 0.5, 0.0),
-            ],
+            vertices: &[(0.0, -0.5, 0.0), (0.5, 0.5, 0.0), (-0.5, 0.5, 0.0)],
             indices: &[0, 1, 2],
             present_image: swapchain.acquire(),
             pipeline,
@@ -161,28 +163,31 @@ fn main() {
     }
 }
 
+pub const VERTEX_OFFSET: usize = 0;
+pub const INDEX_OFFSET: usize = 1024;
+
 #[derive(Clone, Copy)]
 struct GpuData<'a> {
-    resolution: (u32, u32),
-    vertices: &'a [Vertex],
-    indices: &'a [Index],
-    pipeline: Pipeline,
-    general_buffer: Buffer,
-    staging_buffer: Buffer,
-    present_image: Image,
+    pub resolution: (u32, u32),
+    pub vertices: &'a [Vertex],
+    pub indices: &'a [Index],
+    pub pipeline: Pipeline,
+    pub general_buffer: Buffer,
+    pub staging_buffer: Buffer,
+    pub present_image: Image,
 }
 
-fn record_draw<'a>(executor: &mut Executor<'a>, gpu: GpuData<'a>) {
-    let (width, height) = gpu.resolution;
-
+fn record_draw<'a, 'b: 'a>(executor: &mut Executor<'a>, gpu: GpuData<'b>) {
     use Resource::*;
 
     executor.add(Task {
-        resources: vec![Image(gpu.present_image, ImageAccess::ColorAttachment)],
-        task: &|commands| {
+        resources: &[Image(gpu.present_image, ImageAccess::ColorAttachment)],
+        task: move |commands| {
+            let (width, height) = gpu.resolution;
+
             commands.begin_render_pass(RenderPass {
                 color: &[Attachment {
-                    image: gpu.present_image, 
+                    image: gpu.present_image,
                     load_op: LoadOp::Clear,
                     clear: Clear::Color(0.0, 0.0, 0.0, 1.0),
                 }],
@@ -197,49 +202,45 @@ fn record_draw<'a>(executor: &mut Executor<'a>, gpu: GpuData<'a>) {
             commands.set_pipeline(gpu.pipeline);
 
             commands.draw_indexed(DrawIndexed {
-                index_count: gpu.indices.len()
+                index_count: gpu.indices.len(),
             });
 
             commands.end_render_pass();
-        }
+        },
     });
 }
 
-fn record_update<'a>(executor: &mut Executor<'a>, gpu: GpuData<'a>) {
+fn record_update<'a, 'b: 'a>(executor: &mut Executor<'a>, gpu: GpuData<'b>) {
     use Resource::*;
 
-    let vertex_size = gpu.vertices.len() * mem::size_of::<Vertex>();
-
-    let index_offset = ((vertex_size as f32 / 64.0).ceil() * 64.0) as usize;
-
     executor.add(Task {
-        resources: vec![Buffer(gpu.staging_buffer, BufferAccess::HostTransferWrite)],
-        task: &|commands| {
+        resources: &[Buffer(gpu.staging_buffer, BufferAccess::HostTransferWrite)],
+        task: move |commands| {
             commands.write_buffer(BufferWrite {
-                buffer: &mut gpu.staging_buffer,
-                offset: 0, 
-                source: gpu.vertices
+                buffer: gpu.staging_buffer,
+                offset: 0,
+                source: gpu.vertices,
             });
-            
+
             commands.write_buffer(BufferWrite {
-                buffer: &mut gpu.staging_buffer,
-                offset: index_offset, 
-                source: gpu.indices
+                buffer: gpu.staging_buffer,
+                offset: INDEX_OFFSET,
+                source: gpu.indices,
             });
         },
     });
 
     executor.add(Task {
-        resources: vec![
+        resources: &[
             Buffer(gpu.staging_buffer, BufferAccess::TransferRead),
-            Buffer(gpu.general_buffer, BufferAccess::TransferWrite)
+            Buffer(gpu.general_buffer, BufferAccess::TransferWrite),
         ],
-        task: &|commands| {
+        task: move |commands| {
             commands.copy_buffer_to_buffer(BufferCopy {
-                from: &gpu.staging_buffer,
-                to: &mut gpu.general_buffer,
+                from: gpu.staging_buffer,
+                to: gpu.general_buffer,
                 range: 0..REALLY_LARGE_SIZE,
             })
-        }
+        },
     });
 }

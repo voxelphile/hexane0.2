@@ -146,11 +146,11 @@ impl Default for PipelineCompilerInfo<'_> {
 }
 
 pub struct PipelineCompiler {
-    pipelines: Vec<Pipeline>,
-    compiler: ShaderCompiler,
-    source_path: path::PathBuf,
-    output_path: path::PathBuf,
-    debug_name: String,
+    pub(crate) pipelines: Vec<Pipeline>,
+    pub(crate)compiler: ShaderCompiler,
+    pub(crate)source_path: path::PathBuf,
+    pub(crate)output_path: path::PathBuf,
+    pub(crate)debug_name: String,
 }
 
 impl PipelineCompiler {
@@ -197,15 +197,15 @@ bitflags! {
 }
 
 pub struct Raster {
-    pub polygon_mode: PolygonMode, pub
-    face_cull: FaceCull, pub
-    depth_clamp: bool, pub
-    rasterizer_discard: bool, pub
-    depth_bias: bool, pub
-    depth_bias_constant_factor: f32, pub
-    depth_bias_clamp: f32, pub
-    depth_bias_slope_factor: f32, pub
-    line_width: f32,
+    pub polygon_mode: PolygonMode,
+    pub face_cull: FaceCull,
+    pub depth_clamp: bool,
+    pub rasterizer_discard: bool,
+    pub depth_bias: bool,
+    pub depth_bias_constant_factor: f32,
+    pub depth_bias_clamp: f32,
+    pub depth_bias_slope_factor: f32,
+    pub line_width: f32,
 }
 
 impl Default for Raster {
@@ -311,11 +311,11 @@ impl Default for Depth {
 
 pub struct GraphicsPipelineInfo<'a> {
     pub shaders: &'a [Shader<'a>],
-    pub color: &'a [Color], pub
-    depth: Option<Depth>, pub
-    raster: Raster, pub
-    push_constant_size: usize, pub
-    debug_name: &'a str, 
+    pub color: &'a [Color],
+    pub depth: Option<Depth>,
+    pub raster: Raster,
+    pub push_constant_size: usize,
+    pub debug_name: &'a str,
 }
 
 impl Default for GraphicsPipelineInfo<'_> {
@@ -332,9 +332,9 @@ impl Default for GraphicsPipelineInfo<'_> {
 }
 
 pub struct ComputePipelineInfo<'a> {
-    pub shader: Shader<'a>, pub
-    push_constant_size: usize, pub
-    debug_name: &'a str, 
+    pub shader: Shader<'a>,
+    pub push_constant_size: usize,
+    pub debug_name: &'a str,
 }
 
 impl Default for ComputePipelineInfo<'_> {

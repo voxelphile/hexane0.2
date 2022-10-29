@@ -3,6 +3,7 @@ use crate::prelude::*;
 use std::borrow;
 use std::ffi;
 use std::os::raw;
+use std::default::default;
 
 use ash::extensions::{ext, khr};
 use ash::{vk, Entry, Instance};
@@ -14,6 +15,8 @@ use raw_window_handle::{
 };
 
 const API_VERSION: u32 = vk::make_api_version(0, 1, 0, 0);
+
+const DESCRIPTOR_COUNT: u32 = 64;
 
 unsafe extern "system" fn debug_callback(
     message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
@@ -109,7 +112,7 @@ impl Context {
                 application_version,
                 p_engine_name,
                 engine_version,
-                ..Default::default()
+                ..default()
             }
         };
 
@@ -145,7 +148,7 @@ impl Context {
                 pp_enabled_layer_names,
                 enabled_extension_count,
                 pp_enabled_extension_names,
-                ..Default::default()
+                ..default()
             }
         };
 
@@ -165,7 +168,7 @@ impl Context {
                     | vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION
                     | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE,
                 pfn_user_callback: Some(debug_callback),
-                ..Default::default()
+                ..default()
             })
         } else {
             None
@@ -278,7 +281,7 @@ impl Context {
                 queue_family_index,
                 queue_count,
                 p_queue_priorities,
-                ..Default::default()
+                ..default()
             }
         }];
 
@@ -305,22 +308,125 @@ impl Context {
                 enabled_extension_count,
                 pp_enabled_extension_names,
                 p_enabled_features,
-                ..Default::default()
+                ..default()
             }
         };
 
         let logical_device = unsafe {
             self.instance
                 .create_device(physical_device, &device_create_info, None)
-                .map_err(|_| Error::Creation)?
+        }
+        .map_err(|_| Error::Creation)?;
+
+        let descriptor_pool_sizes = [
+            vk::DescriptorPoolSize {
+                ty: vk::DescriptorType::SAMPLER,
+                descriptor_count: DESCRIPTOR_COUNT,
+            },
+            vk::DescriptorPoolSize {
+                ty: vk::DescriptorType::SAMPLED_IMAGE,
+                descriptor_count: DESCRIPTOR_COUNT,
+            },
+            vk::DescriptorPoolSize {
+                ty: vk::DescriptorType::STORAGE_IMAGE,
+                descriptor_count: DESCRIPTOR_COUNT,
+            },
+            vk::DescriptorPoolSize {
+                ty: vk::DescriptorType::STORAGE_BUFFER,
+                descriptor_count: DESCRIPTOR_COUNT,
+            },
+        ];
+
+        let descriptor_pool_create_info = {
+            let flags = vk::DescriptorPoolCreateFlags::UPDATE_AFTER_BIND;
+
+            let max_sets = 1;
+
+            let pool_size_count = descriptor_pool_sizes.len() as u32;
+
+            let p_pool_sizes = descriptor_pool_sizes.as_ptr();
+
+            vk::DescriptorPoolCreateInfo {
+                flags,
+                max_sets,
+                pool_size_count,
+                p_pool_sizes,
+                ..default()
+            }
         };
 
+        let descriptor_pool = unsafe { logical_device.create_descriptor_pool(&descriptor_pool_create_info, None) }.map_err(|_| Error::Creation)?;
+
+        let descriptor_set_layout_bindings = [
+            vk::DescriptorSetLayoutBinding {
+                descriptor_type: vk::DescriptorType::SAMPLER,
+                descriptor_count: DESCRIPTOR_COUNT,
+                stage_flags: vk::ShaderStageFlags::VERTEX
+                    | vk::ShaderStageFlags::FRAGMENT,
+                ..default()
+            },
+            vk::DescriptorSetLayoutBinding {
+                descriptor_type: vk::DescriptorType::SAMPLED_IMAGE,
+                descriptor_count: DESCRIPTOR_COUNT,
+                stage_flags: vk::ShaderStageFlags::VERTEX
+                    | vk::ShaderStageFlags::FRAGMENT,
+                ..default()
+            },
+            vk::DescriptorSetLayoutBinding {
+                descriptor_type: vk::DescriptorType::STORAGE_IMAGE,
+                descriptor_count: DESCRIPTOR_COUNT,
+                stage_flags: vk::ShaderStageFlags::VERTEX
+                    | vk::ShaderStageFlags::FRAGMENT,
+                ..default()
+            },
+            vk::DescriptorSetLayoutBinding {
+                descriptor_type: vk::DescriptorType::STORAGE_BUFFER,
+                descriptor_count: DESCRIPTOR_COUNT,
+                stage_flags: vk::ShaderStageFlags::VERTEX
+                    | vk::ShaderStageFlags::FRAGMENT,
+                ..default()
+            },
+        ]; 
+
+        let descriptor_set_layout_create_info = {
+            let binding_count = descriptor_set_layout_bindings.len() as u32;
+
+            let p_bindings = descriptor_set_layout_bindings.as_ptr();
+
+            vk::DescriptorSetLayoutCreateInfo {
+                binding_count,
+                p_bindings,
+                ..default()
+            }
+        };
+
+        let descriptor_set_layout = unsafe { logical_device.create_descriptor_set_layout(&descriptor_set_layout_create_info, None) }.map_err(|_| Error::Creation)?;
+
+        let descriptor_set_allocate_info = {
+            let descriptor_set_count = 1;
+
+            let set_layouts = [descriptor_set_layout];
+
+            let p_set_layouts = set_layouts.as_ptr();
+
+            vk::DescriptorSetAllocateInfo {
+                descriptor_pool,
+                descriptor_set_count,
+                p_set_layouts,
+                ..default()
+            }
+        };
+
+        let descriptor_set = unsafe { logical_device.allocate_descriptor_sets(&descriptor_set_allocate_info) }.map_err(|_| Error::Creation)?[0];
+        
         Ok(Device {
             context: &self,
             surface: (surface_loader, surface_handle),
             physical_device,
             logical_device,
             queue_family_indices,
+            descriptor_pool,
+            descriptor_set,
         })
     }
 }

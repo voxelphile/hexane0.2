@@ -67,3 +67,9 @@ pub struct Swapchain<'a> {
     pub(crate) device: &'a Device<'a>,
     pub(crate) swapchain: (khr::Swapchain, vk::SwapchainKHR),
 }
+
+impl Swapchain<'_> {
+    pub fn acquire(&mut self) -> Image {
+        todo!()
+    }
+}

@@ -6,33 +6,38 @@
 #![feature(unboxed_closures)]
 #![feature(fn_traits)]
 
+mod buffer;
+mod commands;
 mod context;
 mod device;
 mod format;
 mod image;
-mod task;
 mod pipeline;
-mod commands;
+mod semaphore;
 mod swapchain;
-mod buffer;
+mod task;
 
 use std::error;
 use std::fmt;
 use std::result;
 
 pub mod prelude {
+    pub use crate::buffer::{Buffer, BufferInfo, Memory};
+    pub use crate::commands::{
+        Attachment, BufferCopy, BufferWrite, Clear, Commands, DrawIndexed, LoadOp, RenderArea,
+        RenderPass,
+    };
     pub use crate::context::{Context, ContextInfo};
     pub use crate::device::{Device, DeviceInfo, DeviceSelector};
     pub use crate::format::Format;
     pub use crate::image::{Image, ImageUsage};
     pub use crate::pipeline::{
         Color, ComputePipelineInfo, GraphicsPipelineInfo, Pipeline, PipelineCompiler,
-        PipelineCompilerInfo, Shader, ShaderType, ShaderCompiler,
+        PipelineCompilerInfo, Shader, ShaderCompiler, ShaderType,
     };
+    pub use crate::semaphore::{BinarySemaphoreInfo, Semaphore, TimelineSemaphoreInfo};
     pub use crate::swapchain::{PresentMode, SurfaceFormatSelector, Swapchain, SwapchainInfo};
-    pub use crate::buffer::{Buffer};
-    pub use crate::task::{Task, non_optimizer, Resource, BufferAccess, ImageAccess, Executor};
-    pub use crate::commands::{BufferWrite, BufferCopy, Commands, RenderPass, Attachment, DrawIndexed, Clear, LoadOp, RenderArea};
+    pub use crate::task::{non_optimizer, BufferAccess, Executor, ImageAccess, Resource, Task};
     pub use crate::{Error, Result};
 }
 

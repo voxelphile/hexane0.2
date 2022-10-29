@@ -2,33 +2,31 @@ use crate::buffer::Buffer;
 use crate::image::Image;
 use crate::pipeline::Pipeline;
 
-use std::ops;
 use std::default::default;
+use std::ops;
 
-pub struct Commands {
-
-}
+pub struct Commands {}
 
 pub struct BufferWrite<'a, T: Copy> {
-    buffer: &'a mut Buffer,
-    offset: usize,
-    source: &'a [T],
+    pub buffer: Buffer,
+    pub offset: usize,
+    pub source: &'a [T],
 }
 
-pub struct BufferCopy<'a, R: ops::RangeBounds<usize>> {
-    from: &'a Buffer,
-    to: &'a mut Buffer,
-    range: R,
+pub struct BufferCopy<R: ops::RangeBounds<usize>> {
+    pub from: Buffer,
+    pub to: Buffer,
+    pub range: R,
 }
 
 pub struct DrawIndexed {
-    index_count: usize,
+    pub index_count: usize,
 }
 
 pub struct RenderPass<'a> {
-    color: &'a [Attachment],
-    depth: Option<Attachment>,
-    render_area: RenderArea,
+    pub color: &'a [Attachment],
+    pub depth: Option<Attachment>,
+    pub render_area: RenderArea,
 }
 
 pub enum Clear {
@@ -52,9 +50,9 @@ pub enum LoadOp {
 }
 
 pub struct Attachment {
-    image: Image,
-    load_op: LoadOp,
-    clear: Clear,
+    pub image: Image,
+    pub load_op: LoadOp,
+    pub clear: Clear,
 }
 
 impl Default for Attachment {
@@ -69,17 +67,17 @@ impl Default for Attachment {
 
 #[derive(Default)]
 pub struct RenderArea {
-    x: u32,
-    y: u32, 
-    width: u32,
-    height: u32,
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
 }
 
 impl Commands {
-    pub fn write_buffer<T: Copy>(&mut self, write: BufferWrite<'_, T>) {
+    pub fn write_buffer<T: Copy>(&mut self, write: BufferWrite<T>) {
         todo!()
     }
-    pub fn copy_buffer_to_buffer<R: ops::RangeBounds<usize>>(&mut self, copy: BufferCopy<'_, R>) {
+    pub fn copy_buffer_to_buffer<R: ops::RangeBounds<usize>>(&mut self, copy: BufferCopy<R>) {
         todo!()
     }
     pub fn begin_render_pass(&mut self, render_pass: RenderPass<'_>) {
