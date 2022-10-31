@@ -1,8 +1,13 @@
+use crate::memory;
 use crate::prelude::*;
 
+use std::default::default;
 use std::ffi;
+use std::marker;
+use std::mem;
 use std::ops;
 use std::os::raw;
+use std::sync::Mutex;
 
 use ash::extensions::{ext, khr};
 use ash::{vk, Entry, Instance};
@@ -35,16 +40,83 @@ pub fn default_device_selector(details: Details) -> usize {
 
 pub trait DeviceSelector = ops::Fn(Details) -> usize;
 
-pub struct InternalBuffer {
-    buffer: vk::Buffer,
+pub(crate) struct DeviceResource<T, U: Into<usize> + From<usize> + Copy> {
+    reprs: Vec<Option<T>>,
+    available: Vec<usize>,
+    marker: marker::PhantomData<U>,
 }
 
-pub struct InternalImage {
-    buffer: vk::Image,
+impl<T, U: Into<usize> + From<usize> + Copy> DeviceResource<T, U> {
+    pub fn new() -> Self {
+        Self {
+            reprs: vec![],
+            available: vec![],
+            marker: marker::PhantomData,
+        }
+    }
+
+    pub fn add(&mut self, repr: T) -> U {
+        if self.available.len() > 0 {
+            let index = self.available.pop().unwrap();
+            self.reprs.insert(index, Some(repr));
+            index
+        } else {
+            let index = self.reprs.len();
+            self.reprs.push(Some(repr));
+            index
+        }
+        .into()
+    }
+
+    pub fn get(&self, handle: U) -> Option<&'_ T> {
+        if let Some(repr) = self.reprs.get(handle.into()) {
+            return repr.as_ref();
+        }
+
+        None
+    }
+
+    pub fn get_mut(&mut self, handle: U) -> Option<&'_ mut T> {
+        if let Some(repr) = self.reprs.get_mut(handle.into()) {
+            return repr.as_mut();
+        }
+
+        None
+    }
+
+    pub fn remove(&mut self, handle: U) -> Option<T> {
+        let index = handle.into();
+
+        if self.reprs.len() < index {
+            return None;
+        }
+
+        if let Some(repr) = mem::replace(&mut self.reprs[index], None) {
+            self.available.push(index);
+            return Some(repr);
+        }
+
+        None
+    }
+}
+
+pub(crate) struct DeviceResources {
+    pub(crate) buffers: DeviceResource<InternalBuffer, Buffer>,
+    pub(crate) images: DeviceResource<InternalImage, Image>,
+}
+
+impl DeviceResources {
+    pub fn new() -> Self {
+        Self {
+            buffers: DeviceResource::new(),
+            images: DeviceResource::new(),
+        }
+    }
 }
 
 pub struct Device<'a> {
     pub(crate) context: &'a Context,
+    pub(crate) resources: Mutex<DeviceResources>,
     pub(crate) physical_device: vk::PhysicalDevice,
     pub(crate) logical_device: ash::Device,
     pub(crate) surface: (khr::Surface, vk::SurfaceKHR),
@@ -52,8 +124,6 @@ pub struct Device<'a> {
     pub(crate) descriptor_pool: vk::DescriptorPool,
     pub(crate) descriptor_set: vk::DescriptorSet,
     pub(crate) descriptor_set_layout: vk::DescriptorSetLayout,
-    pub(crate) buffers: Vec<InternalBuffer>,
-    pub(crate) images: Vec<InternalImage>,
 }
 
 pub struct DeviceInfo<'a> {
@@ -607,23 +677,99 @@ impl From<vk::PhysicalDeviceLimits> for Limits {
 }
 
 impl Device<'_> {
+    pub fn acquire(&self) -> Image {
+        todo!()
+    }
+
     pub fn create_buffer(&self, info: BufferInfo<'_>) -> Result<Buffer> {
-        
+        let Device {
+            context,
+            physical_device,
+            logical_device,
+            resources,
+            ..
+        } = self;
+
+        let Context { instance, .. } = context;
+
+        let BufferInfo {
+            size,
+            usage,
+            memory,
+            debug_name,
+        } = info;
+
+        let size = size as _;
+
+        let allocation_size = size as _;
+
+        let usage = usage.into();
+
+        let memory = memory.into();
+
+        let debug_name = debug_name.to_owned();
+
+        let sharing_mode = vk::SharingMode::EXCLUSIVE;
+
+        let buffer_create_info = vk::BufferCreateInfo {
+            size,
+            usage,
+            sharing_mode,
+            ..default()
+        };
+
+        let buffer = unsafe { logical_device.create_buffer(&buffer_create_info, None) }
+            .map_err(|_| Error::Creation)?;
+
+        let memory_requirements = unsafe { logical_device.get_buffer_memory_requirements(buffer) };
+
+        let memory_properties =
+            unsafe { instance.get_physical_device_memory_properties(*physical_device) };
+
+        let memory_type_index =
+            memory::type_index(&memory_requirements, &memory_properties, memory)?;
+
+        let memory_allocate_info = vk::MemoryAllocateInfo {
+            allocation_size,
+            memory_type_index,
+            ..default()
+        };
+
+        let properties = memory;
+
+        let memory = unsafe { logical_device.allocate_memory(&memory_allocate_info, None) }
+            .map_err(|_| Error::Creation)?;
+
+        unsafe { logical_device.bind_buffer_memory(buffer, memory, 0) }
+            .map_err(|_| Error::Creation)?;
+
+        let memory = InternalMemory { memory, properties };
+
+        let BufferInfo { size, usage, .. } = info;
+
+        Ok(resources.lock().unwrap().buffers.add(InternalBuffer {
+            buffer,
+            memory,
+            size,
+            usage,
+            debug_name,
+        }))
     }
 
     pub fn create_binary_semaphore(&self, info: BinarySemaphoreInfo<'_>) -> Result<Semaphore> {
         todo!()
     }
 
-    pub fn create_swapchain(&self, info: SwapchainInfo<'_>) -> Result<Swapchain<'_>> {
+    pub fn create_swapchain(&self, info: SwapchainInfo<'_>) -> Result<Swapchain> {
         let Device {
             context,
             surface: (surface_loader, surface_handle),
             physical_device,
             logical_device,
             queue_family_indices,
+            resources,
             ..
-        } = &self;
+        } = self;
 
         let mut surface_formats = unsafe {
             surface_loader.get_physical_device_surface_formats(*physical_device, *surface_handle)
@@ -711,12 +857,7 @@ impl Device<'_> {
 
             let old_swapchain = info
                 .old_swapchain
-                .map(
-                    |Swapchain {
-                         swapchain: (_, handle),
-                         ..
-                     }| handle,
-                )
+                .map(|Swapchain { handle, .. }| handle)
                 .unwrap_or(vk::SwapchainKHR::null());
 
             vk::SwapchainCreateInfoKHR {
@@ -743,16 +884,20 @@ impl Device<'_> {
             unsafe { swapchain_loader.create_swapchain(&swapchain_create_info, None) }
                 .map_err(|_| Error::Creation)?;
 
+        let loader = swapchain_loader;
+
+        let handle = swapchain_handle;
+
         Ok(Swapchain {
             device: &self,
-            swapchain: (swapchain_loader, swapchain_handle),
+            loader,
+            handle,
         })
     }
 
     pub fn create_pipeline_compiler(&self, info: PipelineCompilerInfo<'_>) -> PipelineCompiler {
         PipelineCompiler {
             device: &self,
-            pipelines: vec![],
             compiler: info.compiler,
             source_path: info.source_path.to_path_buf(),
             asset_path: info.asset_path.to_path_buf(),

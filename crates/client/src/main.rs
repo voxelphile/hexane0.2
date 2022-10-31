@@ -73,7 +73,7 @@ fn main() {
     })
     .expect("failed to create context");
 
-    let device = context
+    let mut device = context
         .create_device(DeviceInfo {
             display: window.raw_display_handle(),
             window: window.raw_window_handle(),
@@ -119,7 +119,7 @@ fn main() {
     let staging_buffer = device
         .create_buffer(BufferInfo {
             size: REALLY_LARGE_SIZE,
-            memory: Memory::HOST_ACCESS_RANDOM,
+            memory: Memory::HOST_ACCESS,
             debug_name: "Staging Buffer",
             ..default()
         })
@@ -145,19 +145,31 @@ fn main() {
 
     let mut executor = Executor::new(&non_optimizer);
 
-    loop {
-        let mut gpu = GpuData {
-            resolution,
-            vertices: &[(0.0, -0.5, 0.0), (0.5, 0.5, 0.0), (-0.5, 0.5, 0.0)],
-            indices: &[0, 1, 2],
-            present_image: swapchain.acquire(),
-            pipeline,
-            general_buffer,
-            staging_buffer,
-        };
+    let vertices = [(0.0, -0.5, 0.0), (0.5, 0.5, 0.0), (-0.5, 0.5, 0.0)];
+    let indices = [0, 1, 2];
 
-        record_update(&mut executor, gpu);
-        record_draw(&mut executor, gpu);
+    loop {
+        let present_image = swapchain.acquire();
+
+        record_update(
+            &mut executor,
+            Update {
+                vertices: &vertices,
+                indices: &indices,
+                general_buffer,
+                staging_buffer,
+            },
+        );
+
+        record_draw(
+            &mut executor,
+            Draw {
+                indices: &indices,
+                pipeline: &pipeline,
+                present_image,
+                resolution,
+            },
+        );
 
         executor.execute();
     }
@@ -166,28 +178,38 @@ fn main() {
 pub const VERTEX_OFFSET: usize = 0;
 pub const INDEX_OFFSET: usize = 1024;
 
-#[derive(Clone, Copy)]
-struct GpuData<'a> {
-    pub resolution: (u32, u32),
+struct Update<'a> {
     pub vertices: &'a [Vertex],
     pub indices: &'a [Index],
-    pub pipeline: Pipeline,
     pub general_buffer: Buffer,
     pub staging_buffer: Buffer,
-    pub present_image: Image,
 }
 
-fn record_draw<'a, 'b: 'a>(executor: &mut Executor<'a>, gpu: GpuData<'b>) {
+struct Draw<'a> {
+    pub resolution: (u32, u32),
+    pub present_image: Image,
+    pub pipeline: &'a Pipeline<'a>,
+    pub indices: &'a [Index],
+}
+
+fn record_draw<'a, 'b: 'a>(executor: &mut Executor<'a>, draw: Draw<'b>) {
     use Resource::*;
 
+    let Draw {
+        present_image,
+        resolution,
+        indices,
+        pipeline,
+    } = draw;
+
     executor.add(Task {
-        resources: &[Image(gpu.present_image, ImageAccess::ColorAttachment)],
+        resources: &[Image(present_image, ImageAccess::ColorAttachment)],
         task: move |commands| {
-            let (width, height) = gpu.resolution;
+            let (width, height) = resolution;
 
             commands.begin_render_pass(RenderPass {
                 color: &[Attachment {
-                    image: gpu.present_image,
+                    image: present_image,
                     load_op: LoadOp::Clear,
                     clear: Clear::Color(0.0, 0.0, 0.0, 1.0),
                 }],
@@ -199,10 +221,10 @@ fn record_draw<'a, 'b: 'a>(executor: &mut Executor<'a>, gpu: GpuData<'b>) {
                 },
             });
 
-            commands.set_pipeline(gpu.pipeline);
+            commands.set_pipeline(&pipeline);
 
             commands.draw_indexed(DrawIndexed {
-                index_count: gpu.indices.len(),
+                index_count: indices.len(),
             });
 
             commands.end_render_pass();
@@ -210,35 +232,42 @@ fn record_draw<'a, 'b: 'a>(executor: &mut Executor<'a>, gpu: GpuData<'b>) {
     });
 }
 
-fn record_update<'a, 'b: 'a>(executor: &mut Executor<'a>, gpu: GpuData<'b>) {
+fn record_update<'a, 'b: 'a>(executor: &mut Executor<'a>, update: Update<'b>) {
     use Resource::*;
 
+    let Update {
+        staging_buffer,
+        general_buffer,
+        vertices,
+        indices,
+    } = update;
+
     executor.add(Task {
-        resources: &[Buffer(gpu.staging_buffer, BufferAccess::HostTransferWrite)],
+        resources: &[Buffer(staging_buffer, BufferAccess::HostTransferWrite)],
         task: move |commands| {
             commands.write_buffer(BufferWrite {
-                buffer: gpu.staging_buffer,
+                buffer: staging_buffer,
                 offset: 0,
-                source: gpu.vertices,
+                source: vertices,
             });
 
             commands.write_buffer(BufferWrite {
-                buffer: gpu.staging_buffer,
+                buffer: staging_buffer,
                 offset: INDEX_OFFSET,
-                source: gpu.indices,
+                source: indices,
             });
         },
     });
 
     executor.add(Task {
         resources: &[
-            Buffer(gpu.staging_buffer, BufferAccess::TransferRead),
-            Buffer(gpu.general_buffer, BufferAccess::TransferWrite),
+            Buffer(staging_buffer, BufferAccess::TransferRead),
+            Buffer(general_buffer, BufferAccess::TransferWrite),
         ],
         task: move |commands| {
             commands.copy_buffer_to_buffer(BufferCopy {
-                from: gpu.staging_buffer,
-                to: gpu.general_buffer,
+                from: staging_buffer,
+                to: general_buffer,
                 range: 0..REALLY_LARGE_SIZE,
             })
         },

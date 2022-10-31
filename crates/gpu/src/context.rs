@@ -4,6 +4,7 @@ use std::borrow;
 use std::default::default;
 use std::ffi;
 use std::os::raw;
+use std::sync::Mutex;
 
 use ash::extensions::{ext, khr};
 use ash::{vk, Entry, Instance};
@@ -448,6 +449,8 @@ impl Context {
             unsafe { logical_device.allocate_descriptor_sets(&descriptor_set_allocate_info) }
                 .map_err(|_| Error::Creation)?[0];
 
+        let resources = Mutex::new(DeviceResources::new());
+
         Ok(Device {
             context: &self,
             surface: (surface_loader, surface_handle),
@@ -457,6 +460,7 @@ impl Context {
             descriptor_pool,
             descriptor_set,
             descriptor_set_layout,
+            resources,
         })
     }
 }

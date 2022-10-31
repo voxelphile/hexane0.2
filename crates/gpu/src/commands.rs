@@ -86,7 +86,7 @@ impl Commands {
     pub fn end_render_pass(&mut self) {
         todo!()
     }
-    pub fn set_pipeline(&mut self, pipeline: Pipeline) {
+    pub fn set_pipeline(&mut self, pipeline: &Pipeline) {
         todo!()
     }
     pub fn draw_indexed(&mut self, draw: DrawIndexed) {

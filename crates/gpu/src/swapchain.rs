@@ -65,7 +65,8 @@ impl Default for SwapchainInfo<'_> {
 
 pub struct Swapchain<'a> {
     pub(crate) device: &'a Device<'a>,
-    pub(crate) swapchain: (khr::Swapchain, vk::SwapchainKHR),
+    pub(crate) loader: khr::Swapchain,
+    pub(crate) handle: vk::SwapchainKHR,
 }
 
 impl Swapchain<'_> {

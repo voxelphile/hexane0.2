@@ -3,11 +3,11 @@ use crate::prelude::*;
 use std::borrow;
 use std::default::default;
 use std::env;
+use std::ffi;
+use std::fmt;
 use std::fs;
 use std::path;
 use std::process;
-use std::ffi;
-use std::fmt;
 
 use ash::vk;
 
@@ -37,11 +37,15 @@ pub enum ShaderType {
 
 impl fmt::Display for ShaderType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", match self {
-            ShaderType::Vertex => "vertex",
-            ShaderType::Fragment => "fragment",
-            ShaderType::Compute => "compute",
-        })
+        write!(
+            f,
+            "{}",
+            match self {
+                ShaderType::Vertex => "vertex",
+                ShaderType::Fragment => "fragment",
+                ShaderType::Compute => "compute",
+            }
+        )
     }
 }
 
@@ -101,43 +105,48 @@ impl ShaderCompiler {
                 .map(|a| u32::from_le_bytes(a.try_into().unwrap()))
                 .collect::<Vec<_>>()),
             ShaderCompiler::Glslc { language } => {
-                let mut glslc_path = path::PathBuf::from(vulkan_path);
+                let glslc_path = path::PathBuf::from(vulkan_path);
 
-                let source_code = fs::read_to_string(options.input_path).map_err(|_| Error::ShaderCompilationError {
-                    message: String::from("failed to read shader")
+                let source_code = fs::read_to_string(options.input_path).map_err(|_| {
+                    Error::ShaderCompilationError {
+                        message: String::from("failed to read shader"),
+                    }
                 })?;
-               
+
                 let mut temporary_path = options.input_path.to_path_buf();
 
                 temporary_path.pop();
                 temporary_path.push("temp");
-                
+
                 fs::remove_file(temporary_path.clone());
-                
-                let modified_code = source_code.replacen("\n", &format!("\n #define {}\r\n", options.ty), 1);
+
+                let modified_code =
+                    source_code.replacen("\n", &format!("\n #define {}\r\n", options.ty), 1);
 
                 fs::write(temporary_path.clone(), modified_code);
 
                 let glslc = process::Command::new("glslc")
                     .current_dir(glslc_path)
                     .arg("-O")
-                    .arg(format!(
-                        "-fshader-stage={}", options.ty
-                    ))
+                    .arg(format!("-fshader-stage={}", options.ty))
                     .arg("-c")
                     .arg(&temporary_path)
                     .arg("-o")
                     .arg(&options.output_path)
                     .spawn()
-                    .map_err(|e| { dbg!(e); Error::ShaderCompilationError {
-                        message: String::from("failed to spawn glslc")
-                    }})?;
-
-                let glslc = glslc
-                    .wait_with_output()
-                    .map_err(|_| Error::ShaderCompilationError {
-                        message: String::from("failed to wait on glslc")
+                    .map_err(|e| {
+                        dbg!(e);
+                        Error::ShaderCompilationError {
+                            message: String::from("failed to spawn glslc"),
+                        }
                     })?;
+
+                let glslc =
+                    glslc
+                        .wait_with_output()
+                        .map_err(|_| Error::ShaderCompilationError {
+                            message: String::from("failed to wait on glslc"),
+                        })?;
 
                 let spv = glslc
                     .status
@@ -204,7 +213,6 @@ impl Default for PipelineCompilerInfo<'_> {
 
 pub struct PipelineCompiler<'a> {
     pub(crate) device: &'a Device<'a>,
-    pub(crate) pipelines: Vec<vk::Pipeline>,
     pub(crate) compiler: ShaderCompiler,
     pub(crate) source_path: path::PathBuf,
     pub(crate) asset_path: path::PathBuf,
@@ -212,12 +220,14 @@ pub struct PipelineCompiler<'a> {
 }
 
 impl PipelineCompiler<'_> {
-    pub fn create_graphics_pipeline(&mut self, info: GraphicsPipelineInfo<'_>) -> Result<Pipeline> {
+    pub fn create_graphics_pipeline(&self, info: GraphicsPipelineInfo<'_>) -> Result<Pipeline> {
+        let PipelineCompiler { device, .. } = self;
+
         let Device {
             logical_device,
             descriptor_set_layout,
             ..
-        } = self.device;
+        } = device;
 
         let shader_data = info
             .shaders
@@ -229,7 +239,7 @@ impl PipelineCompiler<'_> {
 
                 input_path.push(name);
                 input_path.set_extension(extension);
-                
+
                 let mut output_path = self.asset_path.clone();
 
                 let short_ty = format!("{}", ty).chars().take(4).collect::<String>();
@@ -255,8 +265,7 @@ impl PipelineCompiler<'_> {
                     }
                 };
 
-                unsafe { logical_device
-                    .create_shader_module(&shader_module_create_info, None) }
+                unsafe { logical_device.create_shader_module(&shader_module_create_info, None) }
                     .map(|module| (ty, module))
                     .map_err(|_| Error::ShaderCompilationError {
                         message: String::from("Failed to create shader module"),
@@ -273,21 +282,25 @@ impl PipelineCompiler<'_> {
 
             result
         };
-            
+
         let name = ffi::CString::new("main").unwrap();
 
-        let stages = shader_data.into_iter().enumerate().map(|(i, (ty, module))| {
-            let stage = (*ty).into();
+        let stages = shader_data
+            .into_iter()
+            .enumerate()
+            .map(|(i, (ty, module))| {
+                let stage = (*ty).into();
 
-            let p_name = name.as_ptr();
+                let p_name = name.as_ptr();
 
-            vk::PipelineShaderStageCreateInfo {
-                stage,
-                module,
-                p_name,
-                ..default()
-            }
-        }).collect::<Vec<_>>();
+                vk::PipelineShaderStageCreateInfo {
+                    stage,
+                    module,
+                    p_name,
+                    ..default()
+                }
+            })
+            .collect::<Vec<_>>();
 
         let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::default();
 
@@ -352,8 +365,7 @@ impl PipelineCompiler<'_> {
             }
         };
 
-        let layout = unsafe { logical_device
-            .create_pipeline_layout(&layout_create_info, None)}
+        let layout = unsafe { logical_device.create_pipeline_layout(&layout_create_info, None) }
             .map_err(|_| Error::Creation)?;
 
         let graphics_pipeline_create_info = {
@@ -390,26 +402,26 @@ impl PipelineCompiler<'_> {
             }
         };
 
-        let pipeline = unsafe { logical_device
-            .create_graphics_pipelines(
+        let pipeline = unsafe {
+            logical_device.create_graphics_pipelines(
                 vk::PipelineCache::null(),
                 &[graphics_pipeline_create_info],
                 None,
-            )}
-            .map_err(|_| Error::Creation)?[0];
+            )
+        }
+        .map_err(|_| Error::Creation)?[0];
 
-        let handle = Pipeline(self.pipelines.len());
-
-        self.pipelines.push(pipeline);
-
-        Ok(handle)
+        Ok(Pipeline {
+            compiler: &self,
+            pipeline,
+        })
     }
 
     pub fn create_compute_pipeline(&self, info: ComputePipelineInfo<'_>) -> Result<Pipeline> {
         todo!()
     }
 
-    pub fn refresh(&self, pipeline: &mut Pipeline) {}
+    pub fn refresh(&self, pipeline: &Pipeline) {}
 }
 
 #[derive(Default)]
@@ -462,7 +474,7 @@ impl From<FaceCull> for vk::CullModeFlags {
         if cull.contains(FaceCull::FRONT) {
             result |= vk::CullModeFlags::FRONT;
         }
-        
+
         if cull.contains(FaceCull::BACK) {
             result |= vk::CullModeFlags::BACK;
         }
@@ -756,5 +768,7 @@ impl Default for ComputePipelineInfo<'_> {
     }
 }
 
-#[derive(Clone, Copy)]
-pub struct Pipeline(usize);
+pub struct Pipeline<'a> {
+    compiler: &'a PipelineCompiler<'a>,
+    pipeline: vk::Pipeline,
+}

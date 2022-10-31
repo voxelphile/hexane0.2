@@ -1,7 +1,25 @@
+use ash::vk;
+
 use bitflags::bitflags;
+
+pub(crate) struct InternalImage {
+    pub(crate) image: vk::Image,
+}
 
 #[derive(Clone, Copy)]
 pub struct Image(pub(crate) usize);
+
+impl From<Image> for usize {
+    fn from(handle: Image) -> Self {
+        handle.0
+    }
+}
+
+impl From<usize> for Image {
+    fn from(handle: usize) -> Self {
+        Self(handle)
+    }
+}
 
 bitflags! {
     pub struct ImageUsage: u32 {

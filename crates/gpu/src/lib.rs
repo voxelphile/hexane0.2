@@ -12,6 +12,7 @@ mod context;
 mod device;
 mod format;
 mod image;
+mod memory;
 mod pipeline;
 mod semaphore;
 mod swapchain;
@@ -22,15 +23,20 @@ use std::fmt;
 use std::result;
 
 pub mod prelude {
-    pub use crate::buffer::{Buffer, BufferInfo, Memory};
+    pub(crate) use crate::buffer::InternalBuffer;
+    pub use crate::buffer::{Buffer, BufferInfo};
     pub use crate::commands::{
         Attachment, BufferCopy, BufferWrite, Clear, Commands, DrawIndexed, LoadOp, RenderArea,
         RenderPass,
     };
     pub use crate::context::{Context, ContextInfo};
+    pub(crate) use crate::device::DeviceResources;
     pub use crate::device::{Device, DeviceInfo, DeviceSelector};
     pub use crate::format::Format;
+    pub(crate) use crate::image::InternalImage;
     pub use crate::image::{Image, ImageUsage};
+    pub(crate) use crate::memory::InternalMemory;
+    pub use crate::memory::Memory;
     pub use crate::pipeline::{
         Color, ComputePipelineInfo, GraphicsPipelineInfo, Pipeline, PipelineCompiler,
         PipelineCompilerInfo, Shader, ShaderCompiler, ShaderType,
