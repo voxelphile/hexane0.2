@@ -89,12 +89,12 @@ fn main() {
         })
         .expect("failed to create swapchain");
 
-    let pipeline_compiler = device.create_pipeline_compiler(PipelineCompilerInfo {
+    let mut pipeline_compiler = device.create_pipeline_compiler(PipelineCompilerInfo {
         //default language for shader compiler is glsl
         #[cfg(debug_assertions)]
         compiler: ShaderCompiler::glslc(default()),
         source_path: &source_path,
-        output_path: &asset_path,
+        asset_path: &asset_path,
         ..default()
     });
 

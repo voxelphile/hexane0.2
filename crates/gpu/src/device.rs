@@ -35,6 +35,14 @@ pub fn default_device_selector(details: Details) -> usize {
 
 pub trait DeviceSelector = ops::Fn(Details) -> usize;
 
+pub struct InternalBuffer {
+    buffer: vk::Buffer,
+}
+
+pub struct InternalImage {
+    buffer: vk::Image,
+}
+
 pub struct Device<'a> {
     pub(crate) context: &'a Context,
     pub(crate) physical_device: vk::PhysicalDevice,
@@ -43,6 +51,9 @@ pub struct Device<'a> {
     pub(crate) queue_family_indices: Vec<u32>,
     pub(crate) descriptor_pool: vk::DescriptorPool,
     pub(crate) descriptor_set: vk::DescriptorSet,
+    pub(crate) descriptor_set_layout: vk::DescriptorSetLayout,
+    pub(crate) buffers: Vec<InternalBuffer>,
+    pub(crate) images: Vec<InternalImage>,
 }
 
 pub struct DeviceInfo<'a> {
@@ -597,7 +608,7 @@ impl From<vk::PhysicalDeviceLimits> for Limits {
 
 impl Device<'_> {
     pub fn create_buffer(&self, info: BufferInfo<'_>) -> Result<Buffer> {
-        todo!()
+        
     }
 
     pub fn create_binary_semaphore(&self, info: BinarySemaphoreInfo<'_>) -> Result<Semaphore> {
@@ -740,10 +751,11 @@ impl Device<'_> {
 
     pub fn create_pipeline_compiler(&self, info: PipelineCompilerInfo<'_>) -> PipelineCompiler {
         PipelineCompiler {
+            device: &self,
             pipelines: vec![],
             compiler: info.compiler,
             source_path: info.source_path.to_path_buf(),
-            output_path: info.output_path.to_path_buf(),
+            asset_path: info.asset_path.to_path_buf(),
             debug_name: info.debug_name.to_owned(),
         }
     }

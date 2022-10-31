@@ -1,9 +1,9 @@
 use crate::prelude::*;
 
 use std::borrow;
+use std::default::default;
 use std::ffi;
 use std::os::raw;
-use std::default::default;
 
 use ash::extensions::{ext, khr};
 use ash::{vk, Entry, Instance};
@@ -267,7 +267,7 @@ impl Context {
             });
         }
 
-        let extensions = [khr::Swapchain::name()];
+        let extensions = [khr::Swapchain::name(), khr::DynamicRendering::name()];
 
         let features = info.features.into();
 
@@ -291,7 +291,14 @@ impl Context {
         let enabled_extension_names = extensions.iter().map(|s| s.as_ptr()).collect::<Vec<_>>();
         let enabled_extension_count = enabled_extension_names.len() as u32;
 
+        let dynamic_rendering_feature = vk::PhysicalDeviceDynamicRenderingFeatures {
+            dynamic_rendering: true as _,
+            ..default()
+        };
+
         let device_create_info = {
+            let p_next = &dynamic_rendering_feature as *const _ as *const _;
+
             let queue_create_info_count = device_queue_create_infos.len() as _;
             let p_queue_create_infos = device_queue_create_infos.as_ptr();
 
@@ -301,6 +308,7 @@ impl Context {
             let p_enabled_features = &features;
 
             vk::DeviceCreateInfo {
+                p_next,
                 queue_create_info_count,
                 p_queue_create_infos,
                 enabled_layer_count,
@@ -355,52 +363,71 @@ impl Context {
             }
         };
 
-        let descriptor_pool = unsafe { logical_device.create_descriptor_pool(&descriptor_pool_create_info, None) }.map_err(|_| Error::Creation)?;
+        let descriptor_pool =
+            unsafe { logical_device.create_descriptor_pool(&descriptor_pool_create_info, None) }
+                .map_err(|_| Error::Creation)?;
 
         let descriptor_set_layout_bindings = [
             vk::DescriptorSetLayoutBinding {
                 descriptor_type: vk::DescriptorType::SAMPLER,
                 descriptor_count: DESCRIPTOR_COUNT,
-                stage_flags: vk::ShaderStageFlags::VERTEX
-                    | vk::ShaderStageFlags::FRAGMENT,
+                stage_flags: vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
                 ..default()
             },
             vk::DescriptorSetLayoutBinding {
                 descriptor_type: vk::DescriptorType::SAMPLED_IMAGE,
                 descriptor_count: DESCRIPTOR_COUNT,
-                stage_flags: vk::ShaderStageFlags::VERTEX
-                    | vk::ShaderStageFlags::FRAGMENT,
+                stage_flags: vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
                 ..default()
             },
             vk::DescriptorSetLayoutBinding {
                 descriptor_type: vk::DescriptorType::STORAGE_IMAGE,
                 descriptor_count: DESCRIPTOR_COUNT,
-                stage_flags: vk::ShaderStageFlags::VERTEX
-                    | vk::ShaderStageFlags::FRAGMENT,
+                stage_flags: vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
                 ..default()
             },
             vk::DescriptorSetLayoutBinding {
                 descriptor_type: vk::DescriptorType::STORAGE_BUFFER,
                 descriptor_count: DESCRIPTOR_COUNT,
-                stage_flags: vk::ShaderStageFlags::VERTEX
-                    | vk::ShaderStageFlags::FRAGMENT,
+                stage_flags: vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
                 ..default()
             },
-        ]; 
+        ];
+
+        let binding_flags = [vk::DescriptorBindingFlags::UPDATE_UNUSED_WHILE_PENDING
+            | vk::DescriptorBindingFlags::PARTIALLY_BOUND
+            | vk::DescriptorBindingFlags::UPDATE_AFTER_BIND; 4];
+
+        let descriptor_set_layout_binding_flags_create_info = {
+            let binding_count = binding_flags.len() as u32;
+
+            let p_binding_flags = binding_flags.as_ptr();
+
+            vk::DescriptorSetLayoutBindingFlagsCreateInfo {
+                binding_count,
+                p_binding_flags,
+                ..default()
+            }
+        };
 
         let descriptor_set_layout_create_info = {
+            let p_next = &descriptor_set_layout_binding_flags_create_info as *const _ as *const _;
             let binding_count = descriptor_set_layout_bindings.len() as u32;
 
             let p_bindings = descriptor_set_layout_bindings.as_ptr();
 
             vk::DescriptorSetLayoutCreateInfo {
+                p_next,
                 binding_count,
                 p_bindings,
                 ..default()
             }
         };
 
-        let descriptor_set_layout = unsafe { logical_device.create_descriptor_set_layout(&descriptor_set_layout_create_info, None) }.map_err(|_| Error::Creation)?;
+        let descriptor_set_layout = unsafe {
+            logical_device.create_descriptor_set_layout(&descriptor_set_layout_create_info, None)
+        }
+        .map_err(|_| Error::Creation)?;
 
         let descriptor_set_allocate_info = {
             let descriptor_set_count = 1;
@@ -417,8 +444,10 @@ impl Context {
             }
         };
 
-        let descriptor_set = unsafe { logical_device.allocate_descriptor_sets(&descriptor_set_allocate_info) }.map_err(|_| Error::Creation)?[0];
-        
+        let descriptor_set =
+            unsafe { logical_device.allocate_descriptor_sets(&descriptor_set_allocate_info) }
+                .map_err(|_| Error::Creation)?[0];
+
         Ok(Device {
             context: &self,
             surface: (surface_loader, surface_handle),
@@ -427,6 +456,7 @@ impl Context {
             queue_family_indices,
             descriptor_pool,
             descriptor_set,
+            descriptor_set_layout,
         })
     }
 }
