@@ -676,12 +676,36 @@ impl From<vk::PhysicalDeviceLimits> for Limits {
     }
 }
 
-impl Device<'_> {
+impl<'a> Device<'a> {
     pub fn acquire(&self) -> Image {
         todo!()
     }
 
-    pub fn create_buffer(&self, info: BufferInfo<'_>) -> Result<Buffer> {
+    pub fn create_executor(&'a self, info: ExecutorInfo<'a>) -> Executor<'a> {
+        let ExecutorInfo {
+            optimizer,
+            debug_name,
+        } = info;
+
+        let debug_name = debug_name.to_owned();
+
+        let nodes = vec![];
+
+        let submit = None;
+
+        let present = None;
+
+        Executor {
+            device: &self,
+            optimizer,
+            nodes,
+            submit,
+            present,
+            debug_name,
+        }
+    }
+
+    pub fn create_buffer(&'a self, info: BufferInfo<'a>) -> Result<Buffer> {
         let Device {
             context,
             physical_device,
@@ -756,11 +780,64 @@ impl Device<'_> {
         }))
     }
 
-    pub fn create_binary_semaphore(&self, info: BinarySemaphoreInfo<'_>) -> Result<Semaphore> {
-        todo!()
+    pub fn create_binary_semaphore(
+        &'a self,
+        info: BinarySemaphoreInfo<'a>,
+    ) -> Result<BinarySemaphore<'a>> {
+        let Device { logical_device, .. } = self;
+
+        let BinarySemaphoreInfo { debug_name } = info;
+
+        let debug_name = debug_name.to_owned();
+
+        let semaphore = unsafe { logical_device.create_semaphore(&default(), None) }
+            .map_err(|_| Error::Creation)?;
+
+        Ok(BinarySemaphore {
+            device: &self,
+            semaphore,
+            debug_name,
+        })
     }
 
-    pub fn create_swapchain(&self, info: SwapchainInfo<'_>) -> Result<Swapchain> {
+    pub fn create_timeline_semaphore(
+        &'a self,
+        info: TimelineSemaphoreInfo<'a>,
+    ) -> Result<TimelineSemaphore<'a>> {
+        let Device { logical_device, .. } = self;
+
+        let TimelineSemaphoreInfo {
+            initial_value,
+            debug_name,
+            ..
+        } = info;
+
+        let debug_name = debug_name.to_owned();
+
+        let semaphore_type = vk::SemaphoreType::TIMELINE;
+
+        let semaphore_type_create_info = vk::SemaphoreTypeCreateInfo {
+            initial_value,
+            semaphore_type,
+            ..default()
+        };
+
+        let semaphore_create_info = vk::SemaphoreCreateInfo {
+            p_next: &semaphore_type_create_info as *const _ as *const _,
+            ..default()
+        };
+
+        let semaphore = unsafe { logical_device.create_semaphore(&default(), None) }
+            .map_err(|_| Error::Creation)?;
+
+        Ok(TimelineSemaphore {
+            device: &self,
+            semaphore,
+            debug_name,
+        })
+    }
+
+    pub fn create_swapchain(&'a self, info: SwapchainInfo<'a>) -> Result<Swapchain<'a>> {
         let Device {
             context,
             surface: (surface_loader, surface_handle),
@@ -895,7 +972,10 @@ impl Device<'_> {
         })
     }
 
-    pub fn create_pipeline_compiler(&self, info: PipelineCompilerInfo<'_>) -> PipelineCompiler {
+    pub fn create_pipeline_compiler(
+        &'a self,
+        info: PipelineCompilerInfo<'a>,
+    ) -> PipelineCompiler<'a> {
         PipelineCompiler {
             device: &self,
             compiler: info.compiler,

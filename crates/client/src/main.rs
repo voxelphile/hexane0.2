@@ -6,6 +6,7 @@ use gpu::prelude::*;
 use std::default::default;
 use std::env;
 use std::mem;
+use std::ops;
 use std::path;
 
 use winit::{
@@ -133,69 +134,80 @@ fn main() {
         })
         .expect("failed to create buffer");
 
-    let acquire_semaphore = device.create_binary_semaphore(BinarySemaphoreInfo {
-        debug_name: "Acquire Semaphore",
-        ..default()
-    });
+    let acquire_semaphore = device
+        .create_binary_semaphore(BinarySemaphoreInfo {
+            debug_name: "Acquire Semaphore",
+            ..default()
+        })
+        .expect("failed to create semaphore");
 
-    let present_semaphore = device.create_binary_semaphore(BinarySemaphoreInfo {
-        debug_name: "Present Semaphore",
-        ..default()
-    });
-
-    let mut executor = Executor::new(&non_optimizer);
+    let present_semaphore = device
+        .create_binary_semaphore(BinarySemaphoreInfo {
+            debug_name: "Present Semaphore",
+            ..default()
+        })
+        .expect("failed to create semaphore");
 
     let vertices = [(0.0, -0.5, 0.0), (0.5, 0.5, 0.0), (-0.5, 0.5, 0.0)];
     let indices = [0, 1, 2];
 
+    let mut executor = device.create_executor(default());
+
+    let general_buffer = || general_buffer;
+    let staging_buffer = || staging_buffer;
+    let present_image = || swapchain.acquire();
+
+    record_update(Update {
+        executor: &mut executor,
+        vertices: &vertices,
+        indices: &indices,
+        general_buffer: &general_buffer,
+        staging_buffer: &staging_buffer,
+    });
+
+    record_draw(Draw {
+        executor: &mut executor,
+        indices: &indices,
+        pipeline: &pipeline,
+        present_image: &present_image,
+        resolution,
+    });
+
+    executor.submit(Submit {});
+
+    executor.present(Present {});
+
+    let executable = executor.complete();
+
     loop {
-        let present_image = swapchain.acquire();
-
-        record_update(
-            &mut executor,
-            Update {
-                vertices: &vertices,
-                indices: &indices,
-                general_buffer,
-                staging_buffer,
-            },
-        );
-
-        record_draw(
-            &mut executor,
-            Draw {
-                indices: &indices,
-                pipeline: &pipeline,
-                present_image,
-                resolution,
-            },
-        );
-
-        executor.execute();
+        (executable)();
     }
 }
 
 pub const VERTEX_OFFSET: usize = 0;
 pub const INDEX_OFFSET: usize = 1024;
 
-struct Update<'a> {
-    pub vertices: &'a [Vertex],
-    pub indices: &'a [Index],
-    pub general_buffer: Buffer,
-    pub staging_buffer: Buffer,
+struct Update<'a, 'b: 'a> {
+    pub executor: &'a mut Executor<'b>,
+    pub vertices: &'b [Vertex],
+    pub indices: &'b [Index],
+    pub general_buffer: &'b dyn ops::Fn() -> Buffer,
+    pub staging_buffer: &'b dyn ops::Fn() -> Buffer,
 }
 
-struct Draw<'a> {
+struct Draw<'a, 'b: 'a> {
+    pub executor: &'a mut Executor<'b>,
     pub resolution: (u32, u32),
-    pub present_image: Image,
-    pub pipeline: &'a Pipeline<'a>,
-    pub indices: &'a [Index],
+    pub present_image: &'b dyn ops::Fn() -> Image,
+    pub pipeline: &'b Pipeline<'b>,
+    pub indices: &'b [Index],
 }
 
-fn record_draw<'a, 'b: 'a>(executor: &mut Executor<'a>, draw: Draw<'b>) {
+fn record_draw<'a, 'b: 'a>(draw: Draw<'a, 'b>) {
     use Resource::*;
 
     let Draw {
+        executor,
         present_image,
         resolution,
         indices,
@@ -203,13 +215,13 @@ fn record_draw<'a, 'b: 'a>(executor: &mut Executor<'a>, draw: Draw<'b>) {
     } = draw;
 
     executor.add(Task {
-        resources: &[Image(present_image, ImageAccess::ColorAttachment)],
+        resources: [Image(present_image, ImageAccess::ColorAttachment)],
         task: move |commands| {
             let (width, height) = resolution;
 
             commands.begin_render_pass(RenderPass {
                 color: &[Attachment {
-                    image: present_image,
+                    image: 0,
                     load_op: LoadOp::Clear,
                     clear: Clear::Color(0.0, 0.0, 0.0, 1.0),
                 }],
@@ -232,10 +244,11 @@ fn record_draw<'a, 'b: 'a>(executor: &mut Executor<'a>, draw: Draw<'b>) {
     });
 }
 
-fn record_update<'a, 'b: 'a>(executor: &mut Executor<'a>, update: Update<'b>) {
+fn record_update<'a, 'b: 'a>(update: Update<'a, 'b>) {
     use Resource::*;
 
     let Update {
+        executor,
         staging_buffer,
         general_buffer,
         vertices,
@@ -243,16 +256,16 @@ fn record_update<'a, 'b: 'a>(executor: &mut Executor<'a>, update: Update<'b>) {
     } = update;
 
     executor.add(Task {
-        resources: &[Buffer(staging_buffer, BufferAccess::HostTransferWrite)],
+        resources: [Buffer(staging_buffer, BufferAccess::HostTransferWrite)],
         task: move |commands| {
             commands.write_buffer(BufferWrite {
-                buffer: staging_buffer,
+                buffer: 0,
                 offset: 0,
                 source: vertices,
             });
 
             commands.write_buffer(BufferWrite {
-                buffer: staging_buffer,
+                buffer: 0,
                 offset: INDEX_OFFSET,
                 source: indices,
             });
@@ -260,14 +273,14 @@ fn record_update<'a, 'b: 'a>(executor: &mut Executor<'a>, update: Update<'b>) {
     });
 
     executor.add(Task {
-        resources: &[
+        resources: [
             Buffer(staging_buffer, BufferAccess::TransferRead),
             Buffer(general_buffer, BufferAccess::TransferWrite),
         ],
         task: move |commands| {
             commands.copy_buffer_to_buffer(BufferCopy {
-                from: staging_buffer,
-                to: general_buffer,
+                from: 0,
+                to: 1,
                 range: 0..REALLY_LARGE_SIZE,
             })
         },

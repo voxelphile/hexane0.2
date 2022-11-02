@@ -8,14 +8,14 @@ use std::ops;
 pub struct Commands {}
 
 pub struct BufferWrite<'a, T: Copy> {
-    pub buffer: Buffer,
+    pub buffer: usize,
     pub offset: usize,
     pub source: &'a [T],
 }
 
 pub struct BufferCopy<R: ops::RangeBounds<usize>> {
-    pub from: Buffer,
-    pub to: Buffer,
+    pub from: usize,
+    pub to: usize,
     pub range: R,
 }
 
@@ -50,7 +50,7 @@ pub enum LoadOp {
 }
 
 pub struct Attachment {
-    pub image: Image,
+    pub image: usize,
     pub load_op: LoadOp,
     pub clear: Clear,
 }
@@ -58,7 +58,7 @@ pub struct Attachment {
 impl Default for Attachment {
     fn default() -> Self {
         Self {
-            image: Image(usize::MAX),
+            image: usize::MAX,
             load_op: default(),
             clear: default(),
         }

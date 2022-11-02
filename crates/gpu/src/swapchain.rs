@@ -70,7 +70,7 @@ pub struct Swapchain<'a> {
 }
 
 impl Swapchain<'_> {
-    pub fn acquire(&mut self) -> Image {
+    pub fn acquire(&self) -> Image {
         todo!()
     }
 }

@@ -41,9 +41,14 @@ pub mod prelude {
         Color, ComputePipelineInfo, GraphicsPipelineInfo, Pipeline, PipelineCompiler,
         PipelineCompilerInfo, Shader, ShaderCompiler, ShaderType,
     };
-    pub use crate::semaphore::{BinarySemaphoreInfo, Semaphore, TimelineSemaphoreInfo};
+    pub use crate::semaphore::{
+        BinarySemaphore, BinarySemaphoreInfo, TimelineSemaphore, TimelineSemaphoreInfo,
+    };
     pub use crate::swapchain::{PresentMode, SurfaceFormatSelector, Swapchain, SwapchainInfo};
-    pub use crate::task::{non_optimizer, BufferAccess, Executor, ImageAccess, Resource, Task};
+    pub use crate::task::{
+        non_optimizer, BufferAccess, Executor, ExecutorInfo, ImageAccess, Present, Resource,
+        Submit, Task,
+    };
     pub use crate::{Error, Result};
 }
 

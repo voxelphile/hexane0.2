@@ -15,7 +15,7 @@ use raw_window_handle::{
     HasRawDisplayHandle, HasRawWindowHandle, RawDisplayHandle, RawWindowHandle,
 };
 
-const API_VERSION: u32 = vk::make_api_version(0, 1, 0, 0);
+const API_VERSION: u32 = vk::make_api_version(0, 1, 3, 0);
 
 const DESCRIPTOR_COUNT: u32 = 64;
 
@@ -268,9 +268,26 @@ impl Context {
             });
         }
 
-        let extensions = [khr::Swapchain::name(), khr::DynamicRendering::name()];
+        let extensions = [khr::Swapchain::name()];
 
-        let features = info.features.into();
+        let mut indexing_features = vk::PhysicalDeviceDescriptorIndexingFeatures {
+            descriptor_binding_partially_bound: true as _,
+            descriptor_binding_update_unused_while_pending: true as _,
+            descriptor_binding_storage_buffer_update_after_bind: true as _,
+            descriptor_binding_storage_image_update_after_bind: true as _,
+            descriptor_binding_sampled_image_update_after_bind: true as _,
+            ..default()
+        };
+
+        let mut features = {
+            let p_next = &mut indexing_features as *mut _ as *mut _;
+
+            vk::PhysicalDeviceFeatures2 {
+                p_next,
+                features: info.features.into(),
+                ..default()
+            }
+        };
 
         let priorities = [1.0];
 
@@ -292,21 +309,24 @@ impl Context {
         let enabled_extension_names = extensions.iter().map(|s| s.as_ptr()).collect::<Vec<_>>();
         let enabled_extension_count = enabled_extension_names.len() as u32;
 
-        let dynamic_rendering_feature = vk::PhysicalDeviceDynamicRenderingFeatures {
-            dynamic_rendering: true as _,
-            ..default()
+        let mut dynamic_rendering_feature = {
+            let p_next = &mut features as *mut _ as *mut _;
+
+            vk::PhysicalDeviceDynamicRenderingFeatures {
+                p_next,
+                dynamic_rendering: true as _,
+                ..default()
+            }
         };
 
         let device_create_info = {
-            let p_next = &dynamic_rendering_feature as *const _ as *const _;
+            let p_next = &mut dynamic_rendering_feature as *mut _ as *mut _;
 
             let queue_create_info_count = device_queue_create_infos.len() as _;
             let p_queue_create_infos = device_queue_create_infos.as_ptr();
 
             let pp_enabled_layer_names = enabled_layer_names.as_ptr();
             let pp_enabled_extension_names = enabled_extension_names.as_ptr();
-
-            let p_enabled_features = &features;
 
             vk::DeviceCreateInfo {
                 p_next,
@@ -316,7 +336,6 @@ impl Context {
                 pp_enabled_layer_names,
                 enabled_extension_count,
                 pp_enabled_extension_names,
-                p_enabled_features,
                 ..default()
             }
         };
@@ -370,24 +389,28 @@ impl Context {
 
         let descriptor_set_layout_bindings = [
             vk::DescriptorSetLayoutBinding {
+                binding: 0,
                 descriptor_type: vk::DescriptorType::SAMPLER,
                 descriptor_count: DESCRIPTOR_COUNT,
                 stage_flags: vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
                 ..default()
             },
             vk::DescriptorSetLayoutBinding {
+                binding: 1,
                 descriptor_type: vk::DescriptorType::SAMPLED_IMAGE,
                 descriptor_count: DESCRIPTOR_COUNT,
                 stage_flags: vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
                 ..default()
             },
             vk::DescriptorSetLayoutBinding {
+                binding: 2,
                 descriptor_type: vk::DescriptorType::STORAGE_IMAGE,
                 descriptor_count: DESCRIPTOR_COUNT,
                 stage_flags: vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
                 ..default()
             },
             vk::DescriptorSetLayoutBinding {
+                binding: 3,
                 descriptor_type: vk::DescriptorType::STORAGE_BUFFER,
                 descriptor_count: DESCRIPTOR_COUNT,
                 stage_flags: vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
@@ -413,12 +436,16 @@ impl Context {
 
         let descriptor_set_layout_create_info = {
             let p_next = &descriptor_set_layout_binding_flags_create_info as *const _ as *const _;
+
+            let flags = vk::DescriptorSetLayoutCreateFlags::UPDATE_AFTER_BIND_POOL;
+
             let binding_count = descriptor_set_layout_bindings.len() as u32;
 
             let p_bindings = descriptor_set_layout_bindings.as_ptr();
 
             vk::DescriptorSetLayoutCreateInfo {
                 p_next,
+                flags,
                 binding_count,
                 p_bindings,
                 ..default()
