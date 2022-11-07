@@ -1,9 +1,33 @@
+use crate::prelude::*;
+
 use ash::vk;
 
 use bitflags::bitflags;
 
-pub(crate) struct InternalImage {
-    pub(crate) image: vk::Image,
+pub(crate) enum InternalImage {
+    Managed {
+        image: vk::Image,
+        memory: Memory,
+        view: vk::ImageView,
+    },
+    Swapchain {
+        image: vk::Image,
+        view: vk::ImageView,
+    },
+}
+impl InternalImage {
+    pub(crate) fn get_image(&self) -> vk::Image {
+        match self {
+            Self::Managed { image, .. } => *image,
+            Self::Swapchain { image, .. } => *image,
+        }
+    }
+    pub(crate) fn get_image_view(&self) -> vk::ImageView {
+        match self {
+            Self::Managed { view, .. } => *view,
+            Self::Swapchain { view, .. } => *view,
+        }
+    }
 }
 
 #[derive(Clone, Copy)]
@@ -18,6 +42,27 @@ impl From<Image> for usize {
 impl From<usize> for Image {
     fn from(handle: usize) -> Self {
         Self(handle)
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum ImageLayout {
+    Undefined,
+    General,
+    ColorAttachmentOptimal,
+    DepthStencilAttachmentOptimal,
+    Present,
+}
+
+impl From<ImageLayout> for vk::ImageLayout {
+    fn from(layout: ImageLayout) -> Self {
+        match layout {
+            ImageLayout::Undefined => Self::UNDEFINED,
+            ImageLayout::General => Self::GENERAL,
+            ImageLayout::ColorAttachmentOptimal => Self::COLOR_ATTACHMENT_OPTIMAL,
+            ImageLayout::DepthStencilAttachmentOptimal => Self::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+            ImageLayout::Present => Self::PRESENT_SRC_KHR,
+        }
     }
 }
 

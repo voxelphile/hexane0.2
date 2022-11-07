@@ -476,6 +476,16 @@ impl Context {
             unsafe { logical_device.allocate_descriptor_sets(&descriptor_set_allocate_info) }
                 .map_err(|_| Error::Creation)?[0];
 
+        let command_pool_create_info = vk::CommandPoolCreateInfo {
+            flags: vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER,
+            queue_family_index,
+            ..default()
+        };
+
+        let command_pool =
+            unsafe { logical_device.create_command_pool(&command_pool_create_info, None) }
+                .map_err(|_| Error::Creation)?;
+
         let resources = Mutex::new(DeviceResources::new());
 
         Ok(Device {
@@ -488,6 +498,7 @@ impl Context {
             descriptor_set,
             descriptor_set_layout,
             resources,
+            command_pool,
         })
     }
 }

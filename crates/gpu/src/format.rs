@@ -2,15 +2,14 @@ use std::mem;
 
 use ash::vk;
 
-#[derive(Default)]
-#[repr(u32)]
+#[derive(Default, Clone, Copy)]
 pub enum Format {
     #[default]
-    Undefined = 0,
-    Rgba8Unorm = 37,
-    Rgba8Srgb = 43,
-    Bgra8Unorm = 44,
-    Bgra8Srgb = 50,
+    Undefined,
+    Rgba8Unorm,
+    Rgba8Srgb,
+    Bgra8Unorm,
+    Bgra8Srgb,
 }
 
 impl TryFrom<vk::Format> for Format {

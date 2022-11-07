@@ -1,4 +1,5 @@
 #![feature(try_blocks)]
+#![feature(box_syntax)]
 #![feature(default_free_fn)]
 
 use gpu::prelude::*;
@@ -13,6 +14,7 @@ use winit::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
     window::WindowBuilder,
+    platform::run_return::EventLoopExtRunReturn,
 };
 
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
@@ -58,7 +60,7 @@ fn main() {
     let source_path = root_path.join("source");
     let asset_path = root_path.join("assets");
 
-    let event_loop = EventLoop::new();
+    let mut event_loop = EventLoop::new();
 
     let window = WindowBuilder::new().build(&event_loop).unwrap();
 
@@ -109,8 +111,7 @@ fn main() {
         .create_graphics_pipeline(GraphicsPipelineInfo {
             shaders: &[vertex, fragment],
             color: &[Color {
-                format: Format::Undefined,
-                //format: swapchain.format(),
+                format: swapchain.format(),
                 ..default()
             }],
             ..default()
@@ -149,43 +150,86 @@ fn main() {
         .expect("failed to create semaphore");
 
     let vertices = [(0.0, -0.5, 0.0), (0.5, 0.5, 0.0), (-0.5, 0.5, 0.0)];
-    let indices = [0, 1, 2];
-
-    let mut executor = device.create_executor(default());
-
+    let indices = [0u32, 1, 2];
+    
+    
     let general_buffer = || general_buffer;
     let staging_buffer = || staging_buffer;
-    let present_image = || swapchain.acquire();
+    
+    let present_image = || {
+        swapchain.acquire_next_image(Acquire {
+            semaphore: Some(&acquire_semaphore),
+        })
+        };
+    
+    let mut executable: Option<Executable<'_>> = None;
 
-    record_update(Update {
-        executor: &mut executor,
-        vertices: &vertices,
-        indices: &indices,
-        general_buffer: &general_buffer,
-        staging_buffer: &staging_buffer,
+
+    event_loop.run_return(|event, _, control_flow| {
+        *control_flow = ControlFlow::Wait;
+
+        match event {
+            Event::WindowEvent {
+                event: WindowEvent::CloseRequested,
+                window_id,
+            } if window_id == window.id() => *control_flow = ControlFlow::Exit,
+            Event::RedrawRequested(window_id) => {
+                (executable.as_mut().unwrap())();
+            }
+            Event::WindowEvent {
+                event: WindowEvent::Resized(size),
+                window_id,
+            } => {
+                let winit::dpi::PhysicalSize { width, height } = size;
+
+                swapchain = device
+                    .create_swapchain(SwapchainInfo {
+                        width,
+                        height,
+                        old_swapchain: Some(swapchain),
+                        ..default()
+                    })
+                    .expect("failed to create swapchain");
+
+                let mut executor = device.create_executor(default());
+
+                record(Record {
+                    executor: &mut executor,
+                    swapchain: &swapchain,
+            vertices: &vertices,
+            indices: &indices,
+                    acquire_semaphore: &acquire_semaphore,
+                    present_semaphore: &present_semaphore,
+                    pipeline: &pipeline,
+                    present_image: &present_image,
+                    general_buffer: &general_buffer,
+                    staging_buffer: &staging_buffer,
+                    resolution,
+                });
+
+                executable = Some(executor.complete().expect("failed to complete executor"))
+            }
+            _ => (),
+        }
     });
-
-    record_draw(Draw {
-        executor: &mut executor,
-        indices: &indices,
-        pipeline: &pipeline,
-        present_image: &present_image,
-        resolution,
-    });
-
-    executor.submit(Submit {});
-
-    executor.present(Present {});
-
-    let executable = executor.complete();
-
-    loop {
-        (executable)();
-    }
 }
 
 pub const VERTEX_OFFSET: usize = 0;
 pub const INDEX_OFFSET: usize = 1024;
+
+struct Record<'a, 'b: 'a> {
+    pub executor: &'a mut Executor<'b>,
+    pub swapchain: &'b Swapchain<'b>,
+    pub vertices: &'b [Vertex],
+    pub indices: &'b [Index],
+    pub present_image: &'b dyn ops::Fn() -> Image,
+    pub general_buffer: &'b dyn ops::Fn() -> Buffer,
+    pub staging_buffer: &'b dyn ops::Fn() -> Buffer,
+    pub acquire_semaphore: &'b BinarySemaphore<'b>,
+    pub present_semaphore: &'b BinarySemaphore<'b>,
+    pub pipeline: &'b Pipeline<'b>,
+    pub resolution: (u32, u32),
+}
 
 struct Update<'a, 'b: 'a> {
     pub executor: &'a mut Executor<'b>,
@@ -199,8 +243,56 @@ struct Draw<'a, 'b: 'a> {
     pub executor: &'a mut Executor<'b>,
     pub resolution: (u32, u32),
     pub present_image: &'b dyn ops::Fn() -> Image,
+    pub general_buffer: &'b dyn ops::Fn() -> Buffer,
     pub pipeline: &'b Pipeline<'b>,
     pub indices: &'b [Index],
+}
+
+fn record<'a, 'b: 'a>(record: Record<'a, 'b>) {
+    let Record {
+        executor,
+        swapchain,
+        vertices,
+        indices,
+        general_buffer,
+        staging_buffer,
+        present_image,
+        pipeline,
+        acquire_semaphore,
+        present_semaphore,
+        resolution,
+    } = record;
+
+    record_update(
+        Update {
+            executor,
+            vertices: &vertices,
+            indices: &indices,
+            general_buffer,
+            staging_buffer,
+        },
+    );
+
+    record_draw(
+        Draw {
+            executor,
+            indices: &indices,
+            pipeline: &pipeline,
+            present_image,
+            general_buffer,
+            resolution,
+        },
+    );
+
+    executor.submit(Submit {
+        wait_semaphore: &acquire_semaphore,
+        signal_semaphore: &present_semaphore,
+    });
+
+    executor.present(Present {
+        swapchain: &swapchain,
+        wait_semaphore: &present_semaphore,
+    });
 }
 
 fn record_draw<'a, 'b: 'a>(draw: Draw<'a, 'b>) {
@@ -209,21 +301,39 @@ fn record_draw<'a, 'b: 'a>(draw: Draw<'a, 'b>) {
     let Draw {
         executor,
         present_image,
+        general_buffer,
         resolution,
         indices,
         pipeline,
     } = draw;
 
     executor.add(Task {
-        resources: [Image(present_image, ImageAccess::ColorAttachment)],
+        resources: [
+            Image(present_image, ImageAccess::ColorAttachment),
+            Buffer(general_buffer, BufferAccess::ShaderReadOnly),
+        ],
         task: move |commands| {
             let (width, height) = resolution;
 
-            commands.begin_render_pass(RenderPass {
+            commands.pipeline_barrier(PipelineBarrier {
+                src_stage: PipelineStage::TopOfPipe,
+                dst_stage: PipelineStage::ColorAttachmentOutput,
+                barriers: &[Barrier::Image {
+                    image: 0,
+                    old_layout: ImageLayout::Undefined,
+                    new_layout: ImageLayout::ColorAttachmentOptimal,
+                    src_access: Access::None,
+                    dst_access: Access::ColorAttachmentWrite,
+                }],
+            })?;
+
+            commands.set_resolution(resolution)?;
+
+            commands.start_rendering(Render {
                 color: &[Attachment {
                     image: 0,
                     load_op: LoadOp::Clear,
-                    clear: Clear::Color(0.0, 0.0, 0.0, 1.0),
+                    clear: Clear::Color(0.1, 0.4, 0.8, 1.0),
                 }],
                 depth: None,
                 render_area: RenderArea {
@@ -231,15 +341,25 @@ fn record_draw<'a, 'b: 'a>(draw: Draw<'a, 'b>) {
                     height,
                     ..default()
                 },
-            });
+            })?;
 
-            commands.set_pipeline(&pipeline);
+            commands.set_pipeline(&pipeline)?;
 
-            commands.draw_indexed(DrawIndexed {
-                index_count: indices.len(),
-            });
+            commands.draw(gpu::prelude::Draw { vertex_count: 3 })?;
 
-            commands.end_render_pass();
+            commands.end_rendering()?;
+
+            commands.pipeline_barrier(PipelineBarrier {
+                src_stage: PipelineStage::ColorAttachmentOutput,
+                dst_stage: PipelineStage::BottomOfPipe,
+                barriers: &[Barrier::Image {
+                    image: 0,
+                    old_layout: ImageLayout::ColorAttachmentOptimal,
+                    new_layout: ImageLayout::Present,
+                    src_access: Access::ColorAttachmentWrite,
+                    dst_access: Access::None,
+                }],
+            })
         },
     });
 }
@@ -261,14 +381,14 @@ fn record_update<'a, 'b: 'a>(update: Update<'a, 'b>) {
             commands.write_buffer(BufferWrite {
                 buffer: 0,
                 offset: 0,
-                source: vertices,
-            });
+                src: vertices,
+            })?;
 
             commands.write_buffer(BufferWrite {
                 buffer: 0,
                 offset: INDEX_OFFSET,
-                source: indices,
-            });
+                src: indices,
+            })
         },
     });
 
@@ -281,7 +401,9 @@ fn record_update<'a, 'b: 'a>(update: Update<'a, 'b>) {
             commands.copy_buffer_to_buffer(BufferCopy {
                 from: 0,
                 to: 1,
-                range: 0..REALLY_LARGE_SIZE,
+                src: 0,
+                dst: 0,
+                size: REALLY_LARGE_SIZE,
             })
         },
     });

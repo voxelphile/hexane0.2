@@ -337,6 +337,28 @@ impl PipelineCompiler<'_> {
             }
         };
 
+        let viewports = [vk::Viewport::default()];
+
+        let scissors = [vk::Rect2D::default()];
+
+        let viewport_state = {
+            let viewport_count = 1;
+
+            let p_viewports = viewports.as_ptr();
+
+            let scissor_count = 1;
+
+            let p_scissors = scissors.as_ptr();
+
+            vk::PipelineViewportStateCreateInfo {
+                viewport_count,
+                p_viewports,
+                scissor_count,
+                p_scissors,
+                ..default()
+            }
+        };
+
         let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
 
         let dynamic_state = {
@@ -383,6 +405,8 @@ impl PipelineCompiler<'_> {
 
             let p_color_blend_state = &color_blend_state;
 
+            let p_viewport_state = &viewport_state;
+
             let p_dynamic_state = &dynamic_state;
 
             let render_pass = vk::RenderPass::null();
@@ -395,6 +419,7 @@ impl PipelineCompiler<'_> {
                 p_rasterization_state,
                 p_depth_stencil_state,
                 p_color_blend_state,
+                p_viewport_state,
                 p_dynamic_state,
                 render_pass,
                 layout,
@@ -414,6 +439,7 @@ impl PipelineCompiler<'_> {
         Ok(Pipeline {
             compiler: &self,
             pipeline,
+            bind_point: PipelineBindPoint::Graphics,
         })
     }
 
@@ -426,8 +452,8 @@ impl PipelineCompiler<'_> {
 
 #[derive(Default)]
 pub enum FrontFace {
-    Clockwise,
     #[default]
+    Clockwise,
     CounterClockwise,
 }
 
@@ -551,7 +577,7 @@ impl From<Raster> for vk::PipelineRasterizationStateCreateInfo {
     fn from(raster: Raster) -> Self {
         Self {
             depth_clamp_enable: raster.depth_clamp as _,
-            rasterizer_discard_enable: true as _,
+            rasterizer_discard_enable: false as _,
             polygon_mode: raster.polygon_mode.into(),
             cull_mode: raster.face_cull.into(),
             front_face: raster.front_face.into(),
@@ -768,7 +794,58 @@ impl Default for ComputePipelineInfo<'_> {
     }
 }
 
+#[derive(Clone, Copy)]
+pub enum PipelineStage {
+    TopOfPipe,
+    VertexShader,
+    FragmentShader,
+    EarlyFragmentTests,
+    LateFragmentTests,
+    ColorAttachmentOutput,
+    ComputeShader,
+    Transfer,
+    BottomOfPipe,
+    Host,
+    AllGraphics,
+    AllCommands,
+}
+
+impl From<PipelineStage> for vk::PipelineStageFlags {
+    fn from(stage: PipelineStage) -> Self {
+        match stage {
+            PipelineStage::TopOfPipe => Self::TOP_OF_PIPE,
+            PipelineStage::VertexShader => Self::VERTEX_SHADER,
+            PipelineStage::FragmentShader => Self::FRAGMENT_SHADER,
+            PipelineStage::EarlyFragmentTests => Self::EARLY_FRAGMENT_TESTS,
+            PipelineStage::LateFragmentTests => Self::LATE_FRAGMENT_TESTS,
+            PipelineStage::ColorAttachmentOutput => Self::COLOR_ATTACHMENT_OUTPUT,
+            PipelineStage::ComputeShader => Self::COMPUTE_SHADER,
+            PipelineStage::Transfer => Self::TRANSFER,
+            PipelineStage::BottomOfPipe => Self::BOTTOM_OF_PIPE,
+            PipelineStage::Host => Self::HOST,
+            PipelineStage::AllGraphics => Self::ALL_GRAPHICS,
+            PipelineStage::AllCommands => Self::ALL_COMMANDS,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+pub enum PipelineBindPoint {
+    Graphics,
+    Compute,
+}
+
+impl From<PipelineBindPoint> for vk::PipelineBindPoint {
+    fn from(bind_point: PipelineBindPoint) -> Self {
+        match bind_point {
+            PipelineBindPoint::Graphics => vk::PipelineBindPoint::GRAPHICS,
+            PipelineBindPoint::Compute => vk::PipelineBindPoint::COMPUTE,
+        }
+    }
+}
+
 pub struct Pipeline<'a> {
-    compiler: &'a PipelineCompiler<'a>,
-    pipeline: vk::Pipeline,
+    pub(crate) compiler: &'a PipelineCompiler<'a>,
+    pub(crate) pipeline: vk::Pipeline,
+    pub(crate) bind_point: PipelineBindPoint,
 }

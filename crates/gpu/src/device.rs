@@ -124,6 +124,7 @@ pub struct Device<'a> {
     pub(crate) descriptor_pool: vk::DescriptorPool,
     pub(crate) descriptor_set: vk::DescriptorSet,
     pub(crate) descriptor_set_layout: vk::DescriptorSetLayout,
+    pub(crate) command_pool: vk::CommandPool,
 }
 
 pub struct DeviceInfo<'a> {
@@ -837,7 +838,7 @@ impl<'a> Device<'a> {
         })
     }
 
-    pub fn create_swapchain(&'a self, info: SwapchainInfo<'a>) -> Result<Swapchain<'a>> {
+    pub fn create_swapchain(&self, info: SwapchainInfo<'_>) -> Result<Swapchain> {
         let Device {
             context,
             surface: (surface_loader, surface_handle),
@@ -874,6 +875,10 @@ impl<'a> Device<'a> {
 
         let swapchain_loader = khr::Swapchain::new(&instance, &logical_device);
 
+        let Some((_, vk::SurfaceFormatKHR { format, color_space })) = surface_formats.pop() else {
+                panic!("failed to find suitable surface format");
+        };
+
         let swapchain_create_info = {
             use PresentMode::*;
 
@@ -886,9 +891,8 @@ impl<'a> Device<'a> {
                 | DoubleBufferWaitForVBlankRelaxed => 2,
             };
 
-            let Some((_, vk::SurfaceFormatKHR { format: image_format, color_space: image_color_space })) = surface_formats.pop() else {
-                panic!("failed to find suitable surface format");
-            };
+            let image_format = format;
+            let image_color_space = color_space;
 
             let image_extent = match surface_capabilities.current_extent.width {
                 std::u32::MAX => vk::Extent2D {
@@ -961,14 +965,59 @@ impl<'a> Device<'a> {
             unsafe { swapchain_loader.create_swapchain(&swapchain_create_info, None) }
                 .map_err(|_| Error::Creation)?;
 
+        let swapchain_images = unsafe { swapchain_loader.get_swapchain_images(swapchain_handle) }
+            .map_err(|_| Error::Creation)?;
+
+        let mut resources = resources.lock().unwrap();
+
+        let images = swapchain_images
+            .into_iter()
+            .map(|image| {
+                let image_view_create_info = vk::ImageViewCreateInfo {
+                    image,
+                    view_type: vk::ImageViewType::TYPE_2D,
+                    format,
+                    components: vk::ComponentMapping {
+                        r: vk::ComponentSwizzle::IDENTITY,
+                        g: vk::ComponentSwizzle::IDENTITY,
+                        b: vk::ComponentSwizzle::IDENTITY,
+                        a: vk::ComponentSwizzle::IDENTITY,
+                    },
+                    subresource_range: vk::ImageSubresourceRange {
+                        aspect_mask: vk::ImageAspectFlags::COLOR,
+                        base_mip_level: 0,
+                        level_count: 1,
+                        base_array_layer: 0,
+                        layer_count: 1,
+                    },
+                    ..default()
+                };
+
+                let image_view =
+                    unsafe { logical_device.create_image_view(&image_view_create_info, None) }
+                        .unwrap();
+
+                (image, image_view)
+            })
+            .map(|(image, view)| InternalImage::Swapchain { image, view })
+            .map(|internal_image| resources.images.add(internal_image))
+            .collect::<Vec<_>>();
+
         let loader = swapchain_loader;
 
         let handle = swapchain_handle;
+
+        let format = format.try_into().map_err(|_| Error::Creation)?;
+
+        let last_acquisition_index = Mutex::new(None);
 
         Ok(Swapchain {
             device: &self,
             loader,
             handle,
+            format,
+            images,
+            last_acquisition_index,
         })
     }
 

@@ -1,6 +1,7 @@
 use crate::prelude::*;
 
 use std::ops;
+use std::sync::Mutex;
 
 use ash::extensions::{ext, khr};
 use ash::{vk, Entry, Instance};
@@ -65,12 +66,44 @@ impl Default for SwapchainInfo<'_> {
 
 pub struct Swapchain<'a> {
     pub(crate) device: &'a Device<'a>,
+    pub(crate) format: Format,
     pub(crate) loader: khr::Swapchain,
     pub(crate) handle: vk::SwapchainKHR,
+    pub(crate) images: Vec<Image>,
+    pub(crate) last_acquisition_index: Mutex<Option<u32>>,
+}
+
+#[derive(Default)]
+pub struct Acquire<'a> {
+    pub semaphore: Option<&'a BinarySemaphore<'a>>,
 }
 
 impl Swapchain<'_> {
-    pub fn acquire(&self) -> Image {
-        todo!()
+    pub fn acquire_next_image(&self, acquire: Acquire<'_>) -> Image {
+        let Swapchain {
+            loader,
+            handle,
+            images,
+            ..
+        } = self;
+
+        let semaphore = acquire
+            .semaphore
+            .map(|handle| handle.semaphore)
+            .unwrap_or(vk::Semaphore::null());
+
+        let (next_image_index, suboptimal) =
+            unsafe { loader.acquire_next_image(*handle, u64::MAX, semaphore, vk::Fence::null()) }
+                .unwrap();
+
+        let mut last_acquisition_index = self.last_acquisition_index.lock().unwrap();
+
+        *last_acquisition_index = Some(next_image_index);
+
+        images[next_image_index as usize]
+    }
+
+    pub fn format(&self) -> Format {
+        self.format
     }
 }

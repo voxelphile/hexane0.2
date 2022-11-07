@@ -26,28 +26,31 @@ pub mod prelude {
     pub(crate) use crate::buffer::InternalBuffer;
     pub use crate::buffer::{Buffer, BufferInfo};
     pub use crate::commands::{
-        Attachment, BufferCopy, BufferWrite, Clear, Commands, DrawIndexed, LoadOp, RenderArea,
-        RenderPass,
+        Access, Attachment, Barrier, BindIndexBuffer, BufferCopy, BufferWrite, Clear, Commands,
+        Draw, DrawIndexed, LoadOp, PipelineBarrier, Render, RenderArea,
     };
     pub use crate::context::{Context, ContextInfo};
     pub(crate) use crate::device::DeviceResources;
     pub use crate::device::{Device, DeviceInfo, DeviceSelector};
     pub use crate::format::Format;
     pub(crate) use crate::image::InternalImage;
-    pub use crate::image::{Image, ImageUsage};
+    pub use crate::image::{Image, ImageLayout, ImageUsage};
     pub(crate) use crate::memory::InternalMemory;
     pub use crate::memory::Memory;
     pub use crate::pipeline::{
         Color, ComputePipelineInfo, GraphicsPipelineInfo, Pipeline, PipelineCompiler,
-        PipelineCompilerInfo, Shader, ShaderCompiler, ShaderType,
+        PipelineCompilerInfo, PipelineStage, Shader, ShaderCompiler, ShaderType,
     };
     pub use crate::semaphore::{
         BinarySemaphore, BinarySemaphoreInfo, TimelineSemaphore, TimelineSemaphoreInfo,
     };
-    pub use crate::swapchain::{PresentMode, SurfaceFormatSelector, Swapchain, SwapchainInfo};
+    pub use crate::swapchain::{
+        Acquire, PresentMode, SurfaceFormatSelector, Swapchain, SwapchainInfo,
+    };
+    pub(crate) use crate::task::Qualifier;
     pub use crate::task::{
-        non_optimizer, BufferAccess, Executor, ExecutorInfo, ImageAccess, Present, Resource,
-        Submit, Task,
+        non_optimizer, BufferAccess, Executable, Executor, ExecutorInfo, ImageAccess, Present,
+        Resource, Submit, Task,
     };
     pub use crate::{Error, Result};
 }
@@ -57,6 +60,10 @@ pub enum Error {
     Creation,
     ShaderCompilerNotFound,
     ShaderCompilationError { message: String },
+    ResourceNotFound,
+    InvalidResource,
+    MemoryMapFailed,
+    InvalidAttachment,
 }
 
 impl fmt::Display for Error {
