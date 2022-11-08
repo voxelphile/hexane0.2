@@ -5,6 +5,7 @@ use std::default::default;
 use std::marker::PhantomData;
 use std::mem;
 use std::ops;
+use std::slice;
 
 use ash::vk;
 
@@ -12,7 +13,7 @@ use bitflags::bitflags;
 
 pub struct Present<'a> {
     pub wait_semaphore: &'a BinarySemaphore<'a>,
-    pub swapchain: &'a Swapchain<'a>,
+    pub swapchain: Swapchain,
 }
 
 pub struct Submit<'a> {
@@ -78,8 +79,18 @@ impl<'a> Executor<'a> {
         let Device {
             logical_device,
             command_pool,
+            resources,
             ..
         } = device;
+
+        let resources = resources.lock().unwrap();
+
+        if let Some(present) = &present {
+            resources
+                .swapchains
+                .get(present.swapchain)
+                .ok_or(Error::ResourceNotFound)?;
+        }
 
         let command_buffer_allocate_info = vk::CommandBufferAllocateInfo {
             command_pool: *command_pool,
@@ -136,6 +147,11 @@ impl ops::FnMut<()> for Executable<'_> {
         let Device {
             logical_device,
             queue_family_indices,
+            resources,
+            staging_address_buffer,
+            staging_address_memory,
+            general_address_buffer,
+            descriptor_set,
             ..
         } = device;
 
@@ -153,6 +169,105 @@ impl ops::FnMut<()> for Executable<'_> {
 
         unsafe {
             logical_device.begin_command_buffer(*command_buffer, &default());
+        }
+
+        {
+            let resources = resources.lock().unwrap();
+
+            let mut addresses = [0u64; DESCRIPTOR_COUNT as usize];
+
+            let mut descriptor_buffer_infos = vec![];
+
+            for i in 0..DESCRIPTOR_COUNT as usize {
+                if let Some(internal_buffer) = resources.buffers.get((i as u32).into()) {
+                    let buffer_device_address_info = vk::BufferDeviceAddressInfo {
+                        buffer: internal_buffer.buffer,
+                        ..default()
+                    };
+
+                    addresses[i] = unsafe {
+                        logical_device.get_buffer_device_address(&buffer_device_address_info)
+                    };
+
+                    descriptor_buffer_infos.push(vk::DescriptorBufferInfo {
+                        buffer: internal_buffer.buffer,
+                        offset: 0,
+                        range: internal_buffer.size as _,
+                    })
+                }
+            }
+
+            drop(resources);
+
+            let address_buffer_size = (DESCRIPTOR_COUNT * mem::size_of::<u64>() as u32) as u64;
+
+            let dst = unsafe {
+                logical_device.map_memory(
+                    *staging_address_memory,
+                    0,
+                    address_buffer_size as _,
+                    vk::MemoryMapFlags::empty(),
+                )
+            }
+            .unwrap();
+
+            unsafe { slice::from_raw_parts_mut(dst as *mut _, addresses.len()) }
+                .copy_from_slice(&addresses[..]);
+
+            unsafe {
+                logical_device.unmap_memory(*staging_address_memory);
+            }
+
+            let regions = [vk::BufferCopy {
+                src_offset: 0,
+                dst_offset: 0,
+                size: address_buffer_size as _,
+            }];
+
+            unsafe {
+                logical_device.cmd_copy_buffer(
+                    *command_buffer,
+                    *staging_address_buffer,
+                    *general_address_buffer,
+                    &regions,
+                );
+            }
+
+            let descriptor_buffer_info = vk::DescriptorBufferInfo {
+                buffer: *general_address_buffer,
+                offset: 0,
+                range: address_buffer_size as _,
+            };
+
+            let write_descriptor_set1 = {
+                let p_buffer_info = &descriptor_buffer_info;
+
+                vk::WriteDescriptorSet {
+                    dst_set: *descriptor_set,
+                    dst_binding: 4, //MAGIC NUMBER SEE context.rs
+                    descriptor_count: 1,
+                    descriptor_type: vk::DescriptorType::STORAGE_BUFFER,
+                    p_buffer_info,
+                    ..default()
+                }
+            };
+            
+            let write_descriptor_set2 = {
+                let p_buffer_info = descriptor_buffer_infos.as_ptr();
+
+                vk::WriteDescriptorSet {
+                    dst_set: *descriptor_set,
+                    dst_binding: 3, //MAGIC NUMBER SEE context.rs
+                    descriptor_count: descriptor_buffer_infos.len() as _,
+                    descriptor_type: vk::DescriptorType::STORAGE_BUFFER,
+                    p_buffer_info,
+                    ..default()
+                }
+            };
+
+            unsafe {
+                logical_device.update_descriptor_sets(&[write_descriptor_set1, write_descriptor_set2], &[]);
+            }
         }
 
         for node in nodes {
@@ -211,17 +326,20 @@ impl ops::FnMut<()> for Executable<'_> {
         }
 
         if let Some(present) = present {
+            let resources = resources.lock().unwrap();
+
+            let internal_swapchain = resources.swapchains.get(present.swapchain).unwrap();
+
             let present_info = {
                 let swapchain_count = 1;
 
-                let p_swapchains = &present.swapchain.handle;
+                let p_swapchains = &internal_swapchain.handle;
 
                 let wait_semaphore_count = 1;
 
                 let p_wait_semaphores = &present.wait_semaphore.semaphore;
 
-                let image_index =
-                    (*present.swapchain.last_acquisition_index.lock().unwrap()).unwrap();
+                let image_index = internal_swapchain.last_acquisition_index.unwrap();
 
                 let p_image_indices = &image_index;
 
@@ -236,7 +354,9 @@ impl ops::FnMut<()> for Executable<'_> {
             };
 
             unsafe {
-                present.swapchain.loader.queue_present(queue, &present_info);
+                internal_swapchain
+                    .loader
+                    .queue_present(queue, &present_info);
             }
         }
     }

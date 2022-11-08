@@ -1,7 +1,6 @@
 use crate::prelude::*;
 
 use std::ops;
-use std::sync::Mutex;
 
 use ash::extensions::{ext, khr};
 use ash::{vk, Entry, Instance};
@@ -33,9 +32,9 @@ impl From<PresentMode> for vk::PresentModeKHR {
 
         match present_mode {
             DoNotWaitForVBlank => Self::IMMEDIATE,
-            TripleBufferWaitForVBlank => Self::MAILBOX,
-            DoubleBufferWaitForVBlank => Self::FIFO,
-            DoubleBufferWaitForVBlankRelaxed => Self::FIFO_RELAXED,
+            TripleSwapchainWaitForVBlank => Self::MAILBOX,
+            DoubleSwapchainWaitForVBlank => Self::FIFO,
+            DoubleSwapchainWaitForVBlankRelaxed => Self::FIFO_RELAXED,
         }
     }
 }
@@ -46,7 +45,7 @@ pub struct SwapchainInfo<'a> {
     pub width: u32,
     pub height: u32,
     pub surface_format_selector: &'a dyn SurfaceFormatSelector,
-    pub old_swapchain: Option<Swapchain<'a>>,
+    pub old_swapchain: Option<Swapchain>,
     pub debug_name: &'a str,
 }
 
@@ -64,46 +63,30 @@ impl Default for SwapchainInfo<'_> {
     }
 }
 
-pub struct Swapchain<'a> {
-    pub(crate) device: &'a Device<'a>,
+pub struct InternalSwapchain {
     pub(crate) format: Format,
     pub(crate) loader: khr::Swapchain,
     pub(crate) handle: vk::SwapchainKHR,
     pub(crate) images: Vec<Image>,
-    pub(crate) last_acquisition_index: Mutex<Option<u32>>,
+    pub(crate) last_acquisition_index: Option<u32>,
 }
 
-#[derive(Default)]
+#[derive(Clone, Copy)]
+pub struct Swapchain(pub(crate) u32);
+
+impl From<Swapchain> for u32 {
+    fn from(handle: Swapchain) -> Self {
+        handle.0
+    }
+}
+
+impl From<u32> for Swapchain {
+    fn from(handle: u32) -> Self {
+        Self(handle)
+    }
+}
+
 pub struct Acquire<'a> {
+    pub swapchain: Swapchain,
     pub semaphore: Option<&'a BinarySemaphore<'a>>,
-}
-
-impl Swapchain<'_> {
-    pub fn acquire_next_image(&self, acquire: Acquire<'_>) -> Image {
-        let Swapchain {
-            loader,
-            handle,
-            images,
-            ..
-        } = self;
-
-        let semaphore = acquire
-            .semaphore
-            .map(|handle| handle.semaphore)
-            .unwrap_or(vk::Semaphore::null());
-
-        let (next_image_index, suboptimal) =
-            unsafe { loader.acquire_next_image(*handle, u64::MAX, semaphore, vk::Fence::null()) }
-                .unwrap();
-
-        let mut last_acquisition_index = self.last_acquisition_index.lock().unwrap();
-
-        *last_acquisition_index = Some(next_image_index);
-
-        images[next_image_index as usize]
-    }
-
-    pub fn format(&self) -> Format {
-        self.format
-    }
 }

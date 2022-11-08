@@ -40,13 +40,13 @@ pub fn default_device_selector(details: Details) -> usize {
 
 pub trait DeviceSelector = ops::Fn(Details) -> usize;
 
-pub(crate) struct DeviceResource<T, U: Into<usize> + From<usize> + Copy> {
+pub(crate) struct DeviceResource<T, U: Into<u32> + From<u32> + Copy> {
     reprs: Vec<Option<T>>,
-    available: Vec<usize>,
+    available: Vec<u32>,
     marker: marker::PhantomData<U>,
 }
 
-impl<T, U: Into<usize> + From<usize> + Copy> DeviceResource<T, U> {
+impl<T, U: Into<u32> + From<u32> + Copy> DeviceResource<T, U> {
     pub fn new() -> Self {
         Self {
             reprs: vec![],
@@ -58,18 +58,18 @@ impl<T, U: Into<usize> + From<usize> + Copy> DeviceResource<T, U> {
     pub fn add(&mut self, repr: T) -> U {
         if self.available.len() > 0 {
             let index = self.available.pop().unwrap();
-            self.reprs.insert(index, Some(repr));
+            self.reprs.insert(index as usize, Some(repr));
             index
         } else {
             let index = self.reprs.len();
             self.reprs.push(Some(repr));
-            index
+            index as u32
         }
         .into()
     }
 
     pub fn get(&self, handle: U) -> Option<&'_ T> {
-        if let Some(repr) = self.reprs.get(handle.into()) {
+        if let Some(repr) = self.reprs.get(handle.into() as usize) {
             return repr.as_ref();
         }
 
@@ -77,7 +77,7 @@ impl<T, U: Into<usize> + From<usize> + Copy> DeviceResource<T, U> {
     }
 
     pub fn get_mut(&mut self, handle: U) -> Option<&'_ mut T> {
-        if let Some(repr) = self.reprs.get_mut(handle.into()) {
+        if let Some(repr) = self.reprs.get_mut(handle.into() as usize) {
             return repr.as_mut();
         }
 
@@ -87,11 +87,11 @@ impl<T, U: Into<usize> + From<usize> + Copy> DeviceResource<T, U> {
     pub fn remove(&mut self, handle: U) -> Option<T> {
         let index = handle.into();
 
-        if self.reprs.len() < index {
+        if self.reprs.len() < index as usize {
             return None;
         }
 
-        if let Some(repr) = mem::replace(&mut self.reprs[index], None) {
+        if let Some(repr) = mem::replace(&mut self.reprs[index as usize], None) {
             self.available.push(index);
             return Some(repr);
         }
@@ -103,6 +103,7 @@ impl<T, U: Into<usize> + From<usize> + Copy> DeviceResource<T, U> {
 pub(crate) struct DeviceResources {
     pub(crate) buffers: DeviceResource<InternalBuffer, Buffer>,
     pub(crate) images: DeviceResource<InternalImage, Image>,
+    pub(crate) swapchains: DeviceResource<InternalSwapchain, Swapchain>,
 }
 
 impl DeviceResources {
@@ -110,6 +111,7 @@ impl DeviceResources {
         Self {
             buffers: DeviceResource::new(),
             images: DeviceResource::new(),
+            swapchains: DeviceResource::new(),
         }
     }
 }
@@ -125,6 +127,10 @@ pub struct Device<'a> {
     pub(crate) descriptor_set: vk::DescriptorSet,
     pub(crate) descriptor_set_layout: vk::DescriptorSetLayout,
     pub(crate) command_pool: vk::CommandPool,
+    pub(crate) general_address_buffer: vk::Buffer,
+    pub(crate) general_address_memory: vk::DeviceMemory,
+    pub(crate) staging_address_buffer: vk::Buffer,
+    pub(crate) staging_address_memory: vk::DeviceMemory,
 }
 
 pub struct DeviceInfo<'a> {
@@ -712,15 +718,18 @@ impl<'a> Device<'a> {
             physical_device,
             logical_device,
             resources,
+            descriptor_set,
             ..
         } = self;
+
+        let mut resources = resources.lock().unwrap();
 
         let Context { instance, .. } = context;
 
         let BufferInfo {
             size,
             usage,
-            memory,
+            memory: properties,
             debug_name,
         } = info;
 
@@ -728,9 +737,9 @@ impl<'a> Device<'a> {
 
         let allocation_size = size as _;
 
-        let usage = usage.into();
+        let mut usage = usage.into();
 
-        let memory = memory.into();
+        usage |= vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS;
 
         let debug_name = debug_name.to_owned();
 
@@ -752,15 +761,22 @@ impl<'a> Device<'a> {
             unsafe { instance.get_physical_device_memory_properties(*physical_device) };
 
         let memory_type_index =
-            memory::type_index(&memory_requirements, &memory_properties, memory)?;
+            memory::type_index(&memory_requirements, &memory_properties, properties.into())?;
 
-        let memory_allocate_info = vk::MemoryAllocateInfo {
-            allocation_size,
-            memory_type_index,
+        let mut memory_allocate_flags_info = vk::MemoryAllocateFlagsInfo {
+            flags: vk::MemoryAllocateFlags::DEVICE_ADDRESS,
             ..default()
         };
 
-        let properties = memory;
+        let memory_allocate_info = {
+            let p_next = &mut memory_allocate_flags_info as *mut _ as *mut _;
+            vk::MemoryAllocateInfo {
+                p_next,
+                allocation_size,
+                memory_type_index,
+                ..default()
+            }
+        };
 
         let memory = unsafe { logical_device.allocate_memory(&memory_allocate_info, None) }
             .map_err(|_| Error::Creation)?;
@@ -772,7 +788,7 @@ impl<'a> Device<'a> {
 
         let BufferInfo { size, usage, .. } = info;
 
-        Ok(resources.lock().unwrap().buffers.add(InternalBuffer {
+        Ok(resources.buffers.add(InternalBuffer {
             buffer,
             memory,
             size,
@@ -838,6 +854,49 @@ impl<'a> Device<'a> {
         })
     }
 
+    pub fn acquire_next_image(&self, acquire: Acquire<'_>) -> Result<Image> {
+        let Device { resources, .. } = self;
+
+        let mut resources = resources.lock().unwrap();
+
+        let InternalSwapchain {
+            loader,
+            handle,
+            images,
+            last_acquisition_index,
+            ..
+        } = resources
+            .swapchains
+            .get_mut(acquire.swapchain)
+            .ok_or(Error::ResourceNotFound)?;
+
+        let semaphore = acquire
+            .semaphore
+            .map(|handle| handle.semaphore)
+            .unwrap_or(vk::Semaphore::null());
+
+        let (next_image_index, suboptimal) =
+            unsafe { loader.acquire_next_image(*handle, u64::MAX, semaphore, vk::Fence::null()) }
+                .unwrap();
+
+        *last_acquisition_index = Some(next_image_index);
+
+        Ok(images[next_image_index as usize])
+    }
+
+    pub fn presentation_format(&self, swapchain: Swapchain) -> Result<Format> {
+        let Device { resources, .. } = self;
+
+        let resources = resources.lock().unwrap();
+
+        let InternalSwapchain { format, .. } = resources
+            .swapchains
+            .get(swapchain)
+            .ok_or(Error::ResourceNotFound)?;
+
+        Ok(*format)
+    }
+
     pub fn create_swapchain(&self, info: SwapchainInfo<'_>) -> Result<Swapchain> {
         let Device {
             context,
@@ -848,6 +907,8 @@ impl<'a> Device<'a> {
             resources,
             ..
         } = self;
+
+        let mut resources = resources.lock().unwrap();
 
         let mut surface_formats = unsafe {
             surface_loader.get_physical_device_surface_formats(*physical_device, *surface_handle)
@@ -880,15 +941,13 @@ impl<'a> Device<'a> {
         };
 
         let swapchain_create_info = {
-            use PresentMode::*;
-
             let surface = *surface_handle;
 
             let min_image_count = match info.present_mode {
-                TripleBufferWaitForVBlank => 3,
-                DoNotWaitForVBlank
-                | DoubleBufferWaitForVBlank
-                | DoubleBufferWaitForVBlankRelaxed => 2,
+                PresentMode::TripleBufferWaitForVBlank => 3,
+                PresentMode::DoNotWaitForVBlank
+                | PresentMode::DoubleBufferWaitForVBlank
+                | PresentMode::DoubleBufferWaitForVBlankRelaxed => 2,
             };
 
             let image_format = format;
@@ -936,10 +995,15 @@ impl<'a> Device<'a> {
 
             let clipped = true as _;
 
-            let old_swapchain = info
-                .old_swapchain
-                .map(|Swapchain { handle, .. }| handle)
-                .unwrap_or(vk::SwapchainKHR::null());
+            let old_swapchain = if let Some(swapchain) = info.old_swapchain {
+                resources
+                    .swapchains
+                    .get(swapchain)
+                    .ok_or(Error::ResourceNotFound)?
+                    .handle
+            } else {
+                vk::SwapchainKHR::null()
+            };
 
             vk::SwapchainCreateInfoKHR {
                 surface,
@@ -967,8 +1031,6 @@ impl<'a> Device<'a> {
 
         let swapchain_images = unsafe { swapchain_loader.get_swapchain_images(swapchain_handle) }
             .map_err(|_| Error::Creation)?;
-
-        let mut resources = resources.lock().unwrap();
 
         let images = swapchain_images
             .into_iter()
@@ -1009,16 +1071,15 @@ impl<'a> Device<'a> {
 
         let format = format.try_into().map_err(|_| Error::Creation)?;
 
-        let last_acquisition_index = Mutex::new(None);
+        let last_acquisition_index = None;
 
-        Ok(Swapchain {
-            device: &self,
+        Ok(resources.swapchains.add(InternalSwapchain {
             loader,
             handle,
             format,
             images,
             last_acquisition_index,
-        })
+        }))
     }
 
     pub fn create_pipeline_compiler(

@@ -4,6 +4,7 @@
 
 use gpu::prelude::*;
 
+use std::cell::Cell;
 use std::default::default;
 use std::env;
 use std::mem;
@@ -13,8 +14,8 @@ use std::path;
 use winit::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
-    window::WindowBuilder,
     platform::run_return::EventLoopExtRunReturn,
+    window::WindowBuilder,
 };
 
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
@@ -22,6 +23,7 @@ use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 const REALLY_LARGE_SIZE: usize = 1_000_000;
 
 pub type Vertex = (f32, f32, f32);
+pub type Color = [f32; 4];
 pub type Index = u32;
 
 fn root_path() -> Option<path::PathBuf> {
@@ -62,9 +64,12 @@ fn main() {
 
     let mut event_loop = EventLoop::new();
 
-    let window = WindowBuilder::new().build(&event_loop).unwrap();
+    let window = WindowBuilder::new()
+        .with_title("Hello Triangle!")
+        .build(&event_loop)
+        .unwrap();
 
-    let resolution = window.inner_size().into();
+    let mut resolution = window.inner_size().into();
 
     let (width, height) = resolution;
 
@@ -84,13 +89,15 @@ fn main() {
         })
         .expect("failed to create device");
 
-    let mut swapchain = device
-        .create_swapchain(SwapchainInfo {
-            width,
-            height,
-            ..default()
-        })
-        .expect("failed to create swapchain");
+    let mut swapchain = Cell::new(
+        device
+            .create_swapchain(SwapchainInfo {
+                width,
+                height,
+                ..default()
+            })
+            .expect("failed to create swapchain"),
+    );
 
     let mut pipeline_compiler = device.create_pipeline_compiler(PipelineCompilerInfo {
         //default language for shader compiler is glsl
@@ -110,8 +117,8 @@ fn main() {
     let pipeline = pipeline_compiler
         .create_graphics_pipeline(GraphicsPipelineInfo {
             shaders: &[vertex, fragment],
-            color: &[Color {
-                format: swapchain.format(),
+            color: &[gpu::prelude::Color {
+                format: device.presentation_format(swapchain.get()).unwrap(),
                 ..default()
             }],
             ..default()
@@ -135,6 +142,14 @@ fn main() {
         })
         .expect("failed to create buffer");
 
+    let color_buffer = device
+        .create_buffer(BufferInfo {
+            size: 1024,
+            debug_name: "Color Buffer",
+            ..default()
+        })
+        .expect("failed to create buffer");
+
     let acquire_semaphore = device
         .create_binary_semaphore(BinarySemaphoreInfo {
             debug_name: "Acquire Semaphore",
@@ -150,20 +165,27 @@ fn main() {
         .expect("failed to create semaphore");
 
     let vertices = [(0.0, -0.5, 0.0), (0.5, 0.5, 0.0), (-0.5, 0.5, 0.0)];
+    let colors = [
+        [1.0, 0.0, 0.0, 1.0],
+        [0.0, 1.0, 0.0, 1.0],
+        [0.0, 0.0, 1.0, 1.0],
+    ];
     let indices = [0u32, 1, 2];
-    
-    
-    let general_buffer = || general_buffer;
-    let staging_buffer = || staging_buffer;
-    
-    let present_image = || {
-        swapchain.acquire_next_image(Acquire {
-            semaphore: Some(&acquire_semaphore),
-        })
-        };
-    
-    let mut executable: Option<Executable<'_>> = None;
 
+    let general_buffer = || general_buffer;
+    let color_buffer = || color_buffer;
+    let staging_buffer = || staging_buffer;
+
+    let present_image = || {
+        device
+            .acquire_next_image(Acquire {
+                swapchain: swapchain.get(),
+                semaphore: Some(&acquire_semaphore),
+            })
+            .unwrap()
+    };
+
+    let mut executable: Option<Executable<'_>> = None;
 
     event_loop.run_return(|event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
@@ -174,7 +196,9 @@ fn main() {
                 window_id,
             } if window_id == window.id() => *control_flow = ControlFlow::Exit,
             Event::RedrawRequested(window_id) => {
+                println!("yo");
                 (executable.as_mut().unwrap())();
+                println!("bo");
             }
             Event::WindowEvent {
                 event: WindowEvent::Resized(size),
@@ -182,32 +206,38 @@ fn main() {
             } => {
                 let winit::dpi::PhysicalSize { width, height } = size;
 
-                swapchain = device
-                    .create_swapchain(SwapchainInfo {
-                        width,
-                        height,
-                        old_swapchain: Some(swapchain),
-                        ..default()
-                    })
-                    .expect("failed to create swapchain");
+                resolution = (width, height);
+
+                swapchain.set(
+                    device
+                        .create_swapchain(SwapchainInfo {
+                            width,
+                            height,
+                            old_swapchain: Some(swapchain.get()),
+                            ..default()
+                        })
+                        .expect("failed to create swapchain"),
+                );
 
                 let mut executor = device.create_executor(default());
 
                 record(Record {
                     executor: &mut executor,
-                    swapchain: &swapchain,
-            vertices: &vertices,
-            indices: &indices,
+                    swapchain: swapchain.get(),
+                    vertices: &vertices,
+                    indices: &indices,
                     acquire_semaphore: &acquire_semaphore,
                     present_semaphore: &present_semaphore,
                     pipeline: &pipeline,
                     present_image: &present_image,
                     general_buffer: &general_buffer,
                     staging_buffer: &staging_buffer,
+                    color_buffer: &color_buffer,
+                    colors: &colors,
                     resolution,
                 });
 
-                executable = Some(executor.complete().expect("failed to complete executor"))
+                executable = Some(executor.complete().expect("failed to complete executor"));
             }
             _ => (),
         }
@@ -219,12 +249,14 @@ pub const INDEX_OFFSET: usize = 1024;
 
 struct Record<'a, 'b: 'a> {
     pub executor: &'a mut Executor<'b>,
-    pub swapchain: &'b Swapchain<'b>,
+    pub swapchain: Swapchain,
     pub vertices: &'b [Vertex],
     pub indices: &'b [Index],
+    pub colors: &'b [Color],
     pub present_image: &'b dyn ops::Fn() -> Image,
     pub general_buffer: &'b dyn ops::Fn() -> Buffer,
     pub staging_buffer: &'b dyn ops::Fn() -> Buffer,
+    pub color_buffer: &'b dyn ops::Fn() -> Buffer,
     pub acquire_semaphore: &'b BinarySemaphore<'b>,
     pub present_semaphore: &'b BinarySemaphore<'b>,
     pub pipeline: &'b Pipeline<'b>,
@@ -235,8 +267,10 @@ struct Update<'a, 'b: 'a> {
     pub executor: &'a mut Executor<'b>,
     pub vertices: &'b [Vertex],
     pub indices: &'b [Index],
+    pub colors: &'b [Color],
     pub general_buffer: &'b dyn ops::Fn() -> Buffer,
     pub staging_buffer: &'b dyn ops::Fn() -> Buffer,
+    pub color_buffer: &'b dyn ops::Fn() -> Buffer,
 }
 
 struct Draw<'a, 'b: 'a> {
@@ -244,8 +278,15 @@ struct Draw<'a, 'b: 'a> {
     pub resolution: (u32, u32),
     pub present_image: &'b dyn ops::Fn() -> Image,
     pub general_buffer: &'b dyn ops::Fn() -> Buffer,
+    pub color_buffer: &'b dyn ops::Fn() -> Buffer,
     pub pipeline: &'b Pipeline<'b>,
     pub indices: &'b [Index],
+}
+
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct Push {
+    pub color_buffer: Buffer,
 }
 
 fn record<'a, 'b: 'a>(record: Record<'a, 'b>) {
@@ -254,8 +295,10 @@ fn record<'a, 'b: 'a>(record: Record<'a, 'b>) {
         swapchain,
         vertices,
         indices,
+        colors,
         general_buffer,
         staging_buffer,
+        color_buffer,
         present_image,
         pipeline,
         acquire_semaphore,
@@ -263,26 +306,25 @@ fn record<'a, 'b: 'a>(record: Record<'a, 'b>) {
         resolution,
     } = record;
 
-    record_update(
-        Update {
-            executor,
-            vertices: &vertices,
-            indices: &indices,
-            general_buffer,
-            staging_buffer,
-        },
-    );
+    record_update(Update {
+        executor,
+        vertices: &vertices,
+        indices: &indices,
+        colors: &colors,
+        general_buffer,
+        staging_buffer,
+        color_buffer,
+    });
 
-    record_draw(
-        Draw {
-            executor,
-            indices: &indices,
-            pipeline: &pipeline,
-            present_image,
-            general_buffer,
-            resolution,
-        },
-    );
+    record_draw(Draw {
+        executor,
+        indices: &indices,
+        pipeline: &pipeline,
+        present_image,
+        general_buffer,
+        resolution,
+        color_buffer,
+    });
 
     executor.submit(Submit {
         wait_semaphore: &acquire_semaphore,
@@ -290,7 +332,7 @@ fn record<'a, 'b: 'a>(record: Record<'a, 'b>) {
     });
 
     executor.present(Present {
-        swapchain: &swapchain,
+        swapchain,
         wait_semaphore: &present_semaphore,
     });
 }
@@ -302,6 +344,7 @@ fn record_draw<'a, 'b: 'a>(draw: Draw<'a, 'b>) {
         executor,
         present_image,
         general_buffer,
+        color_buffer,
         resolution,
         indices,
         pipeline,
@@ -310,7 +353,7 @@ fn record_draw<'a, 'b: 'a>(draw: Draw<'a, 'b>) {
     executor.add(Task {
         resources: [
             Image(present_image, ImageAccess::ColorAttachment),
-            Buffer(general_buffer, BufferAccess::ShaderReadOnly),
+            Buffer(color_buffer, BufferAccess::ShaderReadOnly),
         ],
         task: move |commands| {
             let (width, height) = resolution;
@@ -345,6 +388,13 @@ fn record_draw<'a, 'b: 'a>(draw: Draw<'a, 'b>) {
 
             commands.set_pipeline(&pipeline)?;
 
+            commands.push_constant(PushConstant {
+                data: Push {
+                    color_buffer: (color_buffer)(),
+                },
+                pipeline: &pipeline,
+            });
+
             commands.draw(gpu::prelude::Draw { vertex_count: 3 })?;
 
             commands.end_rendering()?;
@@ -371,8 +421,10 @@ fn record_update<'a, 'b: 'a>(update: Update<'a, 'b>) {
         executor,
         staging_buffer,
         general_buffer,
+        color_buffer,
         vertices,
         indices,
+        colors,
     } = update;
 
     executor.add(Task {
@@ -381,13 +433,7 @@ fn record_update<'a, 'b: 'a>(update: Update<'a, 'b>) {
             commands.write_buffer(BufferWrite {
                 buffer: 0,
                 offset: 0,
-                src: vertices,
-            })?;
-
-            commands.write_buffer(BufferWrite {
-                buffer: 0,
-                offset: INDEX_OFFSET,
-                src: indices,
+                src: colors,
             })
         },
     });
@@ -395,7 +441,7 @@ fn record_update<'a, 'b: 'a>(update: Update<'a, 'b>) {
     executor.add(Task {
         resources: [
             Buffer(staging_buffer, BufferAccess::TransferRead),
-            Buffer(general_buffer, BufferAccess::TransferWrite),
+            Buffer(color_buffer, BufferAccess::TransferWrite),
         ],
         task: move |commands| {
             commands.copy_buffer_to_buffer(BufferCopy {
@@ -403,7 +449,7 @@ fn record_update<'a, 'b: 'a>(update: Update<'a, 'b>) {
                 to: 1,
                 src: 0,
                 dst: 0,
-                size: REALLY_LARGE_SIZE,
+                size: 1024,
             })
         },
     });

@@ -32,10 +32,8 @@ impl From<Memory> for vk::MemoryPropertyFlags {
 pub(crate) fn type_index(
     requirements: &vk::MemoryRequirements,
     properties: &vk::PhysicalDeviceMemoryProperties,
-    memory: Memory,
+    memory: vk::MemoryPropertyFlags,
 ) -> Result<u32> {
-    let memory = vk::MemoryPropertyFlags::from(memory);
-
     properties.memory_types[..properties.memory_type_count as _]
         .iter()
         .enumerate()

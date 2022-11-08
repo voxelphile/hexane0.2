@@ -27,8 +27,9 @@ pub mod prelude {
     pub use crate::buffer::{Buffer, BufferInfo};
     pub use crate::commands::{
         Access, Attachment, Barrier, BindIndexBuffer, BufferCopy, BufferWrite, Clear, Commands,
-        Draw, DrawIndexed, LoadOp, PipelineBarrier, Render, RenderArea,
+        Draw, DrawIndexed, LoadOp, PipelineBarrier, PushConstant, Render, RenderArea,
     };
+    pub(crate) use crate::context::DESCRIPTOR_COUNT;
     pub use crate::context::{Context, ContextInfo};
     pub(crate) use crate::device::DeviceResources;
     pub use crate::device::{Device, DeviceInfo, DeviceSelector};
@@ -44,6 +45,7 @@ pub mod prelude {
     pub use crate::semaphore::{
         BinarySemaphore, BinarySemaphoreInfo, TimelineSemaphore, TimelineSemaphoreInfo,
     };
+    pub(crate) use crate::swapchain::InternalSwapchain;
     pub use crate::swapchain::{
         Acquire, PresentMode, SurfaceFormatSelector, Swapchain, SwapchainInfo,
     };

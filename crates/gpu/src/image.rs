@@ -31,16 +31,16 @@ impl InternalImage {
 }
 
 #[derive(Clone, Copy)]
-pub struct Image(pub(crate) usize);
+pub struct Image(pub(crate) u32);
 
-impl From<Image> for usize {
+impl From<Image> for u32 {
     fn from(handle: Image) -> Self {
         handle.0
     }
 }
 
-impl From<usize> for Image {
-    fn from(handle: usize) -> Self {
+impl From<u32> for Image {
+    fn from(handle: u32) -> Self {
         Self(handle)
     }
 }

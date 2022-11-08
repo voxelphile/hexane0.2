@@ -46,6 +46,11 @@ pub struct PipelineBarrier<'a> {
     pub barriers: &'a [Barrier],
 }
 
+pub struct PushConstant<'a, T: Copy> {
+    pub data: T,
+    pub pipeline: &'a Pipeline<'a>,
+}
+
 pub struct BindIndexBuffer {
     pub buffer: usize,
     pub offset: usize,
@@ -133,6 +138,30 @@ pub struct RenderArea {
 }
 
 impl Commands<'_> {
+    pub fn push_constant<T: Copy>(&mut self, push_constant: PushConstant<T>) -> Result<()> {
+        let Commands {
+            device,
+            command_buffer,
+            ..
+        } = self;
+
+        let Device { logical_device, .. } = device;
+
+        let PushConstant { data, pipeline } = push_constant;
+
+        unsafe {
+            logical_device.cmd_push_constants(
+                **command_buffer,
+                pipeline.layout,
+                vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+                0,
+                slice::from_raw_parts(&data as *const _ as *const u8, mem::size_of::<T>()),
+            );
+        }
+
+        Ok(())
+    }
+
     pub fn write_buffer<T: Copy>(&mut self, write: BufferWrite<T>) -> Result<()> {
         let Commands {
             device,
@@ -431,11 +460,16 @@ impl Commands<'_> {
             ..
         } = self;
 
-        let Device { logical_device, .. } = device;
+        let Device {
+            logical_device,
+            descriptor_set,
+            ..
+        } = device;
 
         let Pipeline {
             pipeline,
             bind_point,
+            layout,
             ..
         } = pipeline;
 
@@ -443,6 +477,17 @@ impl Commands<'_> {
 
         unsafe {
             logical_device.cmd_bind_pipeline(**command_buffer, bind_point, *pipeline);
+        }
+
+        unsafe {
+            logical_device.cmd_bind_descriptor_sets(
+                **command_buffer,
+                bind_point,
+                *layout,
+                0,
+                &[*descriptor_set],
+                &[],
+            );
         }
 
         Ok(())

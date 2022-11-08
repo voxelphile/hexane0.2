@@ -1,8 +1,10 @@
+use crate::memory;
 use crate::prelude::*;
 
 use std::borrow;
 use std::default::default;
 use std::ffi;
+use std::mem;
 use std::os::raw;
 use std::sync::Mutex;
 
@@ -17,7 +19,7 @@ use raw_window_handle::{
 
 const API_VERSION: u32 = vk::make_api_version(0, 1, 3, 0);
 
-const DESCRIPTOR_COUNT: u32 = 64;
+pub(crate) const DESCRIPTOR_COUNT: u32 = 64;
 
 unsafe extern "system" fn debug_callback(
     message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
@@ -270,21 +272,44 @@ impl Context {
 
         let extensions = [khr::Swapchain::name()];
 
-        let mut indexing_features = vk::PhysicalDeviceDescriptorIndexingFeatures {
-            descriptor_binding_partially_bound: true as _,
-            descriptor_binding_update_unused_while_pending: true as _,
-            descriptor_binding_storage_buffer_update_after_bind: true as _,
-            descriptor_binding_storage_image_update_after_bind: true as _,
-            descriptor_binding_sampled_image_update_after_bind: true as _,
+        let mut buffer_address_features = vk::PhysicalDeviceBufferDeviceAddressFeatures {
+            buffer_device_address: true as _,
             ..default()
         };
 
-        let mut features = {
+        let mut indexing_features = {
+            let p_next = &mut buffer_address_features as *mut _ as *mut _;
+
+            vk::PhysicalDeviceDescriptorIndexingFeatures {
+                p_next,
+                descriptor_binding_partially_bound: true as _,
+                descriptor_binding_update_unused_while_pending: true as _,
+                descriptor_binding_storage_buffer_update_after_bind: true as _,
+                descriptor_binding_storage_image_update_after_bind: true as _,
+                descriptor_binding_sampled_image_update_after_bind: true as _,
+                ..default()
+            }
+        };
+
+        let mut dynamic_rendering_features = {
             let p_next = &mut indexing_features as *mut _ as *mut _;
+
+            vk::PhysicalDeviceDynamicRenderingFeatures {
+                p_next,
+                dynamic_rendering: true as _,
+                ..default()
+            }
+        };
+
+        let mut features = {
+            let p_next = &mut dynamic_rendering_features as *mut _ as *mut _;
 
             vk::PhysicalDeviceFeatures2 {
                 p_next,
-                features: info.features.into(),
+                features: vk::PhysicalDeviceFeatures {
+                    shader_int64: true as _,
+                    ..info.features.into()
+                },
                 ..default()
             }
         };
@@ -309,18 +334,8 @@ impl Context {
         let enabled_extension_names = extensions.iter().map(|s| s.as_ptr()).collect::<Vec<_>>();
         let enabled_extension_count = enabled_extension_names.len() as u32;
 
-        let mut dynamic_rendering_feature = {
-            let p_next = &mut features as *mut _ as *mut _;
-
-            vk::PhysicalDeviceDynamicRenderingFeatures {
-                p_next,
-                dynamic_rendering: true as _,
-                ..default()
-            }
-        };
-
         let device_create_info = {
-            let p_next = &mut dynamic_rendering_feature as *mut _ as *mut _;
+            let p_next = &mut features as *mut _ as *mut _;
 
             let queue_create_info_count = device_queue_create_infos.len() as _;
             let p_queue_create_infos = device_queue_create_infos.as_ptr();
@@ -362,6 +377,10 @@ impl Context {
             vk::DescriptorPoolSize {
                 ty: vk::DescriptorType::STORAGE_BUFFER,
                 descriptor_count: DESCRIPTOR_COUNT,
+            },
+            vk::DescriptorPoolSize {
+                ty: vk::DescriptorType::STORAGE_BUFFER,
+                descriptor_count: 1,
             },
         ];
 
@@ -416,11 +435,18 @@ impl Context {
                 stage_flags: vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
                 ..default()
             },
+            vk::DescriptorSetLayoutBinding {
+                binding: 4,
+                descriptor_type: vk::DescriptorType::STORAGE_BUFFER,
+                descriptor_count: 1,
+                stage_flags: vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+                ..default()
+            },
         ];
 
         let binding_flags = [vk::DescriptorBindingFlags::UPDATE_UNUSED_WHILE_PENDING
             | vk::DescriptorBindingFlags::PARTIALLY_BOUND
-            | vk::DescriptorBindingFlags::UPDATE_AFTER_BIND; 4];
+            | vk::DescriptorBindingFlags::UPDATE_AFTER_BIND; 5];
 
         let descriptor_set_layout_binding_flags_create_info = {
             let binding_count = binding_flags.len() as u32;
@@ -476,6 +502,88 @@ impl Context {
             unsafe { logical_device.allocate_descriptor_sets(&descriptor_set_allocate_info) }
                 .map_err(|_| Error::Creation)?[0];
 
+        let allocation_size = (DESCRIPTOR_COUNT * mem::size_of::<u64>() as u32) as u64;
+
+        let staging_address_buffer = {
+            let buffer_create_info = vk::BufferCreateInfo {
+                size: allocation_size as _,
+                usage: vk::BufferUsageFlags::TRANSFER_SRC,
+                sharing_mode: vk::SharingMode::EXCLUSIVE,
+                ..default()
+            };
+
+            unsafe { logical_device.create_buffer(&buffer_create_info, None) }
+                .map_err(|_| Error::Creation)?
+        };
+
+        let staging_address_memory = {
+            let memory_requirements =
+                unsafe { logical_device.get_buffer_memory_requirements(staging_address_buffer) };
+
+            let memory_properties =
+                unsafe { instance.get_physical_device_memory_properties(physical_device) };
+
+            let memory_type_index = memory::type_index(
+                &memory_requirements,
+                &memory_properties,
+                Memory::HOST_ACCESS.into(),
+            )?;
+
+            let memory_allocate_info = vk::MemoryAllocateInfo {
+                allocation_size,
+                memory_type_index,
+                ..default()
+            };
+
+            unsafe { logical_device.allocate_memory(&memory_allocate_info, None) }
+                .map_err(|_| Error::Creation)?
+        };
+
+        unsafe {
+            logical_device.bind_buffer_memory(staging_address_buffer, staging_address_memory, 0)
+        }
+        .map_err(|_| Error::Creation)?;
+
+        let general_address_buffer = {
+            let buffer_create_info = vk::BufferCreateInfo {
+                size: allocation_size as _,
+                usage: vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::STORAGE_BUFFER,
+                sharing_mode: vk::SharingMode::EXCLUSIVE,
+                ..default()
+            };
+
+            unsafe { logical_device.create_buffer(&buffer_create_info, None) }
+                .map_err(|_| Error::Creation)?
+        };
+
+        let general_address_memory = {
+            let memory_requirements =
+                unsafe { logical_device.get_buffer_memory_requirements(general_address_buffer) };
+
+            let memory_properties =
+                unsafe { instance.get_physical_device_memory_properties(physical_device) };
+
+            let memory_type_index = memory::type_index(
+                &memory_requirements,
+                &memory_properties,
+                Memory::empty().into(),
+            )?;
+
+            let memory_allocate_info = vk::MemoryAllocateInfo {
+                allocation_size,
+                memory_type_index,
+                ..default()
+            };
+
+            unsafe { logical_device.allocate_memory(&memory_allocate_info, None) }
+                .map_err(|_| Error::Creation)?
+        };
+
+        unsafe {
+            logical_device.bind_buffer_memory(general_address_buffer, general_address_memory, 0)
+        }
+        .map_err(|_| Error::Creation)?;
+
         let command_pool_create_info = vk::CommandPoolCreateInfo {
             flags: vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER,
             queue_family_index,
@@ -499,6 +607,10 @@ impl Context {
             descriptor_set_layout,
             resources,
             command_pool,
+            staging_address_buffer,
+            staging_address_memory,
+            general_address_buffer,
+            general_address_memory,
         })
     }
 }

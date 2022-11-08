@@ -51,16 +51,17 @@ pub(crate) struct InternalBuffer {
 }
 
 #[derive(Clone, Copy)]
-pub struct Buffer(pub(crate) usize);
+#[repr(transparent)]
+pub struct Buffer(pub(crate) u32);
 
-impl From<Buffer> for usize {
+impl From<Buffer> for u32 {
     fn from(handle: Buffer) -> Self {
         handle.0
     }
 }
 
-impl From<usize> for Buffer {
-    fn from(handle: usize) -> Self {
+impl From<u32> for Buffer {
+    fn from(handle: u32) -> Self {
         Self(handle)
     }
 }

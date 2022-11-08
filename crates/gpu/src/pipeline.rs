@@ -375,14 +375,26 @@ impl PipelineCompiler<'_> {
 
         let set_layouts = [*descriptor_set_layout];
 
+        let push_constant = vk::PushConstantRange {
+            stage_flags: vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+            offset: 0,
+            size: 128,
+        };
+
         let layout_create_info = {
             let set_layout_count = set_layouts.len() as u32;
 
             let p_set_layouts = set_layouts.as_ptr();
 
+            let push_constant_range_count = 1;
+
+            let p_push_constant_ranges = &push_constant as *const _;
+
             vk::PipelineLayoutCreateInfo {
                 set_layout_count,
                 p_set_layouts,
+                push_constant_range_count,
+                p_push_constant_ranges,
                 ..default()
             }
         };
@@ -439,6 +451,7 @@ impl PipelineCompiler<'_> {
         Ok(Pipeline {
             compiler: &self,
             pipeline,
+            layout,
             bind_point: PipelineBindPoint::Graphics,
         })
     }
@@ -847,5 +860,6 @@ impl From<PipelineBindPoint> for vk::PipelineBindPoint {
 pub struct Pipeline<'a> {
     pub(crate) compiler: &'a PipelineCompiler<'a>,
     pub(crate) pipeline: vk::Pipeline,
+    pub(crate) layout: vk::PipelineLayout,
     pub(crate) bind_point: PipelineBindPoint,
 }
