@@ -251,7 +251,7 @@ impl ops::FnMut<()> for Executable<'_> {
                     ..default()
                 }
             };
-            
+
             let write_descriptor_set2 = {
                 let p_buffer_info = descriptor_buffer_infos.as_ptr();
 
@@ -266,7 +266,8 @@ impl ops::FnMut<()> for Executable<'_> {
             };
 
             unsafe {
-                logical_device.update_descriptor_sets(&[write_descriptor_set1, write_descriptor_set2], &[]);
+                logical_device
+                    .update_descriptor_sets(&[write_descriptor_set1, write_descriptor_set2], &[]);
             }
         }
 

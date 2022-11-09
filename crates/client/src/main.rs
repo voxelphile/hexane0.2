@@ -2,7 +2,12 @@
 #![feature(box_syntax)]
 #![feature(default_free_fn)]
 
+mod camera;
+
+use crate::camera::Camera;
+
 use gpu::prelude::*;
+use math::prelude::*;
 
 use std::cell::Cell;
 use std::default::default;
@@ -150,6 +155,14 @@ fn main() {
         })
         .expect("failed to create buffer");
 
+    let camera_buffer = device
+        .create_buffer(BufferInfo {
+            size: 1024,
+            debug_name: "Color Buffer",
+            ..default()
+        })
+        .expect("failed to create buffer");
+
     let acquire_semaphore = device
         .create_binary_semaphore(BinarySemaphoreInfo {
             debug_name: "Acquire Semaphore",
@@ -172,8 +185,17 @@ fn main() {
     ];
     let indices = [0u32, 1, 2];
 
+    let mut camera = Cell::new(Camera {
+        fov: 90.0 * std::f32::consts::PI / 360.0,
+        clip: (0.1, 1000.0),
+        aspect_ratio: width as f32 / height as f32,
+        position: default(),
+        rotation: default(),
+    });
+
     let general_buffer = || general_buffer;
     let color_buffer = || color_buffer;
+    let camera_buffer = || camera_buffer;
     let staging_buffer = || staging_buffer;
 
     let present_image = || {
@@ -188,17 +210,67 @@ fn main() {
     let mut executable: Option<Executable<'_>> = None;
 
     event_loop.run_return(|event, _, control_flow| {
-        *control_flow = ControlFlow::Wait;
+        *control_flow = ControlFlow::Poll;
 
         match event {
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
                 window_id,
             } if window_id == window.id() => *control_flow = ControlFlow::Exit,
-            Event::RedrawRequested(window_id) => {
-                println!("yo");
+            Event::MainEventsCleared => {
+
+                let mut executor = device.create_executor(default());
+
+                record(Record {
+                    executor: &mut executor,
+                    swapchain: swapchain.get(),
+                    vertices: &vertices,
+                    indices: &indices,
+                    acquire_semaphore: &acquire_semaphore,
+                    present_semaphore: &present_semaphore,
+                    pipeline: &pipeline,
+                    present_image: &present_image,
+                    general_buffer: &general_buffer,
+                    staging_buffer: &staging_buffer,
+                    color_buffer: &color_buffer,
+                    camera_buffer: &camera_buffer,
+                    colors: &colors,
+                    camera: camera.get(),
+                    resolution,
+                });
+
+                executable = Some(executor.complete().expect("failed to complete executor"));
                 (executable.as_mut().unwrap())();
-                println!("bo");
+            }
+            Event::WindowEvent {
+                event: WindowEvent::KeyboardInput { input, .. },
+                window_id,
+            } => {
+                let Some(key_code) = input.virtual_keycode else {
+                    return;
+                };
+
+                use winit::event::VirtualKeyCode::*;
+
+                let mut position = camera.get().position;
+
+                match key_code {
+                    W => position += Vector::<f32, 3>::new([0.0, 0.0, 1.0]), 
+                    A => position += Vector::<f32, 3>::new([-1.0, 0.0, 0.0]), 
+                    S => position += Vector::<f32, 3>::new([0.0, 0.0, -1.0]), 
+                    D => position += Vector::<f32, 3>::new([1.0, 0.0, 0.0]), 
+                    Space => position += Vector::<f32, 3>::new([0.0, 1.0, 0.0]), 
+                    LShift => position += Vector::<f32, 3>::new([0.0, -1.0, 0.0]), 
+                    _ => {}
+                }
+
+                println!("{:?}", position);
+
+                camera.set(Camera {
+                    position,
+                    ..camera.get()
+                });
+
             }
             Event::WindowEvent {
                 event: WindowEvent::Resized(size),
@@ -219,6 +291,11 @@ fn main() {
                         .expect("failed to create swapchain"),
                 );
 
+                camera.set(Camera {
+                    aspect_ratio: width as f32 / height as f32,
+                    ..camera.get()
+                });
+
                 let mut executor = device.create_executor(default());
 
                 record(Record {
@@ -233,7 +310,9 @@ fn main() {
                     general_buffer: &general_buffer,
                     staging_buffer: &staging_buffer,
                     color_buffer: &color_buffer,
+                    camera_buffer: &camera_buffer,
                     colors: &colors,
+                    camera: camera.get(),
                     resolution,
                 });
 
@@ -253,10 +332,12 @@ struct Record<'a, 'b: 'a> {
     pub vertices: &'b [Vertex],
     pub indices: &'b [Index],
     pub colors: &'b [Color],
+    pub camera: Camera,
     pub present_image: &'b dyn ops::Fn() -> Image,
     pub general_buffer: &'b dyn ops::Fn() -> Buffer,
     pub staging_buffer: &'b dyn ops::Fn() -> Buffer,
     pub color_buffer: &'b dyn ops::Fn() -> Buffer,
+    pub camera_buffer: &'b dyn ops::Fn() -> Buffer,
     pub acquire_semaphore: &'b BinarySemaphore<'b>,
     pub present_semaphore: &'b BinarySemaphore<'b>,
     pub pipeline: &'b Pipeline<'b>,
@@ -268,9 +349,11 @@ struct Update<'a, 'b: 'a> {
     pub vertices: &'b [Vertex],
     pub indices: &'b [Index],
     pub colors: &'b [Color],
+    pub camera: Camera,
     pub general_buffer: &'b dyn ops::Fn() -> Buffer,
     pub staging_buffer: &'b dyn ops::Fn() -> Buffer,
     pub color_buffer: &'b dyn ops::Fn() -> Buffer,
+    pub camera_buffer: &'b dyn ops::Fn() -> Buffer,
 }
 
 struct Draw<'a, 'b: 'a> {
@@ -279,14 +362,24 @@ struct Draw<'a, 'b: 'a> {
     pub present_image: &'b dyn ops::Fn() -> Image,
     pub general_buffer: &'b dyn ops::Fn() -> Buffer,
     pub color_buffer: &'b dyn ops::Fn() -> Buffer,
+    pub camera_buffer: &'b dyn ops::Fn() -> Buffer,
     pub pipeline: &'b Pipeline<'b>,
     pub indices: &'b [Index],
 }
 
 #[derive(Clone, Copy)]
 #[repr(C)]
+struct CameraInfo {
+    projection: Matrix<f32, 4, 4>,
+    transform: Matrix<f32, 4, 4>,
+    view: Matrix<f32, 4, 4>,
+}
+
+#[derive(Clone, Copy)]
+#[repr(C)]
 pub struct Push {
     pub color_buffer: Buffer,
+    pub camera_buffer: Buffer,
 }
 
 fn record<'a, 'b: 'a>(record: Record<'a, 'b>) {
@@ -296,9 +389,11 @@ fn record<'a, 'b: 'a>(record: Record<'a, 'b>) {
         vertices,
         indices,
         colors,
+        camera,
         general_buffer,
         staging_buffer,
         color_buffer,
+        camera_buffer,
         present_image,
         pipeline,
         acquire_semaphore,
@@ -311,9 +406,11 @@ fn record<'a, 'b: 'a>(record: Record<'a, 'b>) {
         vertices: &vertices,
         indices: &indices,
         colors: &colors,
+        camera,
         general_buffer,
         staging_buffer,
         color_buffer,
+        camera_buffer,
     });
 
     record_draw(Draw {
@@ -324,6 +421,7 @@ fn record<'a, 'b: 'a>(record: Record<'a, 'b>) {
         general_buffer,
         resolution,
         color_buffer,
+        camera_buffer,
     });
 
     executor.submit(Submit {
@@ -345,6 +443,7 @@ fn record_draw<'a, 'b: 'a>(draw: Draw<'a, 'b>) {
         present_image,
         general_buffer,
         color_buffer,
+        camera_buffer,
         resolution,
         indices,
         pipeline,
@@ -354,6 +453,7 @@ fn record_draw<'a, 'b: 'a>(draw: Draw<'a, 'b>) {
         resources: [
             Image(present_image, ImageAccess::ColorAttachment),
             Buffer(color_buffer, BufferAccess::ShaderReadOnly),
+            Buffer(camera_buffer, BufferAccess::ShaderReadOnly),
         ],
         task: move |commands| {
             let (width, height) = resolution;
@@ -391,6 +491,7 @@ fn record_draw<'a, 'b: 'a>(draw: Draw<'a, 'b>) {
             commands.push_constant(PushConstant {
                 data: Push {
                     color_buffer: (color_buffer)(),
+                    camera_buffer: (camera_buffer)(),
                 },
                 pipeline: &pipeline,
             });
@@ -422,10 +523,45 @@ fn record_update<'a, 'b: 'a>(update: Update<'a, 'b>) {
         staging_buffer,
         general_buffer,
         color_buffer,
+        camera_buffer,
         vertices,
         indices,
         colors,
+        camera,
     } = update;
+    
+    let camera_info = CameraInfo {
+        projection: camera.projection(),
+        view: camera.view(),
+        transform: camera.transform(),
+    };
+
+    executor.add(Task {
+        resources: [Buffer(staging_buffer, BufferAccess::HostTransferWrite)],
+        task: move |commands| {
+            commands.write_buffer(BufferWrite {
+                buffer: 0,
+                offset: 0,
+                src: &[camera_info],
+            })
+        },
+    });
+
+    executor.add(Task {
+        resources: [
+            Buffer(staging_buffer, BufferAccess::TransferRead),
+            Buffer(camera_buffer, BufferAccess::TransferWrite),
+        ],
+        task: move |commands| {
+            commands.copy_buffer_to_buffer(BufferCopy {
+                from: 0,
+                to: 1,
+                src: 0,
+                dst: 0,
+                size: 1024,
+            })
+        },
+    });
 
     executor.add(Task {
         resources: [Buffer(staging_buffer, BufferAccess::HostTransferWrite)],
@@ -453,4 +589,5 @@ fn record_update<'a, 'b: 'a>(update: Update<'a, 'b>) {
             })
         },
     });
+
 }

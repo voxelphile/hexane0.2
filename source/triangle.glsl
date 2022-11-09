@@ -17,8 +17,18 @@ DECL_BUFFER_STRUCT(
 	}
 )
 
+DECL_BUFFER_STRUCT(
+	CameraBuffer,
+	{
+		mat4 projection;
+		mat4 transform;
+		mat4 view;
+	}
+)
+
 struct Push {
 	BufferId color_buffer_id;
+	BufferId camera_buffer_id;
 };
 
 USE_PUSH_CONSTANT(Push)
@@ -26,8 +36,12 @@ USE_PUSH_CONSTANT(Push)
 layout(location = 0) out vec4 color;
 
 void main() {
-	color = buffer_id_to_ref(ColorBuffer, BufferRef, push_constant.color_buffer_id).colors[gl_VertexIndex];
-	gl_Position = vec4(positions[gl_VertexIndex], 0.5, 1.0);
+	BufferRef(CameraBuffer) camera_buffer = buffer_id_to_ref(CameraBuffer, BufferRef, push_constant.camera_buffer_id);
+	BufferRef(ColorBuffer) color_buffer = buffer_id_to_ref(ColorBuffer, BufferRef, push_constant.color_buffer_id);
+	
+	color = color_buffer.colors[gl_VertexIndex];
+
+	gl_Position = camera_buffer.projection * camera_buffer.view * vec4(positions[gl_VertexIndex], 0.5, 1.0);
 }
 
 #elif defined fragment
