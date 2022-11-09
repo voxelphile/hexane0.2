@@ -29,6 +29,7 @@ impl Camera {
         projection[2][2] = far / (near - far);
         projection[2][3] = -1.0;
         projection[3][2] = (near * far) / (near - far);
+
         projection
     }
 

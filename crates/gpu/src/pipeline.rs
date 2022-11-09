@@ -187,7 +187,6 @@ impl ShaderCompiler {
     }
 }
 
-#[cfg(target_os = "windows")]
 lazy_static! {
     static ref CURRENT_PATH: path::PathBuf =
         env::current_dir().expect("failed to get current directory");

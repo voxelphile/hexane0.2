@@ -21,6 +21,9 @@ use raw_window_handle::{
 #[cfg(target_os = "windows")]
 use raw_window_handle::{Win32WindowHandle, WindowsDisplayHandle};
 
+#[cfg(target_os = "linux")]
+use raw_window_handle::{XlibDisplayHandle, XlibWindowHandle};
+
 pub fn default_device_selector(details: Details) -> usize {
     let mut score = 0;
 
@@ -148,6 +151,10 @@ impl Default for DeviceInfo<'_> {
             display: RawDisplayHandle::Windows(WindowsDisplayHandle::empty()),
             #[cfg(target_os = "windows")]
             window: RawWindowHandle::Win32(Win32WindowHandle::empty()),
+            #[cfg(target_os = "linux")]
+            display: RawDisplayHandle::Xlib(XlibDisplayHandle::empty()),
+            #[cfg(target_os = "linux")]
+            window: RawWindowHandle::Xlib(XlibWindowHandle::empty()),
             selector: &default_device_selector,
             features: Default::default(),
             debug_name: "Device",

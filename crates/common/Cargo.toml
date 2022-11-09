@@ -1,15 +1,9 @@
 [package]
-name = "client"
+name = "common"
 version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-gpu = { path = "../gpu" }
 math = { path = "../math" }
-common = { path = "../common" }
-
-winit = "*"
-raw-window-handle = "0.5.0"
-
