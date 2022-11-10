@@ -356,104 +356,66 @@ impl MeshGenerator for SparseOctree<Voxel> {
                         continue;
                     };
 
-                    let neighbor_order = (-1isize..=1);
+                    let mut quad = |a, b, c, d| {
+                        let v = [
+                            Vector::new([-0.5, -0.5, 0.5]),
+                            Vector::new([-0.5, 0.5, 0.5]),
+                            Vector::new([0.5, 0.5, 0.5]),
+                            Vector::new([0.5, -0.5, 0.5]),
+                            Vector::new([-0.5, -0.5, -0.5]),
+                            Vector::new([-0.5, 0.5, -0.5]),
+                            Vector::new([0.5, 0.5, -0.5]),
+                            Vector::new([0.5, -0.5, -0.5]),
+                        ];
 
-                    dbg!("yo");
-                    for i in neighbor_order.clone() {
-                        for j in neighbor_order.clone() {
-                            for k in neighbor_order.clone() {
-                                if isize::abs(i) + isize::abs(j) + isize::abs(k) != 1 {
-                                    continue;
-                                }
-                                dbg!((i, j, k));
-                                let (a, b, c) = (
-                                    (x as isize + i) as usize,
-                                    (y as isize + j) as usize,
-                                    (z as isize + k) as usize,
-                                );
+                        let q = vertices.len();
 
-                                let hierarchy = self.get_position_hierarchy(a, b, c);
+                        vertices.push(Vertex { position: v[a] });
+                        vertices.push(Vertex { position: v[b] });
+                        vertices.push(Vertex { position: v[c] });
+                        vertices.push(Vertex { position: v[d] });
 
-                                let Err(_) = self.get_node(&hierarchy) else {
-                                    continue;
-                                };
+                        indices.push((q + a) as u32);
+                        indices.push((q + b) as u32);
+                        indices.push((q + c) as u32);
+                        indices.push((q + a) as u32);
+                        indices.push((q + c) as u32);
+                        indices.push((q + d) as u32);
+                    };
 
-                                dbg!("y0");
+                    if z < self.size {
+                        if let Err(_) = self.get_node(&self.get_position_hierarchy(x, y, z + 1)) {
+                            quad(1, 0, 3, 2);
+                        }
+                    }
 
-                                let p1 = Vector::new([0.0, 0.0, 0.0, 1.0]);
-                                let p2 = Vector::new([0.0, 1.0, 0.0, 1.0]);
-                                let p3 = Vector::new([1.0, 1.0, 0.0, 1.0]);
-                                let p4 = Vector::new([1.0, 0.0, 0.0, 1.0]);
+                    if z > 0 {
+                        if let Err(_) = self.get_node(&self.get_position_hierarchy(x, y, z - 1)) {
+                            quad(4, 5, 6, 7);
+                        }
+                    }
 
-                                let uyz = Vector::new([j as f32, k as f32]);
-                                let vyz = Vector::new([0.0, 1.0]);
+                    if x < self.size {
+                        if let Err(_) = self.get_node(&self.get_position_hierarchy(x + 1, y, z)) {
+                            quad(5, 4, 0, 1);
+                        }
+                    }
 
-                                let uxz = Vector::new([i as f32, k as f32]);
-                                let vxz = Vector::new([0.0, 1.0]);
+                    if x > 0 {
+                        if let Err(_) = self.get_node(&self.get_position_hierarchy(x - 1, y, z)) {
+                            quad(2, 3, 7, 6);
+                        }
+                    }
 
-                                let uxy = Vector::new([i as f32, j as f32]);
-                                let vxy = Vector::new([0.0, 0.0]);
+                    if x < self.size {
+                        if let Err(_) = self.get_node(&self.get_position_hierarchy(x, y + 1, z)) {
+                            quad(6, 5, 1, 2);
+                        }
+                    }
 
-                                let rotation = Vector::new([
-                                    f32::acos(uyz.dot(vyz)),
-                                    f32::acos(uxz.dot(vxz)),
-                                    f32::acos(uxy.dot(vxy)),
-                                ]);
-
-                                let mut yaw = Matrix::<f32, 4, 4>::identity();
-
-                                yaw[0][0] = rotation[2].cos();
-                                yaw[1][0] = -rotation[2].sin();
-                                yaw[0][1] = rotation[2].sin();
-                                yaw[1][1] = rotation[2].cos();
-
-                                let mut pitch = Matrix::<f32, 4, 4>::identity();
-
-                                pitch[0][0] = rotation[1].cos();
-                                pitch[2][0] = rotation[1].sin();
-                                pitch[0][2] = -rotation[1].sin();
-                                pitch[2][2] = rotation[1].cos();
-
-                                let mut roll = Matrix::<f32, 4, 4>::identity();
-
-                                roll[1][1] = rotation[0].cos();
-                                roll[2][1] = -rotation[0].sin();
-                                roll[1][2] = rotation[0].sin();
-                                roll[2][2] = rotation[0].cos();
-
-                                let mut transform = yaw * pitch * roll;
-
-                                transform[3][0] = i as f32;
-                                transform[3][1] = j as f32;
-                                transform[3][2] = k as f32;
-
-                                let p1 = transform * p1;
-                                let p2 = transform * p2;
-                                let p3 = transform * p3;
-                                let p4 = transform * p4;
-
-                                let p1 = Vector::new([p1[0], p1[1], p1[2]]);
-                                let p2 = Vector::new([p2[0], p2[1], p2[2]]);
-                                let p3 = Vector::new([p3[0], p3[1], p3[2]]);
-                                let p4 = Vector::new([p4[0], p4[1], p4[2]]);
-
-                                vertices.push(Vertex { position: p1 });
-                                vertices.push(Vertex { position: p2 });
-                                vertices.push(Vertex { position: p3 });
-
-                                vertices.push(Vertex { position: p1 });
-                                vertices.push(Vertex { position: p3 });
-                                vertices.push(Vertex { position: p4 });
-
-                                let q = vertices.len() as u32;
-
-                                indices.push(q);
-                                indices.push(q + 1);
-                                indices.push(q + 2);
-                                indices.push(q + 3);
-                                indices.push(q + 4);
-                                indices.push(q + 5);
-                            }
+                    if x > 0 {
+                        if let Err(_) = self.get_node(&self.get_position_hierarchy(x, y - 1, z)) {
+                            quad(3, 0, 4, 7);
                         }
                     }
                 }
