@@ -1,4 +1,5 @@
 #![feature(default_free_fn)]
 
-mod octree;
-mod voxel;
+pub mod mesh;
+pub mod octree;
+pub mod voxel;

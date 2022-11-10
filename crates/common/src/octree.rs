@@ -1,3 +1,6 @@
+use crate::mesh::*;
+use crate::voxel::*;
+
 use math::prelude::*;
 
 use std::default::default;
@@ -222,6 +225,31 @@ impl<T: Eq + Copy + Default> SparseOctree<T> {
         &self.nodes
     }
 
+    pub fn get_node_or_parent(&self, hierarchy: &[u8]) -> Result<(&'_ Node<T>, usize), Error> {
+        let order = (0..hierarchy.len()).rev();
+
+        for i in order {
+            if let Ok(data) = self.get_node(&hierarchy[..i]) {
+                return Ok(data);
+            }
+        }
+
+        Err(Error::NodeNotFound)?
+    }
+
+    pub fn get_node_or_parent_mut(
+        &mut self,
+        hierarchy: &[u8],
+    ) -> Result<(&'_ mut Node<T>, usize), Error> {
+        let (_, index) = self.get_node_or_parent(&hierarchy)?;
+
+        let node = self
+            .get_node_by_index_mut(index)
+            .ok_or(Error::NodeNotFound)?;
+
+        Ok((node, index))
+    }
+
     pub fn get_node(&self, hierarchy: &[u8]) -> Result<(&'_ Node<T>, usize), Error> {
         let mut index = 0;
 
@@ -303,5 +331,135 @@ impl<T: Eq + Copy + Default> Default for Node<T> {
             morton: u64::MAX,
             data: default(),
         }
+    }
+}
+
+impl MeshGenerator for SparseOctree<Voxel> {
+    fn generate(&self, parameters: MeshParameters) -> Mesh {
+        let MeshParameters { boundary, lod } = parameters;
+
+        let Boundary { start, end } = boundary;
+
+        let [sx, sy, sz] = <[usize; 3]>::from(*start);
+        let [ex, ey, ez] = <[usize; 3]>::from(*end);
+
+        let mut vertices = vec![];
+
+        let mut indices = vec![];
+
+        for x in sx..ex {
+            for y in sy..ey {
+                for z in sz..ez {
+                    let hierarchy = self.get_position_hierarchy(x, y, z);
+
+                    let Ok(node) = self.get_node_or_parent(&hierarchy) else {
+                        continue;
+                    };
+
+                    let neighbor_order = (-1isize..=1);
+
+                    dbg!("yo");
+                    for i in neighbor_order.clone() {
+                        for j in neighbor_order.clone() {
+                            for k in neighbor_order.clone() {
+                                if isize::abs(i) + isize::abs(j) + isize::abs(k) != 1 {
+                                    continue;
+                                }
+                                dbg!((i, j, k));
+                                let (a, b, c) = (
+                                    (x as isize + i) as usize,
+                                    (y as isize + j) as usize,
+                                    (z as isize + k) as usize,
+                                );
+
+                                let hierarchy = self.get_position_hierarchy(a, b, c);
+
+                                let Err(_) = self.get_node(&hierarchy) else {
+                                    continue;
+                                };
+
+                                dbg!("y0");
+
+                                let p1 = Vector::new([0.0, 0.0, 0.0, 1.0]);
+                                let p2 = Vector::new([0.0, 1.0, 0.0, 1.0]);
+                                let p3 = Vector::new([1.0, 1.0, 0.0, 1.0]);
+                                let p4 = Vector::new([1.0, 0.0, 0.0, 1.0]);
+
+                                let uyz = Vector::new([j as f32, k as f32]);
+                                let vyz = Vector::new([0.0, 1.0]);
+
+                                let uxz = Vector::new([i as f32, k as f32]);
+                                let vxz = Vector::new([0.0, 1.0]);
+
+                                let uxy = Vector::new([i as f32, j as f32]);
+                                let vxy = Vector::new([0.0, 0.0]);
+
+                                let rotation = Vector::new([
+                                    f32::acos(uyz.dot(vyz)),
+                                    f32::acos(uxz.dot(vxz)),
+                                    f32::acos(uxy.dot(vxy)),
+                                ]);
+
+                                let mut yaw = Matrix::<f32, 4, 4>::identity();
+
+                                yaw[0][0] = rotation[2].cos();
+                                yaw[1][0] = -rotation[2].sin();
+                                yaw[0][1] = rotation[2].sin();
+                                yaw[1][1] = rotation[2].cos();
+
+                                let mut pitch = Matrix::<f32, 4, 4>::identity();
+
+                                pitch[0][0] = rotation[1].cos();
+                                pitch[2][0] = rotation[1].sin();
+                                pitch[0][2] = -rotation[1].sin();
+                                pitch[2][2] = rotation[1].cos();
+
+                                let mut roll = Matrix::<f32, 4, 4>::identity();
+
+                                roll[1][1] = rotation[0].cos();
+                                roll[2][1] = -rotation[0].sin();
+                                roll[1][2] = rotation[0].sin();
+                                roll[2][2] = rotation[0].cos();
+
+                                let mut transform = yaw * pitch * roll;
+
+                                transform[3][0] = i as f32;
+                                transform[3][1] = j as f32;
+                                transform[3][2] = k as f32;
+
+                                let p1 = transform * p1;
+                                let p2 = transform * p2;
+                                let p3 = transform * p3;
+                                let p4 = transform * p4;
+
+                                let p1 = Vector::new([p1[0], p1[1], p1[2]]);
+                                let p2 = Vector::new([p2[0], p2[1], p2[2]]);
+                                let p3 = Vector::new([p3[0], p3[1], p3[2]]);
+                                let p4 = Vector::new([p4[0], p4[1], p4[2]]);
+
+                                vertices.push(Vertex { position: p1 });
+                                vertices.push(Vertex { position: p2 });
+                                vertices.push(Vertex { position: p3 });
+
+                                vertices.push(Vertex { position: p1 });
+                                vertices.push(Vertex { position: p3 });
+                                vertices.push(Vertex { position: p4 });
+
+                                let q = vertices.len() as u32;
+
+                                indices.push(q);
+                                indices.push(q + 1);
+                                indices.push(q + 2);
+                                indices.push(q + 3);
+                                indices.push(q + 4);
+                                indices.push(q + 5);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Mesh::new(&vertices, &indices)
     }
 }

@@ -63,6 +63,27 @@ fn root_path() -> Option<path::PathBuf> {
 fn main() {
     println!("Hello, world!");
 
+    use common::mesh::*;
+    use common::octree::*;
+    use common::voxel::*;
+    use math::prelude::*;
+
+    let mut octree = SparseOctree::<Voxel>::new();
+
+    octree.place(Vector::new([0, 0, 0]), Voxel { id: Id::Dirt });
+
+    let mesh = octree.generate(MeshParameters {
+        boundary: Boundary {
+            start: Vector::new([0, 0, 0]),
+            end: Vector::new([1, 1, 1]),
+        },
+        lod: 1,
+    });
+
+    dbg!(&mesh.vertices());
+
+    unreachable!();
+
     let root_path = root_path().expect("failed to get root path");
 
     let source_path = root_path.join("source");
@@ -292,7 +313,7 @@ fn main() {
                     view: camera.get().view(),
                     transform: camera.get().transform(),
                 });
-        
+
                 (executable.as_mut().unwrap())();
             }
             Event::WindowEvent {
@@ -306,11 +327,11 @@ fn main() {
 
                     let x_diff = x - width as f64 / 2.0;
                     let y_diff = y - height as f64 / 2.0;
-            
+
                     window.set_cursor_position(winit::dpi::PhysicalPosition::new(
-                width as i32 / 2,
-                height as i32 / 2,
-            ));
+                        width as i32 / 2,
+                        height as i32 / 2,
+                    ));
 
                     let x_rot = -(y_diff * delta_time) / sens;
                     let y_rot = (x_diff * delta_time) / sens;
