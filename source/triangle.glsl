@@ -41,7 +41,7 @@ void main() {
 	
 	color = color_buffer.colors[gl_VertexIndex];
 
-	gl_Position = camera_buffer.projection * camera_buffer.view * vec4(positions[gl_VertexIndex], 0.5, 1.0);
+	gl_Position = camera_buffer.projection * camera_buffer.transform * vec4(positions[gl_VertexIndex], 0.0, 1.0);
 }
 
 #elif defined fragment

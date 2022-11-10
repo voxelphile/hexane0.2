@@ -15,6 +15,7 @@ use std::env;
 use std::mem;
 use std::ops;
 use std::path;
+use std::time;
 
 use winit::{
     event::{Event, WindowEvent},
@@ -193,6 +194,10 @@ fn main() {
         rotation: default(),
     });
 
+    let camera_info = Cell::new(default());
+
+    let mut game_input = Input::default();
+
     let general_buffer = || general_buffer;
     let color_buffer = || color_buffer;
     let camera_buffer = || camera_buffer;
@@ -207,10 +212,74 @@ fn main() {
             .unwrap()
     };
 
+    let sens = 1.0;
+    let speed = 10.0;
+
+    let mut cursor_captured = false;
+
     let mut executable: Option<Executable<'_>> = None;
+
+    let startup_instant = time::Instant::now();
+    let mut last_instant = startup_instant;
 
     event_loop.run_return(|event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
+
+        let current_instant = time::Instant::now();
+
+        let delta_time = current_instant.duration_since(last_instant).as_secs_f64();
+
+        last_instant = current_instant;
+
+        if cursor_captured {
+            let mut position = camera.get().position;
+
+            let pitch = camera.get().pitch();
+            let roll = camera.get().roll();
+
+            let mut movement = Vector::default();
+
+            let mut diff = Matrix::identity();
+
+            let mut direction = Vector::<f32, 3>::default();
+
+            direction[0] += game_input.right as u8 as f32;
+            direction[0] -= game_input.left as u8 as f32;
+            direction[1] += game_input.up as u8 as f32;
+            direction[1] -= game_input.down as u8 as f32;
+            direction[2] += game_input.forward as u8 as f32;
+            direction[2] -= game_input.backward as u8 as f32;
+
+            diff[3][0] = direction[0];
+            diff[3][2] = direction[2];
+
+            movement[1] = direction[1];
+
+            let diff = diff * roll * pitch;
+
+            let mut oriented_direction = Vector::<f32, 4>::new(*diff[3]);
+
+            oriented_direction[1] = 0.0;
+            oriented_direction[3] = 0.0;
+
+            oriented_direction = if oriented_direction.magnitude() > 0.0 {
+                oriented_direction.normalize()
+            } else {
+                oriented_direction
+            };
+
+            movement[0] = oriented_direction[0];
+            movement[2] = oriented_direction[2];
+
+            movement *= speed * delta_time as f32;
+
+            position += movement;
+
+            camera.set(Camera {
+                position,
+                ..camera.get()
+            });
+        }
 
         match event {
             Event::WindowEvent {
@@ -218,29 +287,66 @@ fn main() {
                 window_id,
             } if window_id == window.id() => *control_flow = ControlFlow::Exit,
             Event::MainEventsCleared => {
-
-                let mut executor = device.create_executor(default());
-
-                record(Record {
-                    executor: &mut executor,
-                    swapchain: swapchain.get(),
-                    vertices: &vertices,
-                    indices: &indices,
-                    acquire_semaphore: &acquire_semaphore,
-                    present_semaphore: &present_semaphore,
-                    pipeline: &pipeline,
-                    present_image: &present_image,
-                    general_buffer: &general_buffer,
-                    staging_buffer: &staging_buffer,
-                    color_buffer: &color_buffer,
-                    camera_buffer: &camera_buffer,
-                    colors: &colors,
-                    camera: camera.get(),
-                    resolution,
+                camera_info.set(CameraInfo {
+                    projection: camera.get().projection(),
+                    view: camera.get().view(),
+                    transform: camera.get().transform(),
                 });
-
-                executable = Some(executor.complete().expect("failed to complete executor"));
+        
                 (executable.as_mut().unwrap())();
+            }
+            Event::WindowEvent {
+                event: WindowEvent::CursorMoved { position, .. },
+                window_id,
+            } => {
+                if cursor_captured {
+                    let winit::dpi::PhysicalPosition { x, y } = position;
+
+                    let winit::dpi::PhysicalSize { width, height } = window.inner_size();
+
+                    let x_diff = x - width as f64 / 2.0;
+                    let y_diff = y - height as f64 / 2.0;
+            
+                    window.set_cursor_position(winit::dpi::PhysicalPosition::new(
+                width as i32 / 2,
+                height as i32 / 2,
+            ));
+
+                    let x_rot = -(y_diff * delta_time) / sens;
+                    let y_rot = (x_diff * delta_time) / sens;
+
+                    let mut rotation = camera.get().rotation;
+
+                    rotation[0] += x_rot as f32;
+                    rotation[1] += y_rot as f32;
+
+                    rotation[0] = rotation[0].clamp(
+                        -std::f32::consts::PI / 2.0 + 0.1,
+                        std::f32::consts::PI / 2.0 - 0.1,
+                    );
+
+                    camera.set(Camera {
+                        rotation,
+                        ..camera.get()
+                    });
+                }
+            }
+            Event::WindowEvent {
+                event: WindowEvent::MouseInput { button, .. },
+                window_id,
+            } => {
+                use winit::event::MouseButton::*;
+
+                match button {
+                    Left => {
+                        cursor_captured = true;
+                        window.set_cursor_icon(winit::window::CursorIcon::Crosshair);
+                        window
+                            .set_cursor_grab(winit::window::CursorGrabMode::Confined)
+                            .expect("could not grab mouse cursor");
+                    }
+                    _ => {}
+                }
             }
             Event::WindowEvent {
                 event: WindowEvent::KeyboardInput { input, .. },
@@ -252,25 +358,22 @@ fn main() {
 
                 use winit::event::VirtualKeyCode::*;
 
-                let mut position = camera.get().position;
-
                 match key_code {
-                    W => position += Vector::<f32, 3>::new([0.0, 0.0, 1.0]), 
-                    A => position += Vector::<f32, 3>::new([-1.0, 0.0, 0.0]), 
-                    S => position += Vector::<f32, 3>::new([0.0, 0.0, -1.0]), 
-                    D => position += Vector::<f32, 3>::new([1.0, 0.0, 0.0]), 
-                    Space => position += Vector::<f32, 3>::new([0.0, 1.0, 0.0]), 
-                    LShift => position += Vector::<f32, 3>::new([0.0, -1.0, 0.0]), 
+                    W => game_input.forward = input.state == winit::event::ElementState::Pressed,
+                    A => game_input.left = input.state == winit::event::ElementState::Pressed,
+                    S => game_input.backward = input.state == winit::event::ElementState::Pressed,
+                    D => game_input.right = input.state == winit::event::ElementState::Pressed,
+                    Space => game_input.up = input.state == winit::event::ElementState::Pressed,
+                    LShift => game_input.down = input.state == winit::event::ElementState::Pressed,
+                    Escape => {
+                        cursor_captured = false;
+                        window.set_cursor_icon(winit::window::CursorIcon::Default);
+                        window
+                            .set_cursor_grab(winit::window::CursorGrabMode::None)
+                            .expect("could not grab mouse cursor");
+                    }
                     _ => {}
-                }
-
-                println!("{:?}", position);
-
-                camera.set(Camera {
-                    position,
-                    ..camera.get()
-                });
-
+                };
             }
             Event::WindowEvent {
                 event: WindowEvent::Resized(size),
@@ -312,7 +415,7 @@ fn main() {
                     color_buffer: &color_buffer,
                     camera_buffer: &camera_buffer,
                     colors: &colors,
-                    camera: camera.get(),
+                    camera_info: &camera_info,
                     resolution,
                 });
 
@@ -332,7 +435,7 @@ struct Record<'a, 'b: 'a> {
     pub vertices: &'b [Vertex],
     pub indices: &'b [Index],
     pub colors: &'b [Color],
-    pub camera: Camera,
+    pub camera_info: &'b Cell<CameraInfo>,
     pub present_image: &'b dyn ops::Fn() -> Image,
     pub general_buffer: &'b dyn ops::Fn() -> Buffer,
     pub staging_buffer: &'b dyn ops::Fn() -> Buffer,
@@ -349,7 +452,7 @@ struct Update<'a, 'b: 'a> {
     pub vertices: &'b [Vertex],
     pub indices: &'b [Index],
     pub colors: &'b [Color],
-    pub camera: Camera,
+    pub camera_info: &'b Cell<CameraInfo>,
     pub general_buffer: &'b dyn ops::Fn() -> Buffer,
     pub staging_buffer: &'b dyn ops::Fn() -> Buffer,
     pub color_buffer: &'b dyn ops::Fn() -> Buffer,
@@ -367,12 +470,22 @@ struct Draw<'a, 'b: 'a> {
     pub indices: &'b [Index],
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default, Debug)]
 #[repr(C)]
 struct CameraInfo {
     projection: Matrix<f32, 4, 4>,
     transform: Matrix<f32, 4, 4>,
     view: Matrix<f32, 4, 4>,
+}
+
+#[derive(Clone, Copy, Default, Debug)]
+struct Input {
+    forward: bool,
+    backward: bool,
+    left: bool,
+    right: bool,
+    up: bool,
+    down: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -389,7 +502,7 @@ fn record<'a, 'b: 'a>(record: Record<'a, 'b>) {
         vertices,
         indices,
         colors,
-        camera,
+        camera_info,
         general_buffer,
         staging_buffer,
         color_buffer,
@@ -406,7 +519,7 @@ fn record<'a, 'b: 'a>(record: Record<'a, 'b>) {
         vertices: &vertices,
         indices: &indices,
         colors: &colors,
-        camera,
+        camera_info: &camera_info,
         general_buffer,
         staging_buffer,
         color_buffer,
@@ -527,14 +640,8 @@ fn record_update<'a, 'b: 'a>(update: Update<'a, 'b>) {
         vertices,
         indices,
         colors,
-        camera,
+        camera_info,
     } = update;
-    
-    let camera_info = CameraInfo {
-        projection: camera.projection(),
-        view: camera.view(),
-        transform: camera.transform(),
-    };
 
     executor.add(Task {
         resources: [Buffer(staging_buffer, BufferAccess::HostTransferWrite)],
@@ -542,7 +649,7 @@ fn record_update<'a, 'b: 'a>(update: Update<'a, 'b>) {
             commands.write_buffer(BufferWrite {
                 buffer: 0,
                 offset: 0,
-                src: &[camera_info],
+                src: &[camera_info.get()],
             })
         },
     });
@@ -558,7 +665,7 @@ fn record_update<'a, 'b: 'a>(update: Update<'a, 'b>) {
                 to: 1,
                 src: 0,
                 dst: 0,
-                size: 1024,
+                size: mem::size_of::<CameraInfo>(),
             })
         },
     });
@@ -568,7 +675,7 @@ fn record_update<'a, 'b: 'a>(update: Update<'a, 'b>) {
         task: move |commands| {
             commands.write_buffer(BufferWrite {
                 buffer: 0,
-                offset: 0,
+                offset: 65536,
                 src: colors,
             })
         },
@@ -583,11 +690,10 @@ fn record_update<'a, 'b: 'a>(update: Update<'a, 'b>) {
             commands.copy_buffer_to_buffer(BufferCopy {
                 from: 0,
                 to: 1,
-                src: 0,
+                src: 65536,
                 dst: 0,
                 size: 1024,
             })
         },
     });
-
 }

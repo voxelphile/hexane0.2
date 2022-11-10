@@ -201,7 +201,7 @@ impl Commands<'_> {
         }
         .map_err(|_| Error::MemoryMapFailed)?;
 
-        unsafe { slice::from_raw_parts_mut(dst as *mut _, src.len()) }.copy_from_slice(src);
+        unsafe { slice::from_raw_parts_mut(dst as *mut T, src.len()) }.copy_from_slice(src);
 
         unsafe {
             logical_device.unmap_memory(*memory);
@@ -223,9 +223,9 @@ impl Commands<'_> {
 
         let viewport = vk::Viewport {
             x: 0.0,
-            y: 0.0,
-            width: width as _,
-            height: height as _,
+            y: height as f32,
+            width: width as f32,
+            height: -(height as f32),
             min_depth: 0.0,
             max_depth: 1.0,
         };

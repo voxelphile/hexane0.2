@@ -26,9 +26,9 @@ impl Camera {
 
         projection[0][0] = focal_length / aspect_ratio;
         projection[1][1] = -focal_length;
-        projection[2][2] = far / (near - far);
+        projection[2][2] = near / (far - near);
         projection[2][3] = -1.0;
-        projection[3][2] = (near * far) / (near - far);
+        projection[3][2] = (near * far) / (far - near);
 
         projection
     }
@@ -44,33 +44,53 @@ impl Camera {
 
         let mut transform = Matrix::identity();
 
-        transform[3][0] = position[0];
+        transform[3][0] = -position[0];
         transform[3][1] = position[1];
         transform[3][2] = position[2];
 
+        transform = transform * self.yaw();
+        transform = transform * self.pitch();
+        transform = transform * self.roll();
+
+        transform
+    }
+
+    pub fn yaw(&self) -> Matrix<f32, 4, 4> {
+        let Camera { rotation, .. } = self;
+
         let mut yaw = Matrix::<f32, 4, 4>::identity();
-        let mut pitch = Matrix::<f32, 4, 4>::identity();
-        let mut roll = Matrix::<f32, 4, 4>::identity();
 
         yaw[0][0] = rotation[2].cos();
         yaw[1][0] = -rotation[2].sin();
-        yaw[0][1] = rotation[1].sin();
-        yaw[1][1] = rotation[1].cos();
+        yaw[0][1] = rotation[2].sin();
+        yaw[1][1] = rotation[2].cos();
+
+        yaw
+    }
+
+    pub fn pitch(&self) -> Matrix<f32, 4, 4> {
+        let Camera { rotation, .. } = self;
+
+        let mut pitch = Matrix::<f32, 4, 4>::identity();
 
         pitch[0][0] = rotation[1].cos();
         pitch[2][0] = rotation[1].sin();
         pitch[0][2] = -rotation[1].sin();
         pitch[2][2] = rotation[1].cos();
 
+        pitch
+    }
+
+    pub fn roll(&self) -> Matrix<f32, 4, 4> {
+        let Camera { rotation, .. } = self;
+
+        let mut roll = Matrix::<f32, 4, 4>::identity();
+
         roll[1][1] = rotation[0].cos();
         roll[2][1] = -rotation[0].sin();
         roll[1][2] = rotation[0].sin();
         roll[2][2] = rotation[0].cos();
 
-        transform = transform * yaw;
-        transform = transform * pitch;
-        transform = transform * roll;
-
-        transform
+        roll
     }
 }
