@@ -4,11 +4,11 @@
 
 #ifdef vertex
 
-vec2 positions[3] = vec2[](
-    	vec2(0.0, -0.5),
-    	vec2(0.5, 0.5),
-    	vec2(-0.5, 0.5)
-);
+struct Vertex {
+	vec4 position;
+	vec4 normal;
+	vec4 color;
+};
 
 DECL_BUFFER_STRUCT(
 	ColorBuffer,
@@ -26,9 +26,25 @@ DECL_BUFFER_STRUCT(
 	}
 )
 
+DECL_BUFFER_STRUCT(
+	VertexBuffer,
+	{
+		Vertex verts[1048576];
+	}
+)
+
+DECL_BUFFER_STRUCT(
+	IndexBuffer,
+	{
+		u32 indices[65536];
+	}
+)
+
 struct Push {
 	BufferId color_buffer_id;
 	BufferId camera_buffer_id;
+	BufferId vertex_buffer_id;
+	BufferId index_buffer_id;
 };
 
 USE_PUSH_CONSTANT(Push)
@@ -38,10 +54,23 @@ layout(location = 0) out vec4 color;
 void main() {
 	BufferRef(CameraBuffer) camera_buffer = buffer_id_to_ref(CameraBuffer, BufferRef, push_constant.camera_buffer_id);
 	BufferRef(ColorBuffer) color_buffer = buffer_id_to_ref(ColorBuffer, BufferRef, push_constant.color_buffer_id);
-	
-	color = color_buffer.colors[gl_VertexIndex];
+	BufferRef(VertexBuffer) vertex_buffer = buffer_id_to_ref(VertexBuffer, BufferRef, push_constant.vertex_buffer_id);
+	BufferRef(IndexBuffer) index_buffer = buffer_id_to_ref(IndexBuffer, BufferRef, push_constant.index_buffer_id);
 
-	gl_Position = camera_buffer.projection * camera_buffer.transform * vec4(positions[gl_VertexIndex], 0.0, 1.0);
+	vec4 position = vertex_buffer.verts[gl_VertexIndex].position;
+	vec4 normal = vertex_buffer.verts[gl_VertexIndex].normal;
+
+	color = vertex_buffer.verts[gl_VertexIndex].color;
+
+	if (abs(normal.x) == 1) {
+		color.xyz *= 0.8;
+	}
+
+	if (abs(normal.z) == 1) {
+		color.xyz *= 0.6;
+	}
+
+	gl_Position = camera_buffer.projection * camera_buffer.transform * position;
 }
 
 #elif defined fragment

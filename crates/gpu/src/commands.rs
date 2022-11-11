@@ -8,25 +8,44 @@ use std::slice;
 
 use ash::vk;
 
+use bitflags::bitflags;
+
 pub struct Commands<'a> {
     pub(crate) device: &'a Device<'a>,
     pub(crate) qualifiers: &'a [Qualifier],
     pub(crate) command_buffer: &'a vk::CommandBuffer,
 }
 
-#[derive(Default, Copy, Clone)]
-pub enum Access {
-    #[default]
-    None,
-    ColorAttachmentWrite,
+bitflags! {
+    pub struct Access: u32 {
+        const COLOR_ATTACHMENT_WRITE = 0x00000001;
+        const DEPTH_ATTACHMENT_READ = 0x00000002;
+        const DEPTH_ATTACHMENT_WRITE = 0x00000004;
+/*        const STORAGE = 0x00000008;
+        const COLOR = 0x00000010;
+        const DEPTH_STENCIL = 0x00000020;
+        const TRANSIENT = 0x00000040;
+        const INPUT = 0x00000080;
+*/    }
 }
 
 impl From<Access> for vk::AccessFlags {
     fn from(access: Access) -> Self {
-        match access {
-            Access::None => Self::NONE,
-            Access::ColorAttachmentWrite => Self::COLOR_ATTACHMENT_WRITE,
+        let mut result = vk::AccessFlags::empty();
+
+        if access.contains(Access::COLOR_ATTACHMENT_WRITE) {
+            result |= vk::AccessFlags::COLOR_ATTACHMENT_WRITE;
         }
+
+        if access.contains(Access::DEPTH_ATTACHMENT_READ) {
+            result |= vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_READ;
+        }
+
+        if access.contains(Access::DEPTH_ATTACHMENT_WRITE) {
+            result |= vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE;
+        }
+
+        result
     }
 }
 
@@ -223,9 +242,9 @@ impl Commands<'_> {
 
         let viewport = vk::Viewport {
             x: 0.0,
-            y: height as f32,
+            y: 0.0,
             width: width as f32,
-            height: -(height as f32),
+            height: height as f32,
             min_depth: 0.0,
             max_depth: 1.0,
         };
@@ -354,7 +373,7 @@ impl Commands<'_> {
 
             color_rendering_attachment_infos.push(vk::RenderingAttachmentInfoKHR {
                 image_view,
-                image_layout: vk::ImageLayout::ATTACHMENT_OPTIMAL,
+                image_layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
                 load_op: color.load_op.into(),
                 store_op: vk::AttachmentStoreOp::STORE,
                 clear_value,
@@ -386,7 +405,7 @@ impl Commands<'_> {
 
             Some(vk::RenderingAttachmentInfoKHR {
                 image_view,
-                image_layout: vk::ImageLayout::ATTACHMENT_OPTIMAL,
+                image_layout: vk::ImageLayout::DEPTH_ATTACHMENT_OPTIMAL,
                 load_op: depth.load_op.into(),
                 store_op: vk::AttachmentStoreOp::STORE,
                 clear_value,
@@ -612,6 +631,12 @@ impl Commands<'_> {
                         .ok_or(Error::ResourceNotFound)?
                         .get_image();
 
+                    let format = resources
+                        .images
+                        .get(*image_handle)
+                        .ok_or(Error::ResourceNotFound)?
+                        .get_format();
+
                     let src_access_mask = (*src_access).into();
 
                     let dst_access_mask = (*dst_access).into();
@@ -621,7 +646,7 @@ impl Commands<'_> {
                     let new_layout = (*new_layout).into();
 
                     let subresource_range = vk::ImageSubresourceRange {
-                        aspect_mask: vk::ImageAspectFlags::COLOR,
+                        aspect_mask: format.into(),
                         base_mip_level: 0,
                         level_count: 1,
                         base_array_layer: 0,

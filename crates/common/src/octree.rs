@@ -7,7 +7,7 @@ use std::default::default;
 use std::marker;
 
 //TODO change this with dynamic size
-const SIZE: usize = 2;
+const SIZE: usize = 16;
 
 #[derive(Debug)]
 pub enum Error {
@@ -340,8 +340,8 @@ impl MeshGenerator for SparseOctree<Voxel> {
 
         let Boundary { start, end } = boundary;
 
-        let [sx, sy, sz] = <[usize; 3]>::from(*start);
-        let [ex, ey, ez] = <[usize; 3]>::from(*end);
+        let [sx, sy, sz] = *start;
+        let [ex, ey, ez] = *end;
 
         let mut vertices = vec![];
 
@@ -352,28 +352,57 @@ impl MeshGenerator for SparseOctree<Voxel> {
                 for z in sz..ez {
                     let hierarchy = self.get_position_hierarchy(x, y, z);
 
-                    let Ok(node) = self.get_node_or_parent(&hierarchy) else {
+                    let Ok(node) = self.get_node(&hierarchy) else {
                         continue;
                     };
 
-                    let mut quad = |a, b, c, d| {
+                    let mut quad = |x, p, n, i| {
+                        let (a, b, c, d) = x;
+
                         let v = [
-                            Vector::new([-0.5, -0.5, 0.5]),
-                            Vector::new([-0.5, 0.5, 0.5]),
-                            Vector::new([0.5, 0.5, 0.5]),
-                            Vector::new([0.5, -0.5, 0.5]),
-                            Vector::new([-0.5, -0.5, -0.5]),
-                            Vector::new([-0.5, 0.5, -0.5]),
-                            Vector::new([0.5, 0.5, -0.5]),
-                            Vector::new([0.5, -0.5, -0.5]),
+                            Vector::new([-0.5, -0.5, 0.5, 0.0]),
+                            Vector::new([-0.5, 0.5, 0.5, 0.0]),
+                            Vector::new([0.5, 0.5, 0.5, 0.0]),
+                            Vector::new([0.5, -0.5, 0.5, 0.0]),
+                            Vector::new([-0.5, -0.5, -0.5, 0.0]),
+                            Vector::new([-0.5, 0.5, -0.5, 0.0]),
+                            Vector::new([0.5, 0.5, -0.5, 0.0]),
+                            Vector::new([0.5, -0.5, -0.5, 0.0]),
                         ];
 
                         let q = vertices.len();
 
-                        vertices.push(Vertex { position: v[a] });
-                        vertices.push(Vertex { position: v[b] });
-                        vertices.push(Vertex { position: v[c] });
-                        vertices.push(Vertex { position: v[d] });
+                        vertices.push(Vertex {
+                            position: v[a] + p,
+                            normal: n,
+                            color: i,
+                        });
+                        vertices.push(Vertex {
+                            position: v[b] + p,
+                            normal: n,
+                            color: i,
+                        });
+                        vertices.push(Vertex {
+                            position: v[c] + p,
+                            normal: n,
+                            color: i,
+                        });
+
+                        vertices.push(Vertex {
+                            position: v[a] + p,
+                            normal: n,
+                            color: i,
+                        });
+                        vertices.push(Vertex {
+                            position: v[c] + p,
+                            normal: n,
+                            color: i,
+                        });
+                        vertices.push(Vertex {
+                            position: v[d] + p,
+                            normal: n,
+                            color: i,
+                        });
 
                         indices.push((q + a) as u32);
                         indices.push((q + b) as u32);
@@ -383,44 +412,78 @@ impl MeshGenerator for SparseOctree<Voxel> {
                         indices.push((q + d) as u32);
                     };
 
-                    if z < self.size {
+                    let p = Vector::new([x as f32, y as f32, z as f32, 1.0]);
+
+                    use rand::Rng;
+                    let mut rng = rand::thread_rng();
+
+                    let c = Vector::new([rng.gen(), rng.gen(), rng.gen(), 1.0]);
+
+                    let size = 2usize.pow(self.size as _);
+
+                    if z < size {
                         if let Err(_) = self.get_node(&self.get_position_hierarchy(x, y, z + 1)) {
-                            quad(1, 0, 3, 2);
+                            let n = Vector::new([0.0, 0.0, 1.0, 0.0]);
+                            quad((1, 0, 3, 2), p, n, c);
                         }
+                    } else {
+                        let n = Vector::new([0.0, 0.0, 1.0, 0.0]);
+                        quad((1, 0, 3, 2), p, n, c);
                     }
 
                     if z > 0 {
                         if let Err(_) = self.get_node(&self.get_position_hierarchy(x, y, z - 1)) {
-                            quad(4, 5, 6, 7);
+                            let n = Vector::new([0.0, 0.0, -1.0, 0.0]);
+                            quad((4, 5, 6, 7), p, n, c);
                         }
+                    } else {
+                        let n = Vector::new([0.0, 0.0, -1.0, 0.0]);
+                        quad((4, 5, 6, 7), p, n, c);
                     }
 
-                    if x < self.size {
+                    if x < size {
                         if let Err(_) = self.get_node(&self.get_position_hierarchy(x + 1, y, z)) {
-                            quad(5, 4, 0, 1);
+                            let n = Vector::new([1.0, 0.0, 0.0, 0.0]);
+                            quad((2, 3, 7, 6), p, n, c);
                         }
+                    } else {
+                        let n = Vector::new([1.0, 0.0, 0.0, 0.0]);
+                        quad((2, 3, 7, 6), p, n, c);
                     }
 
                     if x > 0 {
                         if let Err(_) = self.get_node(&self.get_position_hierarchy(x - 1, y, z)) {
-                            quad(2, 3, 7, 6);
+                            let n = Vector::new([-1.0, 0.0, 0.0, 0.0]);
+                            quad((5, 4, 0, 1), p, n, c);
                         }
+                    } else {
+                        let n = Vector::new([-1.0, 0.0, 0.0, 0.0]);
+                        quad((5, 4, 0, 1), p, n, c);
                     }
 
-                    if x < self.size {
+                    if y < size {
                         if let Err(_) = self.get_node(&self.get_position_hierarchy(x, y + 1, z)) {
-                            quad(6, 5, 1, 2);
+                            let n = Vector::new([0.0, 1.0, 0.0, 0.0]);
+                            quad((6, 5, 1, 2), p, n, c);
                         }
+                    } else {
+                        let n = Vector::new([0.0, 1.0, 0.0, 0.0]);
+                        quad((6, 5, 1, 2), p, n, c);
                     }
 
-                    if x > 0 {
+                    if y > 0 {
                         if let Err(_) = self.get_node(&self.get_position_hierarchy(x, y - 1, z)) {
-                            quad(3, 0, 4, 7);
+                            let n = Vector::new([0.0, -1.0, 0.0, 0.0]);
+                            quad((3, 0, 4, 7), p, n, c);
                         }
+                    } else {
+                        let n = Vector::new([0.0, -1.0, 0.0, 0.0]);
+                        quad((3, 0, 4, 7), p, n, c);
                     }
                 }
             }
         }
+        dbg!(&vertices.len());
 
         Mesh::new(&vertices, &indices)
     }

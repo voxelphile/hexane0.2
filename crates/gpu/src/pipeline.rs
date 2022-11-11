@@ -401,7 +401,14 @@ impl PipelineCompiler<'_> {
         let layout = unsafe { logical_device.create_pipeline_layout(&layout_create_info, None) }
             .map_err(|_| Error::Creation)?;
 
+        let mut pipeline_rendering_create_info = vk::PipelineRenderingCreateInfo {
+            depth_attachment_format: vk::Format::D32_SFLOAT,
+            ..default()
+        };
+
         let graphics_pipeline_create_info = {
+            let p_next = &mut pipeline_rendering_create_info as *mut _ as *mut _;
+
             let stage_count = stages.len() as u32;
 
             let p_stages = stages.as_ptr();
@@ -423,6 +430,7 @@ impl PipelineCompiler<'_> {
             let render_pass = vk::RenderPass::null();
 
             vk::GraphicsPipelineCreateInfo {
+                p_next,
                 stage_count,
                 p_stages,
                 p_vertex_input_state,
@@ -587,6 +595,7 @@ impl Default for Raster {
 
 impl From<Raster> for vk::PipelineRasterizationStateCreateInfo {
     fn from(raster: Raster) -> Self {
+        dbg!(raster.face_cull);
         Self {
             depth_clamp_enable: raster.depth_clamp as _,
             rasterizer_discard_enable: false as _,
@@ -713,11 +722,11 @@ pub struct Color {
 
 #[derive(Default)]
 pub enum CompareOp {
-    #[default]
     Never,
     Less,
     Equal,
     LessOrEqual,
+    #[default]
     Greater,
     NotEqual,
     GreaterOrEqual,
@@ -748,7 +757,7 @@ pub struct Depth {
 impl Default for Depth {
     fn default() -> Self {
         Self {
-            write: default(),
+            write: true,
             compare: default(),
             bounds: (0.0, 1.0),
         }

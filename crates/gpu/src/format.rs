@@ -10,6 +10,16 @@ pub enum Format {
     Rgba8Srgb,
     Bgra8Unorm,
     Bgra8Srgb,
+    D32Sfloat,
+}
+
+impl From<Format> for vk::ImageAspectFlags {
+    fn from(format: Format) -> Self {
+        match format {
+            Format::D32Sfloat => vk::ImageAspectFlags::DEPTH,
+            _ => vk::ImageAspectFlags::COLOR,
+        }
+    }
 }
 
 impl TryFrom<vk::Format> for Format {
@@ -24,6 +34,7 @@ impl TryFrom<vk::Format> for Format {
             vk::Format::R8G8B8A8_UNORM => Rgba8Srgb,
             vk::Format::B8G8R8A8_UNORM => Bgra8Unorm,
             vk::Format::B8G8R8A8_SRGB => Bgra8Srgb,
+            vk::Format::D32_SFLOAT => D32Sfloat,
             _ => Err(())?,
         })
     }
@@ -39,6 +50,7 @@ impl From<Format> for vk::Format {
             Rgba8Srgb => Self::R8G8B8A8_SRGB,
             Bgra8Unorm => Self::B8G8R8A8_UNORM,
             Bgra8Srgb => Self::B8G8R8A8_SRGB,
+            D32Sfloat => Self::D32_SFLOAT,
         }
     }
 }

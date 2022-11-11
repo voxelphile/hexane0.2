@@ -284,7 +284,7 @@ impl ops::FnMut<()> for Executable<'_> {
                 command_buffer: &command_buffer,
             };
 
-            (node.task)(&mut commands);
+            (node.task)(&mut commands).unwrap();
         }
 
         unsafe {

@@ -26,7 +26,7 @@ use winit::{
 
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 
-const REALLY_LARGE_SIZE: usize = 1_000_000;
+const REALLY_LARGE_SIZE: usize = 1_000_000_000;
 
 pub type Vertex = (f32, f32, f32);
 pub type Color = [f32; 4];
@@ -60,8 +60,11 @@ fn root_path() -> Option<path::PathBuf> {
     Some(current_dir)
 }
 
+#[profiling::function]
 fn main() {
     println!("Hello, world!");
+
+    profiling::register_thread!("main")
 
     use common::mesh::*;
     use common::octree::*;
@@ -70,19 +73,27 @@ fn main() {
 
     let mut octree = SparseOctree::<Voxel>::new();
 
-    octree.place(Vector::new([0, 0, 0]), Voxel { id: Id::Dirt });
+    use noise::{NoiseFn, Perlin, Seedable};
 
+    let perlin = Perlin::new(1);
+    let val = perlin.get([42.4, 37.7, 2.8]);
+
+    for x in 0..64 {
+        for z in 0..64 {
+            let height = ((perlin.get([x as f64 / 64.0, 0.0, z as f64 / 64.0]) * 10.0) as isize
+                + 20) as usize;
+            for y in 0..height {
+                octree.place(Vector::new([x, y, z]), Voxel { id: Id::Dirt });
+            }
+        }
+    }
     let mesh = octree.generate(MeshParameters {
         boundary: Boundary {
             start: Vector::new([0, 0, 0]),
-            end: Vector::new([1, 1, 1]),
+            end: Vector::new([64, 64, 64]),
         },
         lod: 1,
     });
-
-    dbg!(&mesh.vertices());
-
-    unreachable!();
 
     let root_path = root_path().expect("failed to get root path");
 
@@ -92,7 +103,8 @@ fn main() {
     let mut event_loop = EventLoop::new();
 
     let window = WindowBuilder::new()
-        .with_title("Hello Triangle!")
+        .with_title("FPS")
+        .with_inner_size(winit::dpi::PhysicalSize { width: 1920, height: 1080 })
         .build(&event_loop)
         .unwrap();
 
@@ -101,7 +113,7 @@ fn main() {
     let (width, height) = resolution;
 
     let context = Context::new(ContextInfo {
-        enable_validation: true,
+        enable_validation: false,
         application_name: "Hexane",
         engine_name: "Hexane",
         ..default()
@@ -121,6 +133,7 @@ fn main() {
             .create_swapchain(SwapchainInfo {
                 width,
                 height,
+                present_mode: PresentMode::TripleBufferWaitForVBlank,
                 ..default()
             })
             .expect("failed to create swapchain"),
@@ -148,9 +161,25 @@ fn main() {
                 format: device.presentation_format(swapchain.get()).unwrap(),
                 ..default()
             }],
+            depth: Some(default()),
+            raster: Raster {
+                face_cull: FaceCull::FRONT,
+                ..default()
+            },
             ..default()
         })
         .expect("failed to create pipeline");
+
+    let mut depth_img = Cell::new(
+        device
+            .create_image(ImageInfo {
+                extent: ImageExtent::TwoDim(width as _, height as _),
+                usage: ImageUsage::DEPTH_STENCIL,
+                format: Format::D32Sfloat,
+                ..default()
+            })
+            .expect("failed to create depth image"),
+    );
 
     let staging_buffer = device
         .create_buffer(BufferInfo {
@@ -161,7 +190,15 @@ fn main() {
         })
         .expect("failed to create buffer");
 
-    let general_buffer = device
+    let vertex_buffer = device
+        .create_buffer(BufferInfo {
+            size: REALLY_LARGE_SIZE,
+            debug_name: "General Buffer",
+            ..default()
+        })
+        .expect("failed to create buffer");
+
+    let index_buffer = device
         .create_buffer(BufferInfo {
             size: REALLY_LARGE_SIZE,
             debug_name: "General Buffer",
@@ -198,32 +235,35 @@ fn main() {
             ..default()
         })
         .expect("failed to create semaphore");
+    let vertices = mesh.vertices();
+    let indices = mesh.indices();
 
-    let vertices = [(0.0, -0.5, 0.0), (0.5, 0.5, 0.0), (-0.5, 0.5, 0.0)];
     let colors = [
         [1.0, 0.0, 0.0, 1.0],
         [0.0, 1.0, 0.0, 1.0],
         [0.0, 0.0, 1.0, 1.0],
     ];
-    let indices = [0u32, 1, 2];
 
     let mut camera = Cell::new(Camera {
         fov: 90.0 * std::f32::consts::PI / 360.0,
         clip: (0.1, 1000.0),
         aspect_ratio: width as f32 / height as f32,
-        position: default(),
+        position: Vector::new([32.0, -30.0, -32.0]),
         rotation: default(),
     });
 
     let camera_info = Cell::new(default());
 
+    let updated = Cell::new(true);
+
     let mut game_input = Input::default();
 
-    let general_buffer = || general_buffer;
+    let vertex_buffer = || vertex_buffer;
+    let index_buffer = || index_buffer;
     let color_buffer = || color_buffer;
     let camera_buffer = || camera_buffer;
     let staging_buffer = || staging_buffer;
-
+    let depth_image = || depth_img.get();
     let present_image = || {
         device
             .acquire_next_image(Acquire {
@@ -238,10 +278,15 @@ fn main() {
 
     let mut cursor_captured = false;
 
-    let mut executable: Option<Executable<'_>> = None;
+    let mut draw_executable: Option<Executable<'_>> = None;
 
     let startup_instant = time::Instant::now();
     let mut last_instant = startup_instant;
+    let mut fps_instant = startup_instant;
+
+    let mut fps = 0;
+
+    profiling::finish_frame!();
 
     event_loop.run_return(|event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
@@ -266,8 +311,8 @@ fn main() {
 
             direction[0] += game_input.right as u8 as f32;
             direction[0] -= game_input.left as u8 as f32;
-            direction[1] += game_input.up as u8 as f32;
-            direction[1] -= game_input.down as u8 as f32;
+            direction[1] += game_input.down as u8 as f32;
+            direction[1] -= game_input.up as u8 as f32;
             direction[2] += game_input.forward as u8 as f32;
             direction[2] -= game_input.backward as u8 as f32;
 
@@ -314,7 +359,17 @@ fn main() {
                     transform: camera.get().transform(),
                 });
 
-                (executable.as_mut().unwrap())();
+                if current_instant.duration_since(fps_instant).as_secs_f64() > 1.0 {
+                    window.set_title(&format!("FPS {}", fps));
+                    fps_instant = current_instant;
+                    fps = 0;
+                } else {
+                    fps += 1;
+                }
+
+                (draw_executable.as_mut().unwrap())();
+    
+                profiling::finish_frame!();
             }
             Event::WindowEvent {
                 event: WindowEvent::CursorMoved { position, .. },
@@ -333,7 +388,7 @@ fn main() {
                         height as i32 / 2,
                     ));
 
-                    let x_rot = -(y_diff * delta_time) / sens;
+                    let x_rot = (y_diff * delta_time) / sens;
                     let y_rot = (x_diff * delta_time) / sens;
 
                     let mut rotation = camera.get().rotation;
@@ -410,9 +465,21 @@ fn main() {
                             width,
                             height,
                             old_swapchain: Some(swapchain.get()),
+                            present_mode: PresentMode::TripleBufferWaitForVBlank,
                             ..default()
                         })
                         .expect("failed to create swapchain"),
+                );
+
+                depth_img.set(
+                    device
+                        .create_image(ImageInfo {
+                            extent: ImageExtent::TwoDim(width as _, height as _),
+                            usage: ImageUsage::DEPTH_STENCIL,
+                            format: Format::D32Sfloat,
+                            ..default()
+                        })
+                        .expect("failed to create depth image"),
                 );
 
                 camera.set(Camera {
@@ -420,27 +487,53 @@ fn main() {
                     ..camera.get()
                 });
 
-                let mut executor = device.create_executor(default());
+                let mut draw_executor = device.create_executor(default());
 
-                record(Record {
-                    executor: &mut executor,
-                    swapchain: swapchain.get(),
+                record_update(Update {
+                    executor: &mut draw_executor,
                     vertices: &vertices,
                     indices: &indices,
-                    acquire_semaphore: &acquire_semaphore,
-                    present_semaphore: &present_semaphore,
-                    pipeline: &pipeline,
-                    present_image: &present_image,
-                    general_buffer: &general_buffer,
-                    staging_buffer: &staging_buffer,
-                    color_buffer: &color_buffer,
-                    camera_buffer: &camera_buffer,
                     colors: &colors,
                     camera_info: &camera_info,
-                    resolution,
+                    updated: &updated,
+                    staging_buffer: &staging_buffer,
+                    vertex_buffer: &vertex_buffer,
+                    index_buffer: &index_buffer,
+                    color_buffer: &color_buffer,
+                    camera_buffer: &camera_buffer,
                 });
 
-                executable = Some(executor.complete().expect("failed to complete executor"));
+                record_draw(Draw {
+                    executor: &mut draw_executor,
+                    vertices: &vertices,
+                    indices: &indices,
+                    pipeline: &pipeline,
+                    present_image: &present_image,
+                    depth_image: &depth_image,
+                    vertex_buffer: &vertex_buffer,
+                    index_buffer: &index_buffer,
+                    resolution,
+                    color_buffer: &color_buffer,
+                    camera_buffer: &camera_buffer,
+                });
+
+                draw_executor.submit(Submit {
+                    wait_semaphore: &acquire_semaphore,
+                    signal_semaphore: &present_semaphore,
+                });
+
+                draw_executor.present(Present {
+                    swapchain: swapchain.get(),
+                    wait_semaphore: &present_semaphore,
+                });
+
+                draw_executable = Some(
+                    draw_executor
+                        .complete()
+                        .expect("failed to complete executor"),
+                );
+
+                updated.set(true);
             }
             _ => (),
         }
@@ -448,33 +541,17 @@ fn main() {
 }
 
 pub const VERTEX_OFFSET: usize = 0;
-pub const INDEX_OFFSET: usize = 1024;
-
-struct Record<'a, 'b: 'a> {
-    pub executor: &'a mut Executor<'b>,
-    pub swapchain: Swapchain,
-    pub vertices: &'b [Vertex],
-    pub indices: &'b [Index],
-    pub colors: &'b [Color],
-    pub camera_info: &'b Cell<CameraInfo>,
-    pub present_image: &'b dyn ops::Fn() -> Image,
-    pub general_buffer: &'b dyn ops::Fn() -> Buffer,
-    pub staging_buffer: &'b dyn ops::Fn() -> Buffer,
-    pub color_buffer: &'b dyn ops::Fn() -> Buffer,
-    pub camera_buffer: &'b dyn ops::Fn() -> Buffer,
-    pub acquire_semaphore: &'b BinarySemaphore<'b>,
-    pub present_semaphore: &'b BinarySemaphore<'b>,
-    pub pipeline: &'b Pipeline<'b>,
-    pub resolution: (u32, u32),
-}
+pub const INDEX_OFFSET: usize = 65536;
 
 struct Update<'a, 'b: 'a> {
     pub executor: &'a mut Executor<'b>,
-    pub vertices: &'b [Vertex],
+    pub vertices: &'b [common::mesh::Vertex],
     pub indices: &'b [Index],
     pub colors: &'b [Color],
     pub camera_info: &'b Cell<CameraInfo>,
-    pub general_buffer: &'b dyn ops::Fn() -> Buffer,
+    pub updated: &'b Cell<bool>,
+    pub vertex_buffer: &'b dyn ops::Fn() -> Buffer,
+    pub index_buffer: &'b dyn ops::Fn() -> Buffer,
     pub staging_buffer: &'b dyn ops::Fn() -> Buffer,
     pub color_buffer: &'b dyn ops::Fn() -> Buffer,
     pub camera_buffer: &'b dyn ops::Fn() -> Buffer,
@@ -484,10 +561,13 @@ struct Draw<'a, 'b: 'a> {
     pub executor: &'a mut Executor<'b>,
     pub resolution: (u32, u32),
     pub present_image: &'b dyn ops::Fn() -> Image,
-    pub general_buffer: &'b dyn ops::Fn() -> Buffer,
+    pub depth_image: &'b dyn ops::Fn() -> Image,
+    pub vertex_buffer: &'b dyn ops::Fn() -> Buffer,
+    pub index_buffer: &'b dyn ops::Fn() -> Buffer,
     pub color_buffer: &'b dyn ops::Fn() -> Buffer,
     pub camera_buffer: &'b dyn ops::Fn() -> Buffer,
     pub pipeline: &'b Pipeline<'b>,
+    pub vertices: &'b [common::mesh::Vertex],
     pub indices: &'b [Index],
 }
 
@@ -514,59 +594,8 @@ struct Input {
 pub struct Push {
     pub color_buffer: Buffer,
     pub camera_buffer: Buffer,
-}
-
-fn record<'a, 'b: 'a>(record: Record<'a, 'b>) {
-    let Record {
-        executor,
-        swapchain,
-        vertices,
-        indices,
-        colors,
-        camera_info,
-        general_buffer,
-        staging_buffer,
-        color_buffer,
-        camera_buffer,
-        present_image,
-        pipeline,
-        acquire_semaphore,
-        present_semaphore,
-        resolution,
-    } = record;
-
-    record_update(Update {
-        executor,
-        vertices: &vertices,
-        indices: &indices,
-        colors: &colors,
-        camera_info: &camera_info,
-        general_buffer,
-        staging_buffer,
-        color_buffer,
-        camera_buffer,
-    });
-
-    record_draw(Draw {
-        executor,
-        indices: &indices,
-        pipeline: &pipeline,
-        present_image,
-        general_buffer,
-        resolution,
-        color_buffer,
-        camera_buffer,
-    });
-
-    executor.submit(Submit {
-        wait_semaphore: &acquire_semaphore,
-        signal_semaphore: &present_semaphore,
-    });
-
-    executor.present(Present {
-        swapchain,
-        wait_semaphore: &present_semaphore,
-    });
+    pub vertex_buffer: Buffer,
+    pub index_buffer: Buffer,
 }
 
 fn record_draw<'a, 'b: 'a>(draw: Draw<'a, 'b>) {
@@ -575,10 +604,13 @@ fn record_draw<'a, 'b: 'a>(draw: Draw<'a, 'b>) {
     let Draw {
         executor,
         present_image,
-        general_buffer,
+        depth_image,
+        vertex_buffer,
+        index_buffer,
         color_buffer,
         camera_buffer,
         resolution,
+        vertices,
         indices,
         pipeline,
     } = draw;
@@ -586,8 +618,11 @@ fn record_draw<'a, 'b: 'a>(draw: Draw<'a, 'b>) {
     executor.add(Task {
         resources: [
             Image(present_image, ImageAccess::ColorAttachment),
+            Image(depth_image, ImageAccess::DepthStencilAttachment),
             Buffer(color_buffer, BufferAccess::ShaderReadOnly),
             Buffer(camera_buffer, BufferAccess::ShaderReadOnly),
+            Buffer(vertex_buffer, BufferAccess::ShaderReadOnly),
+            Buffer(index_buffer, BufferAccess::ShaderReadOnly),
         ],
         task: move |commands| {
             let (width, height) = resolution;
@@ -599,8 +634,20 @@ fn record_draw<'a, 'b: 'a>(draw: Draw<'a, 'b>) {
                     image: 0,
                     old_layout: ImageLayout::Undefined,
                     new_layout: ImageLayout::ColorAttachmentOptimal,
-                    src_access: Access::None,
-                    dst_access: Access::ColorAttachmentWrite,
+                    src_access: Access::empty(),
+                    dst_access: Access::COLOR_ATTACHMENT_WRITE,
+                }],
+            })?;
+
+            commands.pipeline_barrier(PipelineBarrier {
+                src_stage: PipelineStage::TopOfPipe,
+                dst_stage: PipelineStage::EarlyFragmentTests,
+                barriers: &[Barrier::Image {
+                    image: 1,
+                    old_layout: ImageLayout::Undefined,
+                    new_layout: ImageLayout::DepthAttachmentOptimal,
+                    src_access: Access::empty(),
+                    dst_access: Access::DEPTH_ATTACHMENT_READ | Access::DEPTH_ATTACHMENT_WRITE,
                 }],
             })?;
 
@@ -612,7 +659,11 @@ fn record_draw<'a, 'b: 'a>(draw: Draw<'a, 'b>) {
                     load_op: LoadOp::Clear,
                     clear: Clear::Color(0.1, 0.4, 0.8, 1.0),
                 }],
-                depth: None,
+                depth: Some(Attachment {
+                    image: 1,
+                    load_op: LoadOp::Clear,
+                    clear: Clear::Depth(0.0),
+                }),
                 render_area: RenderArea {
                     width,
                     height,
@@ -626,11 +677,15 @@ fn record_draw<'a, 'b: 'a>(draw: Draw<'a, 'b>) {
                 data: Push {
                     color_buffer: (color_buffer)(),
                     camera_buffer: (camera_buffer)(),
+                    vertex_buffer: (vertex_buffer)(),
+                    index_buffer: (index_buffer)(),
                 },
                 pipeline: &pipeline,
             });
 
-            commands.draw(gpu::prelude::Draw { vertex_count: 3 })?;
+            commands.draw(gpu::prelude::Draw {
+                vertex_count: vertices.len(),
+            })?;
 
             commands.end_rendering()?;
 
@@ -641,8 +696,8 @@ fn record_draw<'a, 'b: 'a>(draw: Draw<'a, 'b>) {
                     image: 0,
                     old_layout: ImageLayout::ColorAttachmentOptimal,
                     new_layout: ImageLayout::Present,
-                    src_access: Access::ColorAttachmentWrite,
-                    dst_access: Access::None,
+                    src_access: Access::COLOR_ATTACHMENT_WRITE,
+                    dst_access: Access::empty(),
                 }],
             })
         },
@@ -655,66 +710,72 @@ fn record_update<'a, 'b: 'a>(update: Update<'a, 'b>) {
     let Update {
         executor,
         staging_buffer,
-        general_buffer,
+        vertex_buffer,
+        index_buffer,
         color_buffer,
         camera_buffer,
         vertices,
         indices,
         colors,
+        updated,
         camera_info,
     } = update;
-
-    executor.add(Task {
-        resources: [Buffer(staging_buffer, BufferAccess::HostTransferWrite)],
-        task: move |commands| {
-            commands.write_buffer(BufferWrite {
-                buffer: 0,
-                offset: 0,
-                src: &[camera_info.get()],
-            })
-        },
-    });
 
     executor.add(Task {
         resources: [
             Buffer(staging_buffer, BufferAccess::TransferRead),
             Buffer(camera_buffer, BufferAccess::TransferWrite),
+            Buffer(color_buffer, BufferAccess::TransferWrite),
+            Buffer(vertex_buffer, BufferAccess::TransferWrite),
+            Buffer(index_buffer, BufferAccess::TransferWrite),
         ],
         task: move |commands| {
+            commands.write_buffer(BufferWrite {
+                buffer: 0,
+                offset: 0,
+                src: &[camera_info.get()],
+            })?;
+
             commands.copy_buffer_to_buffer(BufferCopy {
                 from: 0,
                 to: 1,
                 src: 0,
                 dst: 0,
                 size: mem::size_of::<CameraInfo>(),
-            })
-        },
-    });
+            })?;
 
-    executor.add(Task {
-        resources: [Buffer(staging_buffer, BufferAccess::HostTransferWrite)],
-        task: move |commands| {
-            commands.write_buffer(BufferWrite {
-                buffer: 0,
-                offset: 65536,
-                src: colors,
-            })
-        },
-    });
+            if updated.get() {
+                updated.set(false);
+                dbg!("yo");
+                commands.write_buffer(BufferWrite {
+                    buffer: 0,
+                    offset: 1024,
+                    src: colors,
+                })?;
 
-    executor.add(Task {
-        resources: [
-            Buffer(staging_buffer, BufferAccess::TransferRead),
-            Buffer(color_buffer, BufferAccess::TransferWrite),
-        ],
-        task: move |commands| {
-            commands.copy_buffer_to_buffer(BufferCopy {
-                from: 0,
-                to: 1,
-                src: 65536,
-                dst: 0,
-                size: 1024,
-            })
+                commands.write_buffer(BufferWrite {
+                    buffer: 0,
+                    offset: 2048,
+                    src: vertices,
+                })?;
+
+                commands.copy_buffer_to_buffer(BufferCopy {
+                    from: 0,
+                    to: 2,
+                    src: 1024,
+                    dst: 0,
+                    size: 1024,
+                })?;
+
+                commands.copy_buffer_to_buffer(BufferCopy {
+                    from: 0,
+                    to: 3,
+                    src: 2048,
+                    dst: 0,
+                    size: 900_000_000,
+                })?;
+            }
+            Ok(())
         },
     });
 }

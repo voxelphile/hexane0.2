@@ -38,6 +38,7 @@ pub fn default_device_selector(details: Details) -> usize {
     score += details.properties.limits.max_descriptor_set_storage_buffers as usize / 1000;
     score += details.properties.limits.max_image_array_layers as usize / 1000;
 
+    dbg!(score);
     score
 }
 
@@ -719,6 +720,133 @@ impl<'a> Device<'a> {
         }
     }
 
+    pub fn create_image(&'a self, info: ImageInfo<'a>) -> Result<Image> {
+        let Device {
+            context,
+            physical_device,
+            logical_device,
+            resources,
+            descriptor_set,
+            ..
+        } = self;
+
+        let mut resources = resources.lock().unwrap();
+
+        let Context { instance, .. } = context;
+
+        let ImageInfo {
+            extent,
+            usage,
+            format,
+            debug_name,
+        } = info;
+
+        let (image_type, view_type, extent) = match extent {
+            ImageExtent::OneDim(x) => (
+                vk::ImageType::TYPE_1D,
+                vk::ImageViewType::TYPE_1D,
+                vk::Extent3D {
+                    width: x as _,
+                    height: 1,
+                    depth: 1,
+                },
+            ),
+            ImageExtent::TwoDim(x, y) => (
+                vk::ImageType::TYPE_2D,
+                vk::ImageViewType::TYPE_2D,
+                vk::Extent3D {
+                    width: x as _,
+                    height: y as _,
+                    depth: 1,
+                },
+            ),
+            ImageExtent::ThreeDim(x, y, z) => (
+                vk::ImageType::TYPE_3D,
+                vk::ImageViewType::TYPE_3D,
+                vk::Extent3D {
+                    width: x as _,
+                    height: y as _,
+                    depth: z as _,
+                },
+            ),
+        };
+
+        let usage = usage.into();
+
+        let image_create_info = vk::ImageCreateInfo {
+            image_type,
+            extent,
+            format: format.into(),
+            usage,
+            array_layers: 1,
+            mip_levels: 1,
+            tiling: vk::ImageTiling::OPTIMAL,
+            sharing_mode: vk::SharingMode::EXCLUSIVE,
+            samples: vk::SampleCountFlags::TYPE_1,
+            ..default()
+        };
+
+        let image = unsafe { logical_device.create_image(&image_create_info, None) }
+            .map_err(|_| Error::Creation)?;
+
+        let memory_requirements = unsafe { logical_device.get_image_memory_requirements(image) };
+
+        let memory_properties =
+            unsafe { instance.get_physical_device_memory_properties(*physical_device) };
+
+        let memory_type_index = memory::type_index(
+            &memory_requirements,
+            &memory_properties,
+            Memory::empty().into(),
+        )?;
+
+        let allocation_size = memory_requirements.size;
+
+        let memory_allocate_info = {
+            vk::MemoryAllocateInfo {
+                allocation_size,
+                memory_type_index,
+                ..default()
+            }
+        };
+
+        let memory = unsafe { logical_device.allocate_memory(&memory_allocate_info, None) }
+            .map_err(|_| Error::Creation)?;
+
+        unsafe { logical_device.bind_image_memory(image, memory, 0) }
+            .map_err(|_| Error::Creation)?;
+
+        let image_view_create_info = vk::ImageViewCreateInfo {
+            image,
+            view_type,
+            format: format.into(),
+            components: vk::ComponentMapping {
+                r: vk::ComponentSwizzle::IDENTITY,
+                g: vk::ComponentSwizzle::IDENTITY,
+                b: vk::ComponentSwizzle::IDENTITY,
+                a: vk::ComponentSwizzle::IDENTITY,
+            },
+            subresource_range: vk::ImageSubresourceRange {
+                aspect_mask: format.into(),
+                base_mip_level: 0,
+                level_count: 1,
+                base_array_layer: 0,
+                layer_count: 1,
+            },
+            ..default()
+        };
+
+        let view =
+            unsafe { logical_device.create_image_view(&image_view_create_info, None) }.unwrap();
+
+        Ok(resources.images.add(InternalImage::Managed {
+            image,
+            memory,
+            view,
+            format,
+        }))
+    }
+
     pub fn create_buffer(&'a self, info: BufferInfo<'a>) -> Result<Buffer> {
         let Device {
             context,
@@ -1068,7 +1196,11 @@ impl<'a> Device<'a> {
 
                 (image, image_view)
             })
-            .map(|(image, view)| InternalImage::Swapchain { image, view })
+            .map(|(image, view)| InternalImage::Swapchain {
+                image,
+                view,
+                format: format.try_into().unwrap(),
+            })
             .map(|internal_image| resources.images.add(internal_image))
             .collect::<Vec<_>>();
 

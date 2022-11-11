@@ -3,7 +3,9 @@ use math::prelude::*;
 #[derive(Clone, Copy, Debug)]
 #[repr(C)]
 pub struct Vertex {
-    pub position: Vector<f32, 3>,
+    pub position: Vector<f32, 4>,
+    pub normal: Vector<f32, 4>,
+    pub color: Vector<f32, 4>,
 }
 
 pub type Index = u32;
