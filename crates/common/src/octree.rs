@@ -1,14 +1,17 @@
+use crate::bits::*;
 use crate::mesh::*;
+use crate::transform::*;
 use crate::voxel::*;
 
 use math::prelude::*;
 
 use std::cmp;
 use std::default::default;
+use std::iter;
 use std::marker;
 
 //TODO change this with dynamic size
-const SIZE: usize = 16;
+const SIZE: usize = 8;
 
 #[derive(Debug)]
 pub enum Error {
@@ -221,9 +224,9 @@ impl<T: Eq + Copy + Default> SparseOctree<T> {
             let py = (y >= cursor) as u8;
             let pz = (z >= cursor) as u8;
 
-            let index = px * 4 + py * 2 + pz;
+            let octant = px * 4 + py * 2 + pz;
 
-            let mask = 1 << index;
+            let mask = 1 << octant;
 
             x -= px as usize * cursor;
             y -= py as usize * cursor;
@@ -348,149 +351,203 @@ impl<T: Eq + Copy + Default> Default for Node<T> {
     }
 }
 
-impl MeshGenerator for SparseOctree<Voxel> {
-    fn generate(&self, parameters: MeshParameters) -> Mesh {
-        let MeshParameters { boundary, lod } = parameters;
-
-        let Boundary { start, end } = boundary;
-
-        let [sx, sy, sz] = *start;
-        let [ex, ey, ez] = *end;
+impl Transform<Mesh> for SparseOctree<Voxel> {
+    fn transform<const N: usize>(&self, transformation: Transformation<N>) -> Mesh {
+        let Transformation { regions, lod } = transformation;
 
         let mut vertices = vec![];
 
         let mut indices = vec![];
 
-        for x in sx..ex {
-            for y in sy..ey {
-                for z in sz..ez {
-                    let hierarchy = self.get_position_hierarchy(x, y, z);
+        for region in regions {
+            let Region { start, end } = region;
 
-                    let Ok((node, index)) = self.get_node(&hierarchy) else {
+            let [sx, sy, sz] = *start;
+            let [ex, ey, ez] = *end;
+
+            for x in sx..ex {
+                for y in sy..ey {
+                    for z in sz..ez {
+                        let hierarchy = self.get_position_hierarchy(x, y, z);
+
+                        let Ok((node, index)) = self.get_node(&hierarchy) else {
                         continue;
                     };
 
-                    let position = Vector::new([x as f32, y as f32, z as f32, 1.0]);
+                        let position = Vector::new([x as f32, y as f32, z as f32, 1.0]);
 
-                    let color = node.data.albedo(position);
+                        let color = node.data.albedo(position);
 
-                    let vertex_ao = |side: Vector<f32, 2>, corner: f32| {
-                        (side[0] + side[1] + f32::max(corner, side[0] * side[1])) / 3.0
-                    };
+                        let vertex_ao = |side: Vector<f32, 2>, corner: f32| {
+                            (side[0] + side[1] + f32::max(corner, side[0] * side[1])) / 3.0
+                        };
 
-                    let voxel_ao = |position: Vector<f32, 4>, normal: Vector<f32, 4>| {
-                        let d1 = Vector::new([
-                            isize::abs(normal[1] as isize) as usize,
-                            isize::abs(normal[2] as isize) as usize,
-                            isize::abs(normal[0] as isize) as usize,
-                        ]);
+                        let voxel_ao = |position: Vector<f32, 4>, normal: Vector<f32, 4>| {
+                            let d1 = Vector::new([
+                                isize::abs(normal[1] as isize) as usize,
+                                isize::abs(normal[2] as isize) as usize,
+                                isize::abs(normal[0] as isize) as usize,
+                            ]);
 
-                        let d2 = Vector::new([
-                            isize::abs(normal[2] as isize) as usize,
-                            isize::abs(normal[0] as isize) as usize,
-                            isize::abs(normal[1] as isize) as usize,
-                        ]);
+                            let d2 = Vector::new([
+                                isize::abs(normal[2] as isize) as usize,
+                                isize::abs(normal[0] as isize) as usize,
+                                isize::abs(normal[1] as isize) as usize,
+                            ]);
 
-                        let position = Vector::new([
-                            position[0] as isize + normal[0] as isize,
-                            position[1] as isize + normal[1] as isize,
-                            position[2] as isize + normal[2] as isize,
-                        ]);
+                            let position = Vector::new([
+                                position[0] as isize + normal[0] as isize,
+                                position[1] as isize + normal[1] as isize,
+                                position[2] as isize + normal[2] as isize,
+                            ]);
 
-                        let position = Vector::new([
-                            position[0] as usize,
-                            position[1] as usize,
-                            position[2] as usize,
-                        ]);
+                            let position = Vector::new([
+                                position[0] as usize,
+                                position[1] as usize,
+                                position[2] as usize,
+                            ]);
 
-                        let side = Vector::new([
-                            self.query(position + d1).is_some() as usize as f32,
-                            self.query(position + d2).is_some() as usize as f32,
-                            self.query(position - d1).is_some() as usize as f32,
-                            self.query(position - d2).is_some() as usize as f32,
-                        ]);
+                            let side = Vector::new([
+                                self.query(position + d1).is_some() as usize as f32,
+                                self.query(position + d2).is_some() as usize as f32,
+                                self.query(position - d1).is_some() as usize as f32,
+                                self.query(position - d2).is_some() as usize as f32,
+                            ]);
 
-                        let corner = Vector::new([
-                            self.query(position + d1 + d2).is_some() as usize as f32,
-                            self.query(position - d1 + d2).is_some() as usize as f32,
-                            self.query(position - d1 - d2).is_some() as usize as f32,
-                            self.query(position + d1 - d2).is_some() as usize as f32,
-                        ]);
+                            let corner = Vector::new([
+                                self.query(position + d1 + d2).is_some() as usize as f32,
+                                self.query(position - d1 + d2).is_some() as usize as f32,
+                                self.query(position - d1 - d2).is_some() as usize as f32,
+                                self.query(position + d1 - d2).is_some() as usize as f32,
+                            ]);
 
-                        Vector::new([
-                            1.0 - vertex_ao(Vector::new([side[0], side[1]]), corner[0]),
-                            1.0 - vertex_ao(Vector::new([side[1], side[2]]), corner[1]),
-                            1.0 - vertex_ao(Vector::new([side[2], side[3]]), corner[2]),
-                            1.0 - vertex_ao(Vector::new([side[3], side[0]]), corner[3]),
-                        ])
-                    };
+                            Vector::new([
+                                1.0 - vertex_ao(Vector::new([side[0], side[1]]), corner[0]),
+                                1.0 - vertex_ao(Vector::new([side[1], side[2]]), corner[1]),
+                                1.0 - vertex_ao(Vector::new([side[2], side[3]]), corner[2]),
+                                1.0 - vertex_ao(Vector::new([side[3], side[0]]), corner[3]),
+                            ])
+                        };
 
-                    let size = 2usize.pow(self.size as _);
+                        let size = 2usize.pow(self.size as _);
 
-                    let mut normals = vec![];
+                        let mut normals = vec![];
 
-                    if z < size {
-                        if let Err(_) = self.get_node(&self.get_position_hierarchy(x, y, z + 1)) {
+                        if z < size {
+                            if let Err(_) = self.get_node(&self.get_position_hierarchy(x, y, z + 1))
+                            {
+                                normals.push(Vector::new([0.0, 0.0, 1.0, 0.0]));
+                            }
+                        } else {
                             normals.push(Vector::new([0.0, 0.0, 1.0, 0.0]));
                         }
-                    } else {
-                        normals.push(Vector::new([0.0, 0.0, 1.0, 0.0]));
-                    }
 
-                    if z > 0 {
-                        if let Err(_) = self.get_node(&self.get_position_hierarchy(x, y, z - 1)) {
+                        if z > 0 {
+                            if let Err(_) = self.get_node(&self.get_position_hierarchy(x, y, z - 1))
+                            {
+                                normals.push(Vector::new([0.0, 0.0, -1.0, 0.0]));
+                            }
+                        } else {
                             normals.push(Vector::new([0.0, 0.0, -1.0, 0.0]));
                         }
-                    } else {
-                        normals.push(Vector::new([0.0, 0.0, -1.0, 0.0]));
-                    }
 
-                    if x < size {
-                        if let Err(_) = self.get_node(&self.get_position_hierarchy(x + 1, y, z)) {
+                        if x < size {
+                            if let Err(_) = self.get_node(&self.get_position_hierarchy(x + 1, y, z))
+                            {
+                                normals.push(Vector::new([1.0, 0.0, 0.0, 0.0]));
+                            }
+                        } else {
                             normals.push(Vector::new([1.0, 0.0, 0.0, 0.0]));
                         }
-                    } else {
-                        normals.push(Vector::new([1.0, 0.0, 0.0, 0.0]));
-                    }
 
-                    if x > 0 {
-                        if let Err(_) = self.get_node(&self.get_position_hierarchy(x - 1, y, z)) {
+                        if x > 0 {
+                            if let Err(_) = self.get_node(&self.get_position_hierarchy(x - 1, y, z))
+                            {
+                                normals.push(Vector::new([-1.0, 0.0, 0.0, 0.0]));
+                            }
+                        } else {
                             normals.push(Vector::new([-1.0, 0.0, 0.0, 0.0]));
                         }
-                    } else {
-                        normals.push(Vector::new([-1.0, 0.0, 0.0, 0.0]));
-                    }
 
-                    if y < size {
-                        if let Err(_) = self.get_node(&self.get_position_hierarchy(x, y + 1, z)) {
+                        if y < size {
+                            if let Err(_) = self.get_node(&self.get_position_hierarchy(x, y + 1, z))
+                            {
+                                normals.push(Vector::new([0.0, 1.0, 0.0, 0.0]));
+                            }
+                        } else {
                             normals.push(Vector::new([0.0, 1.0, 0.0, 0.0]));
                         }
-                    } else {
-                        normals.push(Vector::new([0.0, 1.0, 0.0, 0.0]));
-                    }
 
-                    if y > 0 {
-                        if let Err(_) = self.get_node(&self.get_position_hierarchy(x, y - 1, z)) {
+                        if y > 0 {
+                            if let Err(_) = self.get_node(&self.get_position_hierarchy(x, y - 1, z))
+                            {
+                                normals.push(Vector::new([0.0, -1.0, 0.0, 0.0]));
+                            }
+                        } else {
                             normals.push(Vector::new([0.0, -1.0, 0.0, 0.0]));
                         }
-                    } else {
-                        normals.push(Vector::new([0.0, -1.0, 0.0, 0.0]));
-                    }
 
-                    for normal in normals {
-                        let ambient = voxel_ao(position, normal);
+                        for normal in normals {
+                            let ambient = voxel_ao(position, normal);
 
-                        vertices.push(Vertex {
-                            position,
-                            color,
-                            normal,
-                            ambient,
-                        });
+                            vertices.push(Vertex {
+                                position,
+                                color,
+                                normal,
+                                ambient,
+                            });
+                        }
                     }
                 }
             }
         }
 
         Mesh::new(&vertices, &indices)
+    }
+}
+
+impl Transform<Bitset> for SparseOctree<Voxel> {
+    //TODO implement this for N regions
+    fn transform<const N: usize>(&self, transformation: Transformation<N>) -> Bitset {
+        let Transformation { regions, lod } = transformation;
+
+        let Region { start, end } = regions[0];
+
+        let [sx, sy, sz] = *start;
+        let [ex, ey, ez] = *end;
+
+        let mut bitset = Bitset::new();
+
+        //root node is a given
+        bitset.insert(0, true);
+
+        for x in sx..ex {
+            for y in sy..ey {
+                for z in sz..ez {
+                    let hierarchy = self.get_position_hierarchy(x, y, z);
+
+                    for level in 0..hierarchy.len() {
+                        let Ok(_) = self.get_node(&hierarchy[..=level]) else {
+                            break;
+                        };
+
+                        let mut index = 0;
+
+                        for i in 0..=level {
+                            index += 8usize.pow(i as u32) as usize;
+                        }
+
+                        for (i, mask) in hierarchy[..=level].iter().cloned().rev().enumerate() {
+                            let previous = 8usize.pow(i as u32) as usize;
+                            index += mask.leading_zeros() as usize * previous;
+                        }
+
+                        bitset.insert(index, true).unwrap();
+                    }
+                }
+            }
+        }
+
+        bitset
     }
 }

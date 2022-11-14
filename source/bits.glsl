@@ -1,0 +1,103 @@
+#pragma once
+
+#include "hexane.glsl"
+#include "octree.glsl"
+#include "transform.glsl"
+
+#define BUILD_BITSET_OCTREE_REGION_COUNT_MAX 8	
+#define U32_bits 32
+
+struct Bitset {
+	u32 len;
+	u32 data[10000000];
+}
+
+struct BitsetQuery {
+	Bitset bitset;
+	u32 size;
+	u32 bit_index;		
+}
+
+struct OctreeBitsetQuery {
+	Bitset bitset;
+	f32vec3 position;
+}
+
+struct SetOctreeBit {
+	Octree src;
+	Bitset dst;
+	u32vec3 position;
+}
+
+bool query_bitset(in BitsetQuery query) {
+	if(query.bitset.size <= query.bit_index) {
+		return false;
+	}
+
+	return query.bitset.data[query.bit_index / U32_bits] & (1 << query.bit_index % U32_bits) != 0;
+}
+
+bool query_octree_bitset(in OctreeBitsetQuery query) {
+	u32 size_cursor = u32(pow(2, query.size));
+	
+	u32vec3 position_cursor = u32vec3(floor(query.position));
+
+	for(u32 bit_index = 0, u32 depth = 0; depth < query.size; depth++) {
+		size_cursor /= 2;
+
+		u32vec3 compare = u32vec3(greaterThanEqual(position_cursor, u32vec3(size_cursor)));
+
+		u32 octant = compare.x * 4 + compare.y * 2 + compare.z;
+
+		bit_index += pow(8, depth) + pow(8, depth) * octant;
+		
+		position_cursor -= compare * size_cursor;
+	}
+
+	BitsetQuery subquery;
+
+	subquery.bitset = query.bitset;
+	subquery.bit_index = bit_index;
+
+	return query_bitset(subquery);
+}
+
+bool set_octree_bit(in SetOctreeBit params) {
+	if(params.region_count > BUILD_BITSET_OCTREE_REGION_COUNT_MAX) {
+		return false;	
+	}	
+
+	u32 size_cursor = u32(pow(2, query.octree.size));
+
+	u32vec3 position_cursor = u32vec3(floor(query.position));
+
+	uint bit_index = 0;
+
+	uint node_index = 0;
+	uint node_depth = 0;
+	
+	for(; node_depth < query.src.size; node_depth++) {
+		size_cursor /= 2;
+
+		u32vec3 compare = u32vec3(greaterThanEqual(position_cursor, u32vec3(size_cursor)));
+
+		u32 octant = compare.x * 4 + compare.y * 2 + compare.z;
+
+		Node current_node = query.octree.nodes[query.node_index];
+
+		if(current_node.valid != 0 && current_node.valid & mask == mask) {
+			u32 child_offset = bitCount(current_node.valid & (mask - 1));
+			node_index = current_node.child + child_offset;
+
+			bit_index += pow(8, node_depth) + pow(8, node_depth) * octant;
+		} else {
+			break;
+		}
+
+		position_cursor -= compare * size_cursor;
+	}
+
+	query.dst.len = max(query.dst.len, bit_index);
+
+	query.dst.data[bit_index / U32_bits] |= 1 << bit_index % U32_bits;
+}

@@ -1,10 +1,18 @@
+const U32_bits: usize = 32;
+
 pub struct Bitset {
-    size: u32,
+    size: usize,
     data: Vec<u32>,
 }
 
 impl Bitset {
-    pub fn size(&self) -> u32 {
+    pub fn new() -> Self {
+        Self {
+            size: 0,
+            data: vec![],
+        }
+    }
+    pub fn size(&self) -> usize {
         self.size
     }
 
@@ -12,29 +20,28 @@ impl Bitset {
         &self.data
     }
 
-    pub fn insert(&mut self, index: usize, value: bool) -> bool {
-        const U32_bits: usize = 32;
-
-        while self.size / U32_bits > index / U32_bits {
+    pub fn insert(&mut self, index: usize, value: bool) -> Result<bool, ()> {
+        while self.size <= index {
             self.data.push(0);
+            self.size = self.data.len() * U32_bits;
         }
 
-        let previous = self.get(index);
+        let previous = self.get(index)?;
 
         if value {
-            self.data[index / U32_bits] |= 1 << index % U32_bits; 
+            self.data[index / U32_bits] |= 1 << index % U32_bits;
         } else {
             self.data[index / U32_bits] &= !(1 << index % U32_bits);
         }
 
-        previous
+        Ok(previous)
     }
 
-    pub fn get(&self, index: usize) -> bool {
-       if self.size / U32_bits < index / U32_bits {
-            return false;
-       }
-        
-       self.data[index / U32_bits] & (1 << index % U32_bits) != 0
+    pub fn get(&self, index: usize) -> Result<bool, ()> {
+        if self.size <= index {
+            return Err(());
+        }
+
+        Ok(self.data[index / U32_bits] & (1 << index % U32_bits) != 0)
     }
 }

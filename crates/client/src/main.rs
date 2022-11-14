@@ -5,7 +5,9 @@
 mod camera;
 
 use crate::camera::Camera;
+use common::bits::Bitset;
 use common::octree::SparseOctree;
+use common::transform::{Region, Transform, Transformation};
 use common::voxel::Voxel;
 
 use gpu::prelude::*;
@@ -68,23 +70,8 @@ fn root_path() -> Option<path::PathBuf> {
 fn main() {
     println!("Hello, world!");
 
-    tracy_client::Client::start();
-    profiling::register_thread!("main");
-
-    let mut event_loop = EventLoop::new();
-
-    let window = WindowBuilder::new()
-        .with_title("Hexane | FPS 0")
-        .with_inner_size(winit::dpi::PhysicalSize {
-            width: 1920,
-            height: 1080,
-        })
-        .build(&event_loop)
-        .unwrap();
-
-    let mut resolution = window.inner_size().into();
-
-    let (width, height) = resolution;
+    //tracy_client::Client::start();
+    //profiling::register_thread!("main");
 
     use common::mesh::*;
     use common::octree::*;
@@ -101,49 +88,80 @@ fn main() {
 
     let mut octree = SparseOctree::<Voxel>::new();
 
-    for x in 0..WORLD_SIZE {
-        for z in 0..WORLD_SIZE {
-            const BASE_HEIGHT: usize = 64;
-            const VARIATION_HEIGHT: usize = 40;
+    /*    for x in 0..WORLD_SIZE {
+            for z in 0..WORLD_SIZE {
+                const BASE_HEIGHT: usize = 64;
+                const VARIATION_HEIGHT: usize = 40;
 
-            let mut height = BASE_HEIGHT as isize;
+                let mut height = BASE_HEIGHT as isize;
 
-            const OCTAVES: usize = 4;
-            const SAMPLE_BASIS: f64 = 32.0;
+                const OCTAVES: usize = 4;
+                const SAMPLE_BASIS: f64 = 32.0;
 
-            for i in 1..=OCTAVES {
-                let sample_x = x as f64 / (SAMPLE_BASIS * i as f64);
-                let sample_z = z as f64 / (SAMPLE_BASIS * i as f64);
+                for i in 1..=OCTAVES {
+                    let sample_x = x as f64 / (SAMPLE_BASIS * i as f64);
+                    let sample_z = z as f64 / (SAMPLE_BASIS * i as f64);
 
-                let diff = (perlin.get([sample_x, 0.0, sample_z])
-                    * (VARIATION_HEIGHT as f64 / i as f64)) as isize;
+                    let diff = (perlin.get([sample_x, 0.0, sample_z])
+                        * (VARIATION_HEIGHT as f64 / i as f64)) as isize;
 
-                height += diff;
-            }
+                    height += diff;
+                }
 
-            let height = height as usize;
+                let height = height as usize;
 
-            for y in 0..height {
-                if y == height - 1 {
-                    octree.place(Vector::new([x, y, z]), Voxel { id: Id::Grass });
-                } else {
-                    octree.place(Vector::new([x, y, z]), Voxel { id: Id::Dirt });
+                for y in 0..height {
+                    if y == height - 1 {
+                        octree.place(Vector::new([x, y, z]), Voxel { id: Id::Grass });
+                    } else {
+                        octree.place(Vector::new([x, y, z]), Voxel { id: Id::Dirt });
+                    }
                 }
             }
         }
+
+        println!("Finished world generation.");
+
+        println!("Finished mesh generation.");
+    */
+    for _ in 0..3 {
+        let x = (rng.gen::<f64>() * 256.0) as usize;
+        let y = (rng.gen::<f64>() * 256.0) as usize;
+        let z = (rng.gen::<f64>() * 256.0) as usize;
+        octree.place(Vector::new([x, y, z]), Voxel { id: Id::Dirt });
     }
-
-    println!("Finished world generation.");
-
-    let mesh = octree.generate(MeshParameters {
-        boundary: Boundary {
+    let bitset: Bitset = octree.transform(Transformation {
+        regions: [Region {
             start: Vector::new([0, 0, 0]),
-            end: Vector::new([WORLD_SIZE, 128, WORLD_SIZE]),
-        },
+            end: Vector::new([256, 256, 256]),
+        }],
         lod: 1,
     });
 
-    println!("Finished mesh generation.");
+    panic!("");
+    let mut event_loop: EventLoop<winit::window::Window> = todo!(); //EventLoop::new();
+
+    let window: winit::window::Window = todo!(); /*WindowBuilder::new()
+                                                 .with_title("Hexane | FPS 0")
+                                                 .with_inner_size(winit::dpi::PhysicalSize {
+                                                     width: 1920,
+                                                     height: 1080,
+                                                 })
+                                                 .build(&event_loop)
+                                                 .unwrap();*/
+
+    let mut resolution = window.inner_size().into();
+
+    let (width, height) = resolution;
+    let mesh: Mesh = octree.transform(Transformation {
+        regions: [Region {
+            start: Vector::new([0, 0, 0]),
+            end: Vector::new([WORLD_SIZE, 128, WORLD_SIZE]),
+        }],
+        lod: 1,
+    });
+
+    println!("Finished bitset generation.");
 
     let root_path = root_path().expect("failed to get root path");
 

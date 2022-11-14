@@ -30,17 +30,3 @@ impl Mesh {
         &self.indices
     }
 }
-
-pub struct Boundary {
-    pub start: Vector<usize, 3>,
-    pub end: Vector<usize, 3>,
-}
-
-pub struct MeshParameters {
-    pub boundary: Boundary,
-    pub lod: usize,
-}
-
-pub trait MeshGenerator {
-    fn generate(&self, parameters: MeshParameters) -> Mesh;
-}
