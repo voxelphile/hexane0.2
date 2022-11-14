@@ -6,6 +6,7 @@ pub struct Vertex {
     pub position: Vector<f32, 4>,
     pub normal: Vector<f32, 4>,
     pub color: Vector<f32, 4>,
+    pub ambient: Vector<f32, 4>,
 }
 
 pub type Index = u32;

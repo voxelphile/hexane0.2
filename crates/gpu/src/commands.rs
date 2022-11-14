@@ -21,9 +21,9 @@ bitflags! {
         const COLOR_ATTACHMENT_WRITE = 0x00000001;
         const DEPTH_ATTACHMENT_READ = 0x00000002;
         const DEPTH_ATTACHMENT_WRITE = 0x00000004;
-/*        const STORAGE = 0x00000008;
-        const COLOR = 0x00000010;
-        const DEPTH_STENCIL = 0x00000020;
+        const SHADER_READ = 0x00000008;
+        const SHADER_WRITE = 0x00000010;
+/*      const DEPTH_STENCIL = 0x00000020;
         const TRANSIENT = 0x00000040;
         const INPUT = 0x00000080;
 */    }
@@ -45,6 +45,14 @@ impl From<Access> for vk::AccessFlags {
             result |= vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE;
         }
 
+        if access.contains(Access::SHADER_READ) {
+            result |= vk::AccessFlags::SHADER_READ;
+        }
+
+        if access.contains(Access::SHADER_WRITE) {
+            result |= vk::AccessFlags::SHADER_WRITE;
+        }
+
         result
     }
 }
@@ -54,6 +62,13 @@ pub enum Barrier {
         image: usize,
         old_layout: ImageLayout,
         new_layout: ImageLayout,
+        src_access: Access,
+        dst_access: Access,
+    },
+    Buffer {
+        buffer: usize,
+        offset: usize,
+        size: usize,
         src_access: Access,
         dst_access: Access,
     },
@@ -157,6 +172,20 @@ pub struct RenderArea {
 }
 
 impl Commands<'_> {
+    pub fn dispatch(&self, x: usize, y: usize, z: usize) -> Result<()> {
+        let Commands {
+            device,
+            command_buffer,
+            ..
+        } = self;
+
+        let Device { logical_device, .. } = device;
+
+        unsafe { logical_device.cmd_dispatch(**command_buffer, x as _, y as _, z as _) };
+
+        Ok(())
+    }
+
     pub fn push_constant<T: Copy>(&mut self, push_constant: PushConstant<T>) -> Result<()> {
         let Commands {
             device,
@@ -168,11 +197,20 @@ impl Commands<'_> {
 
         let PushConstant { data, pipeline } = push_constant;
 
+        use crate::pipeline::PipelineBindPoint;
+
+        let shader_stage = match pipeline.bind_point {
+            PipelineBindPoint::Graphics => {
+                vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT
+            }
+            PipelineBindPoint::Compute => vk::ShaderStageFlags::COMPUTE,
+        };
+
         unsafe {
             logical_device.cmd_push_constants(
                 **command_buffer,
                 pipeline.layout,
-                vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+                shader_stage,
                 0,
                 slice::from_raw_parts(&data as *const _ as *const u8, mem::size_of::<T>()),
             );
@@ -608,7 +646,7 @@ impl Commands<'_> {
 
         let memory_barriers = vec![];
 
-        let buffer_barriers = vec![];
+        let mut buffer_barriers = vec![];
 
         let mut image_barriers = vec![];
 
@@ -660,6 +698,40 @@ impl Commands<'_> {
                         old_layout,
                         new_layout,
                         subresource_range,
+                        ..default()
+                    });
+                }
+                Barrier::Buffer {
+                    buffer,
+                    size,
+                    offset,
+                    src_access,
+                    dst_access,
+                } => {
+                    let Qualifier::Buffer(buffer_handle, _) = qualifiers.get(*buffer).ok_or(Error::InvalidResource)? else {
+                    Err(Error::InvalidResource)?
+                };
+
+                    let buffer = resources
+                        .buffers
+                        .get(*buffer_handle)
+                        .ok_or(Error::ResourceNotFound)?
+                        .buffer;
+
+                    let size = *size as _;
+
+                    let offset = *offset as _;
+
+                    let src_access_mask = (*src_access).into();
+
+                    let dst_access_mask = (*dst_access).into();
+
+                    buffer_barriers.push(vk::BufferMemoryBarrier {
+                        buffer,
+                        size,
+                        offset,
+                        src_access_mask,
+                        dst_access_mask,
                         ..default()
                     });
                 }

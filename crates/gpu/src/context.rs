@@ -19,6 +19,9 @@ use raw_window_handle::{
 
 const API_VERSION: u32 = vk::make_api_version(0, 1, 3, 0);
 
+pub(crate) const SPECIAL_BUFFER_BINDING: u32 = 3;
+pub(crate) const DEVICE_ADDRESS_BUFFER_BINDING: u32 = 4;
+
 pub(crate) const DESCRIPTOR_COUNT: u32 = 64;
 
 unsafe extern "system" fn debug_callback(
@@ -272,9 +275,19 @@ impl Context {
 
         let extensions = [khr::Swapchain::name()];
 
-        let mut buffer_address_features = vk::PhysicalDeviceBufferDeviceAddressFeatures {
-            buffer_device_address: true as _,
+        let mut scalar_block_layout_features = vk::PhysicalDeviceScalarBlockLayoutFeatures {
+            scalar_block_layout: true as _,
             ..default()
+        };
+
+        let mut buffer_address_features = {
+            let p_next = &mut scalar_block_layout_features as *mut _ as *mut _;
+
+            vk::PhysicalDeviceBufferDeviceAddressFeatures {
+                p_next,
+                buffer_device_address: true as _,
+                ..default()
+            }
         };
 
         let mut indexing_features = {
@@ -411,35 +424,45 @@ impl Context {
                 binding: 0,
                 descriptor_type: vk::DescriptorType::SAMPLER,
                 descriptor_count: DESCRIPTOR_COUNT,
-                stage_flags: vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+                stage_flags: vk::ShaderStageFlags::VERTEX
+                    | vk::ShaderStageFlags::FRAGMENT
+                    | vk::ShaderStageFlags::COMPUTE,
                 ..default()
             },
             vk::DescriptorSetLayoutBinding {
                 binding: 1,
                 descriptor_type: vk::DescriptorType::SAMPLED_IMAGE,
                 descriptor_count: DESCRIPTOR_COUNT,
-                stage_flags: vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+                stage_flags: vk::ShaderStageFlags::VERTEX
+                    | vk::ShaderStageFlags::FRAGMENT
+                    | vk::ShaderStageFlags::COMPUTE,
                 ..default()
             },
             vk::DescriptorSetLayoutBinding {
                 binding: 2,
                 descriptor_type: vk::DescriptorType::STORAGE_IMAGE,
                 descriptor_count: DESCRIPTOR_COUNT,
-                stage_flags: vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+                stage_flags: vk::ShaderStageFlags::VERTEX
+                    | vk::ShaderStageFlags::FRAGMENT
+                    | vk::ShaderStageFlags::COMPUTE,
                 ..default()
             },
             vk::DescriptorSetLayoutBinding {
-                binding: 3,
+                binding: SPECIAL_BUFFER_BINDING,
                 descriptor_type: vk::DescriptorType::STORAGE_BUFFER,
                 descriptor_count: DESCRIPTOR_COUNT,
-                stage_flags: vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+                stage_flags: vk::ShaderStageFlags::VERTEX
+                    | vk::ShaderStageFlags::FRAGMENT
+                    | vk::ShaderStageFlags::COMPUTE,
                 ..default()
             },
             vk::DescriptorSetLayoutBinding {
-                binding: 4,
+                binding: DEVICE_ADDRESS_BUFFER_BINDING,
                 descriptor_type: vk::DescriptorType::STORAGE_BUFFER,
                 descriptor_count: 1,
-                stage_flags: vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
+                stage_flags: vk::ShaderStageFlags::VERTEX
+                    | vk::ShaderStageFlags::FRAGMENT
+                    | vk::ShaderStageFlags::COMPUTE,
                 ..default()
             },
         ];

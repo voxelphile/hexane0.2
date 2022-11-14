@@ -127,7 +127,6 @@ impl ShaderCompiler {
 
                 let glslc = process::Command::new("glslc")
                     .current_dir(glslc_path)
-                    .arg("-O")
                     .arg(format!("-fshader-stage={}", options.ty))
                     .arg("-c")
                     .arg(&temporary_path)
@@ -158,9 +157,11 @@ impl ShaderCompiler {
                             .map(|a| u32::from_le_bytes(a.try_into().unwrap()))
                             .collect::<Vec<_>>()
                     })
-                    .map_err(|_| Error::ShaderCompilationError {
-                        message: String::from_utf8(glslc.stderr)
-                            .expect("could not parse glslc std err"),
+                    .map_err(|e| {
+                        dbg!(e);
+                        Error::ShaderCompilationError {
+                            message: String::from("glsl error"),
+                        }
                     })?;
 
                 fs::remove_file(temporary_path);
@@ -377,7 +378,7 @@ impl PipelineCompiler<'_> {
         let push_constant = vk::PushConstantRange {
             stage_flags: vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT,
             offset: 0,
-            size: 128,
+            size: info.push_constant_size as _,
         };
 
         let layout_create_info = {
@@ -464,7 +465,124 @@ impl PipelineCompiler<'_> {
     }
 
     pub fn create_compute_pipeline(&self, info: ComputePipelineInfo<'_>) -> Result<Pipeline> {
-        todo!()
+        let PipelineCompiler { device, .. } = self;
+
+        let Device {
+            logical_device,
+            descriptor_set_layout,
+            ..
+        } = device;
+
+        let module = {
+            let Shader(ty, name, _) = info.shader;
+
+            let extension = self.compiler.extension().unwrap_or("");
+
+            let mut input_path = self.source_path.clone();
+
+            input_path.push(name);
+            input_path.set_extension(extension);
+
+            let mut output_path = self.asset_path.clone();
+
+            let short_ty = format!("{}", ty).chars().take(4).collect::<String>();
+
+            output_path.push(name);
+            output_path.set_extension(format!("{}.spv", &short_ty));
+
+            let spv = self.compiler.compile_to_spv(ShaderCompilationOptions {
+                input_path: &input_path,
+                output_path: &output_path,
+                ty,
+            })?;
+
+            let shader_module_create_info = {
+                let code_size = 4 * spv.len();
+
+                let p_code = spv.as_ptr();
+
+                vk::ShaderModuleCreateInfo {
+                    code_size,
+                    p_code,
+                    ..default()
+                }
+            };
+
+            unsafe { logical_device.create_shader_module(&shader_module_create_info, None) }
+                .map_err(|_| Error::ShaderCompilationError {
+                    message: String::from("Failed to create shader module"),
+                })?
+        };
+
+        let name = ffi::CString::new("main").unwrap();
+
+        let stage = {
+            let Shader(ty, _, _) = info.shader;
+
+            let stage = ty.into();
+
+            let p_name = name.as_ptr();
+
+            vk::PipelineShaderStageCreateInfo {
+                stage,
+                module,
+                p_name,
+                ..default()
+            }
+        };
+
+        let set_layouts = [*descriptor_set_layout];
+
+        let push_constant = vk::PushConstantRange {
+            stage_flags: vk::ShaderStageFlags::COMPUTE,
+            offset: 0,
+            size: info.push_constant_size as _,
+        };
+
+        let layout_create_info = {
+            let set_layout_count = set_layouts.len() as u32;
+
+            let p_set_layouts = set_layouts.as_ptr();
+
+            let push_constant_range_count = 1;
+
+            let p_push_constant_ranges = &push_constant as *const _;
+
+            vk::PipelineLayoutCreateInfo {
+                set_layout_count,
+                p_set_layouts,
+                push_constant_range_count,
+                p_push_constant_ranges,
+                ..default()
+            }
+        };
+
+        let layout = unsafe { logical_device.create_pipeline_layout(&layout_create_info, None) }
+            .map_err(|_| Error::Creation)?;
+
+        let compute_pipeline_create_info = {
+            vk::ComputePipelineCreateInfo {
+                stage,
+                layout,
+                ..default()
+            }
+        };
+
+        let pipeline = unsafe {
+            logical_device.create_compute_pipelines(
+                vk::PipelineCache::null(),
+                &[compute_pipeline_create_info],
+                None,
+            )
+        }
+        .map_err(|_| Error::Creation)?[0];
+
+        Ok(Pipeline {
+            compiler: &self,
+            pipeline,
+            layout,
+            bind_point: PipelineBindPoint::Compute,
+        })
     }
 
     pub fn refresh(&self, pipeline: &Pipeline) {}
@@ -472,8 +590,8 @@ impl PipelineCompiler<'_> {
 
 #[derive(Default)]
 pub enum FrontFace {
-    #[default]
     Clockwise,
+    #[default]
     CounterClockwise,
 }
 
@@ -595,7 +713,6 @@ impl Default for Raster {
 
 impl From<Raster> for vk::PipelineRasterizationStateCreateInfo {
     fn from(raster: Raster) -> Self {
-        dbg!(raster.face_cull);
         Self {
             depth_clamp_enable: raster.depth_clamp as _,
             rasterizer_discard_enable: false as _,
@@ -723,10 +840,10 @@ pub struct Color {
 #[derive(Default)]
 pub enum CompareOp {
     Never,
+    #[default]
     Less,
     Equal,
     LessOrEqual,
-    #[default]
     Greater,
     NotEqual,
     GreaterOrEqual,
@@ -793,7 +910,7 @@ impl Default for GraphicsPipelineInfo<'_> {
             color: &[],
             depth: None,
             raster: default(),
-            push_constant_size: 0,
+            push_constant_size: 128,
             debug_name: "Pipeline",
         }
     }
@@ -809,7 +926,7 @@ impl Default for ComputePipelineInfo<'_> {
     fn default() -> Self {
         Self {
             shader: Shader(ShaderType::Compute, "default", &[]),
-            push_constant_size: 0,
+            push_constant_size: 128,
             debug_name: "Pipeline",
         }
     }

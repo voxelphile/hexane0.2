@@ -18,7 +18,7 @@ pub fn default_surface_format_selector(format: Format) -> usize {
 
 pub trait SurfaceFormatSelector = ops::Fn(Format) -> usize;
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub enum PresentMode {
     DoNotWaitForVBlank,
     TripleBufferWaitForVBlank,
@@ -32,9 +32,8 @@ impl From<PresentMode> for vk::PresentModeKHR {
 
         match present_mode {
             DoNotWaitForVBlank => Self::IMMEDIATE,
-            TripleSwapchainWaitForVBlank => Self::MAILBOX,
-            DoubleSwapchainWaitForVBlank => Self::FIFO,
-            DoubleSwapchainWaitForVBlankRelaxed => Self::FIFO_RELAXED,
+            TripleBufferWaitForVBlank | DoubleBufferWaitForVBlank => Self::FIFO,
+            DoubleBufferWaitForVBlankRelaxed => Self::FIFO_RELAXED,
         }
     }
 }
@@ -69,6 +68,7 @@ pub struct InternalSwapchain {
     pub(crate) handle: vk::SwapchainKHR,
     pub(crate) images: Vec<Image>,
     pub(crate) last_acquisition_index: Option<u32>,
+    pub(crate) current_frame: usize,
 }
 
 #[derive(Clone, Copy)]

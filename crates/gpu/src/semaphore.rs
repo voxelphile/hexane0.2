@@ -4,7 +4,7 @@ use ash::vk;
 
 pub struct BinarySemaphore<'a> {
     pub(crate) device: &'a Device<'a>,
-    pub(crate) semaphore: vk::Semaphore,
+    pub(crate) semaphores: Vec<vk::Semaphore>,
     pub(crate) debug_name: String,
 }
 
@@ -22,7 +22,7 @@ impl Default for BinarySemaphoreInfo<'_> {
 
 pub struct TimelineSemaphore<'a> {
     pub(crate) device: &'a Device<'a>,
-    pub(crate) semaphore: vk::Semaphore,
+    pub(crate) semaphores: Vec<vk::Semaphore>,
     pub(crate) debug_name: String,
 }
 

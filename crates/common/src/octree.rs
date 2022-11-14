@@ -3,6 +3,7 @@ use crate::voxel::*;
 
 use math::prelude::*;
 
+use std::cmp;
 use std::default::default;
 use std::marker;
 
@@ -19,6 +20,7 @@ pub trait Octree<T> {
     fn new() -> Self;
 
     fn place(&mut self, position: Vector<usize, 3>, object: T);
+    fn query(&self, position: Vector<usize, 3>) -> Option<&T>;
 }
 
 pub struct SparseOctree<T: Eq + Copy + Default> {
@@ -55,6 +57,16 @@ impl<T: Eq + Copy + Default> Octree<T> for SparseOctree<T> {
         let node = self.add_node(&hierarchy);
 
         node.unwrap().data = data;
+    }
+
+    fn query(&self, position: Vector<usize, 3>) -> Option<&T> {
+        let [x, y, z] = <[usize; 3]>::from(*position);
+
+        let hierarchy = self.get_position_hierarchy(x, y, z);
+
+        let node = self.get_node(&hierarchy);
+
+        node.map(|node| &node.0.data).as_ref().ok().copied()
     }
 }
 
@@ -177,6 +189,8 @@ impl<T: Eq + Copy + Default> SparseOctree<T> {
 
             let child_invalid = node.child == u32::MAX;
 
+            dbg!(nodes[i].morton);
+
             if child_invalid {
                 continue;
             }
@@ -184,7 +198,7 @@ impl<T: Eq + Copy + Default> SparseOctree<T> {
             let child = self.nodes[node.child as usize];
 
             nodes[i].child = nodes
-                .binary_search_by(|probe| probe.morton.cmp(&child.morton))
+                .binary_search_by(|probe| dbg!(probe.morton).cmp(dbg!(&child.morton)))
                 .expect("failed to find child") as _;
         }
 
@@ -352,138 +366,130 @@ impl MeshGenerator for SparseOctree<Voxel> {
                 for z in sz..ez {
                     let hierarchy = self.get_position_hierarchy(x, y, z);
 
-                    let Ok(node) = self.get_node(&hierarchy) else {
+                    let Ok((node, index)) = self.get_node(&hierarchy) else {
                         continue;
                     };
 
-                    let mut quad = |x, p, n, i| {
-                        let (a, b, c, d) = x;
+                    let position = Vector::new([x as f32, y as f32, z as f32, 1.0]);
 
-                        let v = [
-                            Vector::new([-0.5, -0.5, 0.5, 0.0]),
-                            Vector::new([-0.5, 0.5, 0.5, 0.0]),
-                            Vector::new([0.5, 0.5, 0.5, 0.0]),
-                            Vector::new([0.5, -0.5, 0.5, 0.0]),
-                            Vector::new([-0.5, -0.5, -0.5, 0.0]),
-                            Vector::new([-0.5, 0.5, -0.5, 0.0]),
-                            Vector::new([0.5, 0.5, -0.5, 0.0]),
-                            Vector::new([0.5, -0.5, -0.5, 0.0]),
-                        ];
+                    let color = node.data.albedo(position);
 
-                        let q = vertices.len();
-
-                        vertices.push(Vertex {
-                            position: v[a] + p,
-                            normal: n,
-                            color: i,
-                        });
-                        vertices.push(Vertex {
-                            position: v[b] + p,
-                            normal: n,
-                            color: i,
-                        });
-                        vertices.push(Vertex {
-                            position: v[c] + p,
-                            normal: n,
-                            color: i,
-                        });
-
-                        vertices.push(Vertex {
-                            position: v[a] + p,
-                            normal: n,
-                            color: i,
-                        });
-                        vertices.push(Vertex {
-                            position: v[c] + p,
-                            normal: n,
-                            color: i,
-                        });
-                        vertices.push(Vertex {
-                            position: v[d] + p,
-                            normal: n,
-                            color: i,
-                        });
-
-                        indices.push((q + a) as u32);
-                        indices.push((q + b) as u32);
-                        indices.push((q + c) as u32);
-                        indices.push((q + a) as u32);
-                        indices.push((q + c) as u32);
-                        indices.push((q + d) as u32);
+                    let vertex_ao = |side: Vector<f32, 2>, corner: f32| {
+                        (side[0] + side[1] + f32::max(corner, side[0] * side[1])) / 3.0
                     };
 
-                    let p = Vector::new([x as f32, y as f32, z as f32, 1.0]);
+                    let voxel_ao = |position: Vector<f32, 4>, normal: Vector<f32, 4>| {
+                        let d1 = Vector::new([
+                            isize::abs(normal[1] as isize) as usize,
+                            isize::abs(normal[2] as isize) as usize,
+                            isize::abs(normal[0] as isize) as usize,
+                        ]);
 
-                    use rand::Rng;
-                    let mut rng = rand::thread_rng();
+                        let d2 = Vector::new([
+                            isize::abs(normal[2] as isize) as usize,
+                            isize::abs(normal[0] as isize) as usize,
+                            isize::abs(normal[1] as isize) as usize,
+                        ]);
 
-                    let c = Vector::new([rng.gen(), rng.gen(), rng.gen(), 1.0]);
+                        let position = Vector::new([
+                            position[0] as isize + normal[0] as isize,
+                            position[1] as isize + normal[1] as isize,
+                            position[2] as isize + normal[2] as isize,
+                        ]);
+
+                        let position = Vector::new([
+                            position[0] as usize,
+                            position[1] as usize,
+                            position[2] as usize,
+                        ]);
+
+                        let side = Vector::new([
+                            self.query(position + d1).is_some() as usize as f32,
+                            self.query(position + d2).is_some() as usize as f32,
+                            self.query(position - d1).is_some() as usize as f32,
+                            self.query(position - d2).is_some() as usize as f32,
+                        ]);
+
+                        let corner = Vector::new([
+                            self.query(position + d1 + d2).is_some() as usize as f32,
+                            self.query(position - d1 + d2).is_some() as usize as f32,
+                            self.query(position - d1 - d2).is_some() as usize as f32,
+                            self.query(position + d1 - d2).is_some() as usize as f32,
+                        ]);
+
+                        Vector::new([
+                            1.0 - vertex_ao(Vector::new([side[0], side[1]]), corner[0]),
+                            1.0 - vertex_ao(Vector::new([side[1], side[2]]), corner[1]),
+                            1.0 - vertex_ao(Vector::new([side[2], side[3]]), corner[2]),
+                            1.0 - vertex_ao(Vector::new([side[3], side[0]]), corner[3]),
+                        ])
+                    };
 
                     let size = 2usize.pow(self.size as _);
 
+                    let mut normals = vec![];
+
                     if z < size {
                         if let Err(_) = self.get_node(&self.get_position_hierarchy(x, y, z + 1)) {
-                            let n = Vector::new([0.0, 0.0, 1.0, 0.0]);
-                            quad((1, 0, 3, 2), p, n, c);
+                            normals.push(Vector::new([0.0, 0.0, 1.0, 0.0]));
                         }
                     } else {
-                        let n = Vector::new([0.0, 0.0, 1.0, 0.0]);
-                        quad((1, 0, 3, 2), p, n, c);
+                        normals.push(Vector::new([0.0, 0.0, 1.0, 0.0]));
                     }
 
                     if z > 0 {
                         if let Err(_) = self.get_node(&self.get_position_hierarchy(x, y, z - 1)) {
-                            let n = Vector::new([0.0, 0.0, -1.0, 0.0]);
-                            quad((4, 5, 6, 7), p, n, c);
+                            normals.push(Vector::new([0.0, 0.0, -1.0, 0.0]));
                         }
                     } else {
-                        let n = Vector::new([0.0, 0.0, -1.0, 0.0]);
-                        quad((4, 5, 6, 7), p, n, c);
+                        normals.push(Vector::new([0.0, 0.0, -1.0, 0.0]));
                     }
 
                     if x < size {
                         if let Err(_) = self.get_node(&self.get_position_hierarchy(x + 1, y, z)) {
-                            let n = Vector::new([1.0, 0.0, 0.0, 0.0]);
-                            quad((2, 3, 7, 6), p, n, c);
+                            normals.push(Vector::new([1.0, 0.0, 0.0, 0.0]));
                         }
                     } else {
-                        let n = Vector::new([1.0, 0.0, 0.0, 0.0]);
-                        quad((2, 3, 7, 6), p, n, c);
+                        normals.push(Vector::new([1.0, 0.0, 0.0, 0.0]));
                     }
 
                     if x > 0 {
                         if let Err(_) = self.get_node(&self.get_position_hierarchy(x - 1, y, z)) {
-                            let n = Vector::new([-1.0, 0.0, 0.0, 0.0]);
-                            quad((5, 4, 0, 1), p, n, c);
+                            normals.push(Vector::new([-1.0, 0.0, 0.0, 0.0]));
                         }
                     } else {
-                        let n = Vector::new([-1.0, 0.0, 0.0, 0.0]);
-                        quad((5, 4, 0, 1), p, n, c);
+                        normals.push(Vector::new([-1.0, 0.0, 0.0, 0.0]));
                     }
 
                     if y < size {
                         if let Err(_) = self.get_node(&self.get_position_hierarchy(x, y + 1, z)) {
-                            let n = Vector::new([0.0, 1.0, 0.0, 0.0]);
-                            quad((6, 5, 1, 2), p, n, c);
+                            normals.push(Vector::new([0.0, 1.0, 0.0, 0.0]));
                         }
                     } else {
-                        let n = Vector::new([0.0, 1.0, 0.0, 0.0]);
-                        quad((6, 5, 1, 2), p, n, c);
+                        normals.push(Vector::new([0.0, 1.0, 0.0, 0.0]));
                     }
 
                     if y > 0 {
                         if let Err(_) = self.get_node(&self.get_position_hierarchy(x, y - 1, z)) {
-                            let n = Vector::new([0.0, -1.0, 0.0, 0.0]);
-                            quad((3, 0, 4, 7), p, n, c);
+                            normals.push(Vector::new([0.0, -1.0, 0.0, 0.0]));
                         }
                     } else {
-                        let n = Vector::new([0.0, -1.0, 0.0, 0.0]);
-                        quad((3, 0, 4, 7), p, n, c);
+                        normals.push(Vector::new([0.0, -1.0, 0.0, 0.0]));
+                    }
+
+                    for normal in normals {
+                        let ambient = voxel_ao(position, normal);
+
+                        vertices.push(Vertex {
+                            position,
+                            color,
+                            normal,
+                            ambient,
+                        });
                     }
                 }
             }
         }
-        dbg!(&vertices.len());
 
         Mesh::new(&vertices, &indices)
     }

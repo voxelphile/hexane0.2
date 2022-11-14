@@ -1,3 +1,5 @@
+use crate::context::{DEVICE_ADDRESS_BUFFER_BINDING, SPECIAL_BUFFER_BINDING};
+use crate::device::MAX_FRAMES_IN_FLIGHT;
 use crate::prelude::*;
 
 use std::borrow::{Borrow, BorrowMut};
@@ -6,6 +8,7 @@ use std::marker::PhantomData;
 use std::mem;
 use std::ops;
 use std::slice;
+use std::time;
 
 use ash::vk;
 
@@ -13,7 +16,6 @@ use bitflags::bitflags;
 
 pub struct Present<'a> {
     pub wait_semaphore: &'a BinarySemaphore<'a>,
-    pub swapchain: Swapchain,
 }
 
 pub struct Submit<'a> {
@@ -23,6 +25,7 @@ pub struct Submit<'a> {
 
 pub struct ExecutorInfo<'a> {
     pub optimizer: &'a dyn ops::Fn(&mut Executor<'a>),
+    pub swapchain: Swapchain,
     pub debug_name: &'a str,
 }
 
@@ -30,6 +33,7 @@ impl Default for ExecutorInfo<'_> {
     fn default() -> Self {
         Self {
             optimizer: &non_optimizer,
+            swapchain: u32::MAX.into(),
             debug_name: "Executor",
         }
     }
@@ -37,6 +41,7 @@ impl Default for ExecutorInfo<'_> {
 
 pub struct Executor<'a> {
     pub(crate) device: &'a Device<'a>,
+    pub(crate) swapchain: Swapchain,
     pub(crate) optimizer: &'a dyn ops::Fn(&mut Executor<'a>),
     pub(crate) nodes: Vec<Node<'a>>,
     pub(crate) submit: Option<Submit<'a>>,
@@ -73,6 +78,7 @@ impl<'a> Executor<'a> {
             nodes,
             submit,
             present,
+            swapchain,
             ..
         } = self;
 
@@ -85,63 +91,82 @@ impl<'a> Executor<'a> {
 
         let resources = resources.lock().unwrap();
 
-        if let Some(present) = &present {
-            resources
-                .swapchains
-                .get(present.swapchain)
-                .ok_or(Error::ResourceNotFound)?;
-        }
-
         let command_buffer_allocate_info = vk::CommandBufferAllocateInfo {
             command_pool: *command_pool,
             level: vk::CommandBufferLevel::PRIMARY,
-            command_buffer_count: 1,
+            command_buffer_count: MAX_FRAMES_IN_FLIGHT as _,
             ..default()
         };
 
-        let command_buffer =
+        let command_buffers =
             unsafe { logical_device.allocate_command_buffers(&command_buffer_allocate_info) }
-                .map_err(|_| Error::Creation)?
-                .pop()
-                .ok_or(Error::Creation)?;
+                .map_err(|_| Error::Creation)?;
 
         let fence_create_info = vk::FenceCreateInfo {
             flags: vk::FenceCreateFlags::SIGNALED,
             ..default()
         };
 
-        let fence = unsafe { logical_device.create_fence(&fence_create_info, None) }
-            .map_err(|_| Error::Creation)?;
+        let mut fences = vec![];
+
+        for i in 0..MAX_FRAMES_IN_FLIGHT {
+            let fence = unsafe { logical_device.create_fence(&fence_create_info, None) }
+                .map_err(|_| Error::Creation)?;
+
+            fences.push(fence);
+        }
+
+        let fps_instant = time::Instant::now();
+        let fps_counter = 0;
+        let fps = 0;
 
         Ok(Executable {
             device,
             nodes,
             submit,
             present,
-            command_buffer,
-            fence,
+            command_buffers,
+            fences,
+            fps_instant,
+            fps_counter,
+            fps,
+            swapchain,
         })
     }
 }
 
 pub struct Executable<'a> {
     pub(crate) device: &'a Device<'a>,
+    pub(crate) swapchain: Swapchain,
     pub(crate) nodes: Vec<Node<'a>>,
     pub(crate) submit: Option<Submit<'a>>,
     pub(crate) present: Option<Present<'a>>,
-    pub(crate) command_buffer: vk::CommandBuffer,
-    pub(crate) fence: vk::Fence,
+    pub(crate) command_buffers: Vec<vk::CommandBuffer>,
+    pub(crate) fences: Vec<vk::Fence>,
+    pub(crate) fps_instant: time::Instant,
+    pub(crate) fps_counter: usize,
+    pub(crate) fps: usize,
+}
+impl Executable<'_> {
+    pub fn fps(&self) -> usize {
+        self.fps
+    }
 }
 
 impl ops::FnMut<()> for Executable<'_> {
+    #[profiling::function]
     extern "rust-call" fn call_mut(&mut self, args: ()) {
         let Executable {
             device,
             nodes,
             submit,
             present,
-            command_buffer,
-            fence,
+            command_buffers,
+            fences,
+            fps_instant,
+            fps_counter,
+            fps,
+            swapchain,
         } = self;
 
         let Device {
@@ -155,23 +180,54 @@ impl ops::FnMut<()> for Executable<'_> {
             ..
         } = device;
 
+        let (swapchain_handle, current_frame) = {
+            let resources = resources.lock().unwrap();
+
+            let internal_swapchain = resources.swapchains.get(*swapchain).unwrap();
+
+            let swapchain_handle = internal_swapchain.handle;
+
+            let current_frame = internal_swapchain.current_frame;
+
+            (swapchain_handle, current_frame)
+        };
+
         let queue_family_index = queue_family_indices[0];
 
         let queue = unsafe { logical_device.get_device_queue(queue_family_index as _, 0) };
 
-        unsafe {
-            logical_device.wait_for_fences(&[*fence], true, u64::MAX);
+        {
+            profiling::scope!("fence", "ev");
+            unsafe {
+                if let Err(vk::Result::TIMEOUT) =
+                    logical_device.wait_for_fences(&[fences[current_frame]], true, 0)
+                {
+                    return;
+                } else if time::Instant::now()
+                    .duration_since(*fps_instant)
+                    .as_secs_f64()
+                    > 1.0
+                {
+                    *fps_instant = time::Instant::now();
+                    *fps = *fps_counter;
+                    *fps_counter = 0;
+                } else {
+                    *fps_counter += 1;
+                }
+            }
+
+            unsafe {
+                logical_device.reset_fences(&[fences[current_frame]]);
+            }
         }
 
         unsafe {
-            logical_device.reset_fences(&[*fence]);
-        }
-
-        unsafe {
-            logical_device.begin_command_buffer(*command_buffer, &default());
+            logical_device.begin_command_buffer(command_buffers[current_frame], &default());
         }
 
         {
+            profiling::scope!("address book and descriptor set", "ev");
+
             let resources = resources.lock().unwrap();
 
             let mut addresses = [0u64; DESCRIPTOR_COUNT as usize];
@@ -226,7 +282,7 @@ impl ops::FnMut<()> for Executable<'_> {
 
             unsafe {
                 logical_device.cmd_copy_buffer(
-                    *command_buffer,
+                    command_buffers[current_frame],
                     *staging_address_buffer,
                     *general_address_buffer,
                     &regions,
@@ -244,7 +300,7 @@ impl ops::FnMut<()> for Executable<'_> {
 
                 vk::WriteDescriptorSet {
                     dst_set: *descriptor_set,
-                    dst_binding: 4, //MAGIC NUMBER SEE context.rs
+                    dst_binding: DEVICE_ADDRESS_BUFFER_BINDING, //MAGIC NUMBER SEE context.rs or hexane.glsl
                     descriptor_count: 1,
                     descriptor_type: vk::DescriptorType::STORAGE_BUFFER,
                     p_buffer_info,
@@ -257,7 +313,7 @@ impl ops::FnMut<()> for Executable<'_> {
 
                 vk::WriteDescriptorSet {
                     dst_set: *descriptor_set,
-                    dst_binding: 3, //MAGIC NUMBER SEE context.rs
+                    dst_binding: SPECIAL_BUFFER_BINDING, //MAGIC NUMBER SEE context.rs or hexane.glsl
                     descriptor_count: descriptor_buffer_infos.len() as _,
                     descriptor_type: vk::DescriptorType::STORAGE_BUFFER,
                     p_buffer_info,
@@ -272,6 +328,7 @@ impl ops::FnMut<()> for Executable<'_> {
         }
 
         for node in nodes {
+            profiling::scope!("task", "ev");
             let qualifiers = node
                 .resources
                 .iter()
@@ -281,17 +338,23 @@ impl ops::FnMut<()> for Executable<'_> {
             let mut commands = Commands {
                 device: &device,
                 qualifiers: &qualifiers,
-                command_buffer: &command_buffer,
+                command_buffer: &command_buffers[current_frame],
             };
 
             (node.task)(&mut commands).unwrap();
         }
 
         unsafe {
-            logical_device.end_command_buffer(*command_buffer);
+            logical_device.end_command_buffer(command_buffers[current_frame]);
         }
 
         if let Some(submit) = submit {
+            profiling::scope!("submit", "ev");
+
+            let resources = resources.lock().unwrap();
+
+            let internal_swapchain = resources.swapchains.get(*swapchain).unwrap();
+
             let wait_dst_stage_mask = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
 
             let submit_info = {
@@ -299,15 +362,15 @@ impl ops::FnMut<()> for Executable<'_> {
 
                 let wait_semaphore_count = 1;
 
-                let p_wait_semaphores = &submit.wait_semaphore.semaphore;
+                let p_wait_semaphores = &submit.wait_semaphore.semaphores[current_frame];
 
                 let signal_semaphore_count = 1;
 
-                let p_signal_semaphores = &submit.signal_semaphore.semaphore;
+                let p_signal_semaphores = &submit.signal_semaphore.semaphores[current_frame];
 
                 let command_buffer_count = 1;
 
-                let p_command_buffers = command_buffer;
+                let p_command_buffers = &command_buffers[current_frame];
 
                 vk::SubmitInfo {
                     p_wait_dst_stage_mask,
@@ -322,23 +385,25 @@ impl ops::FnMut<()> for Executable<'_> {
             };
 
             unsafe {
-                logical_device.queue_submit(queue, &[submit_info], *fence);
+                logical_device.queue_submit(queue, &[submit_info], fences[current_frame]);
             }
         }
 
         if let Some(present) = present {
+            profiling::scope!("submit", "ev");
+
             let resources = resources.lock().unwrap();
 
-            let internal_swapchain = resources.swapchains.get(present.swapchain).unwrap();
+            let internal_swapchain = resources.swapchains.get(*swapchain).unwrap();
 
             let present_info = {
                 let swapchain_count = 1;
 
-                let p_swapchains = &internal_swapchain.handle;
+                let p_swapchains = &swapchain_handle;
 
                 let wait_semaphore_count = 1;
 
-                let p_wait_semaphores = &present.wait_semaphore.semaphore;
+                let p_wait_semaphores = &present.wait_semaphore.semaphores[current_frame];
 
                 let image_index = internal_swapchain.last_acquisition_index.unwrap();
 
@@ -359,6 +424,18 @@ impl ops::FnMut<()> for Executable<'_> {
                     .loader
                     .queue_present(queue, &present_info);
             }
+        }
+
+        {
+            let mut resources = resources.lock().unwrap();
+
+            let mut internal_swapchain = resources.swapchains.get_mut(*swapchain).unwrap();
+
+            let current_frame = internal_swapchain.current_frame;
+
+            internal_swapchain.current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
+
+            drop(resources);
         }
     }
 }

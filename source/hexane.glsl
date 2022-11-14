@@ -2,6 +2,8 @@
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 #extension GL_EXT_buffer_reference : require
 
+#define EPSILON 1e-2
+
 #define b32 bool
 #define i32 int
 #define u32 uint
@@ -35,7 +37,7 @@
 #define u32vec4 uvec4
 
 #define DEVICE_ADDRESS_BUFFER_BINDING 4
-#define STORAGE_BUFFER_BINDING 3
+#define SPECIAL_BUFFER_BINDING 3
 
 struct BufferId {
 	u32 buffer_id_value;
@@ -48,11 +50,11 @@ layout(scalar, binding = DEVICE_ADDRESS_BUFFER_BINDING, set = 0) readonly buffer
 
 #define DECL_BUFFER_STRUCT(NAME, BODY) 											\
 	struct NAME BODY; 												\
-	layout(scalar, binding = STORAGE_BUFFER_BINDING, set = 0) buffer BufferTableObject##NAME { 			\
+	layout(scalar, binding = SPECIAL_BUFFER_BINDING, set = 0) buffer BufferTableObject##NAME { 			\
 		NAME value;												\
 	}														\
 	BufferTable##NAME [];												\
-	layout(scalar, binding = STORAGE_BUFFER_BINDING, set = 0) buffer CoherentBufferTableBlock##NAME {		\
+	layout(scalar, binding = SPECIAL_BUFFER_BINDING, set = 0) buffer CoherentBufferTableBlock##NAME {		\
 		NAME value;												\
 	}														\
 	CoherentBufferTable##NAME []; 											\

@@ -24,6 +24,8 @@ use raw_window_handle::{Win32WindowHandle, WindowsDisplayHandle};
 #[cfg(target_os = "linux")]
 use raw_window_handle::{XlibDisplayHandle, XlibWindowHandle};
 
+pub(crate) const MAX_FRAMES_IN_FLIGHT: usize = 3;
+
 pub fn default_device_selector(details: Details) -> usize {
     let mut score = 0;
 
@@ -38,7 +40,6 @@ pub fn default_device_selector(details: Details) -> usize {
     score += details.properties.limits.max_descriptor_set_storage_buffers as usize / 1000;
     score += details.properties.limits.max_image_array_layers as usize / 1000;
 
-    dbg!(score);
     score
 }
 
@@ -696,10 +697,11 @@ impl<'a> Device<'a> {
         todo!()
     }
 
-    pub fn create_executor(&'a self, info: ExecutorInfo<'a>) -> Executor<'a> {
+    pub fn create_executor(&'a self, info: ExecutorInfo<'a>) -> Result<Executor<'a>> {
         let ExecutorInfo {
             optimizer,
             debug_name,
+            swapchain,
         } = info;
 
         let debug_name = debug_name.to_owned();
@@ -710,14 +712,22 @@ impl<'a> Device<'a> {
 
         let present = None;
 
-        Executor {
+        self.resources
+            .lock()
+            .unwrap()
+            .swapchains
+            .get(swapchain)
+            .ok_or(Error::ResourceNotFound)?;
+
+        Ok(Executor {
             device: &self,
+            swapchain,
             optimizer,
             nodes,
             submit,
             present,
             debug_name,
-        }
+        })
     }
 
     pub fn create_image(&'a self, info: ImageInfo<'a>) -> Result<Image> {
@@ -942,12 +952,17 @@ impl<'a> Device<'a> {
 
         let debug_name = debug_name.to_owned();
 
-        let semaphore = unsafe { logical_device.create_semaphore(&default(), None) }
-            .map_err(|_| Error::Creation)?;
+        let mut semaphores = vec![];
+
+        for i in 0..MAX_FRAMES_IN_FLIGHT {
+            let semaphore = unsafe { logical_device.create_semaphore(&default(), None) }
+                .map_err(|_| Error::Creation)?;
+            semaphores.push(semaphore);
+        }
 
         Ok(BinarySemaphore {
             device: &self,
-            semaphore,
+            semaphores,
             debug_name,
         })
     }
@@ -979,12 +994,16 @@ impl<'a> Device<'a> {
             ..default()
         };
 
-        let semaphore = unsafe { logical_device.create_semaphore(&default(), None) }
-            .map_err(|_| Error::Creation)?;
+        let mut semaphores = vec![];
 
+        for i in 0..MAX_FRAMES_IN_FLIGHT {
+            let semaphore = unsafe { logical_device.create_semaphore(&default(), None) }
+                .map_err(|_| Error::Creation)?;
+            semaphores.push(semaphore);
+        }
         Ok(TimelineSemaphore {
             device: &self,
-            semaphore,
+            semaphores,
             debug_name,
         })
     }
@@ -999,6 +1018,7 @@ impl<'a> Device<'a> {
             handle,
             images,
             last_acquisition_index,
+            current_frame,
             ..
         } = resources
             .swapchains
@@ -1007,7 +1027,7 @@ impl<'a> Device<'a> {
 
         let semaphore = acquire
             .semaphore
-            .map(|handle| handle.semaphore)
+            .map(|handle| handle.semaphores[*current_frame])
             .unwrap_or(vk::Semaphore::null());
 
         let (next_image_index, suboptimal) =
@@ -1212,12 +1232,15 @@ impl<'a> Device<'a> {
 
         let last_acquisition_index = None;
 
+        let current_frame = 0;
+
         Ok(resources.swapchains.add(InternalSwapchain {
             loader,
             handle,
             format,
             images,
             last_acquisition_index,
+            current_frame,
         }))
     }
 

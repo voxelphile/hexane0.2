@@ -5,6 +5,8 @@
 mod camera;
 
 use crate::camera::Camera;
+use common::octree::SparseOctree;
+use common::voxel::Voxel;
 
 use gpu::prelude::*;
 use math::prelude::*;
@@ -27,6 +29,9 @@ use winit::{
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 
 const REALLY_LARGE_SIZE: usize = 1_000_000_000;
+const SUPER_LARGE_SIZE: usize = 2_000_000_000;
+
+const WORLD_SIZE: usize = 256;
 
 pub type Vertex = (f32, f32, f32);
 pub type Color = [f32; 4];
@@ -60,51 +65,20 @@ fn root_path() -> Option<path::PathBuf> {
     Some(current_dir)
 }
 
-#[profiling::function]
 fn main() {
     println!("Hello, world!");
 
-    profiling::register_thread!("main")
-
-    use common::mesh::*;
-    use common::octree::*;
-    use common::voxel::*;
-    use math::prelude::*;
-
-    let mut octree = SparseOctree::<Voxel>::new();
-
-    use noise::{NoiseFn, Perlin, Seedable};
-
-    let perlin = Perlin::new(1);
-    let val = perlin.get([42.4, 37.7, 2.8]);
-
-    for x in 0..64 {
-        for z in 0..64 {
-            let height = ((perlin.get([x as f64 / 64.0, 0.0, z as f64 / 64.0]) * 10.0) as isize
-                + 20) as usize;
-            for y in 0..height {
-                octree.place(Vector::new([x, y, z]), Voxel { id: Id::Dirt });
-            }
-        }
-    }
-    let mesh = octree.generate(MeshParameters {
-        boundary: Boundary {
-            start: Vector::new([0, 0, 0]),
-            end: Vector::new([64, 64, 64]),
-        },
-        lod: 1,
-    });
-
-    let root_path = root_path().expect("failed to get root path");
-
-    let source_path = root_path.join("source");
-    let asset_path = root_path.join("assets");
+    tracy_client::Client::start();
+    profiling::register_thread!("main");
 
     let mut event_loop = EventLoop::new();
 
     let window = WindowBuilder::new()
-        .with_title("FPS")
-        .with_inner_size(winit::dpi::PhysicalSize { width: 1920, height: 1080 })
+        .with_title("Hexane | FPS 0")
+        .with_inner_size(winit::dpi::PhysicalSize {
+            width: 1920,
+            height: 1080,
+        })
         .build(&event_loop)
         .unwrap();
 
@@ -112,8 +86,72 @@ fn main() {
 
     let (width, height) = resolution;
 
+    use common::mesh::*;
+    use common::octree::*;
+    use common::voxel::*;
+    use math::prelude::*;
+
+    use noise::{NoiseFn, Perlin, Seedable};
+
+    use rand::Rng;
+
+    let mut rng = rand::thread_rng();
+
+    let perlin = Perlin::new(rng.gen());
+
+    let mut octree = SparseOctree::<Voxel>::new();
+
+    for x in 0..WORLD_SIZE {
+        for z in 0..WORLD_SIZE {
+            const BASE_HEIGHT: usize = 64;
+            const VARIATION_HEIGHT: usize = 40;
+
+            let mut height = BASE_HEIGHT as isize;
+
+            const OCTAVES: usize = 4;
+            const SAMPLE_BASIS: f64 = 32.0;
+
+            for i in 1..=OCTAVES {
+                let sample_x = x as f64 / (SAMPLE_BASIS * i as f64);
+                let sample_z = z as f64 / (SAMPLE_BASIS * i as f64);
+
+                let diff = (perlin.get([sample_x, 0.0, sample_z])
+                    * (VARIATION_HEIGHT as f64 / i as f64)) as isize;
+
+                height += diff;
+            }
+
+            let height = height as usize;
+
+            for y in 0..height {
+                if y == height - 1 {
+                    octree.place(Vector::new([x, y, z]), Voxel { id: Id::Grass });
+                } else {
+                    octree.place(Vector::new([x, y, z]), Voxel { id: Id::Dirt });
+                }
+            }
+        }
+    }
+
+    println!("Finished world generation.");
+
+    let mesh = octree.generate(MeshParameters {
+        boundary: Boundary {
+            start: Vector::new([0, 0, 0]),
+            end: Vector::new([WORLD_SIZE, 128, WORLD_SIZE]),
+        },
+        lod: 1,
+    });
+
+    println!("Finished mesh generation.");
+
+    let root_path = root_path().expect("failed to get root path");
+
+    let source_path = root_path.join("source");
+    let asset_path = root_path.join("assets");
+
     let context = Context::new(ContextInfo {
-        enable_validation: false,
+        enable_validation: true,
         application_name: "Hexane",
         engine_name: "Hexane",
         ..default()
@@ -133,7 +171,7 @@ fn main() {
             .create_swapchain(SwapchainInfo {
                 width,
                 height,
-                present_mode: PresentMode::TripleBufferWaitForVBlank,
+                present_mode: PresentMode::DoubleBufferWaitForVBlank,
                 ..default()
             })
             .expect("failed to create swapchain"),
@@ -141,7 +179,6 @@ fn main() {
 
     let mut pipeline_compiler = device.create_pipeline_compiler(PipelineCompilerInfo {
         //default language for shader compiler is glsl
-        #[cfg(debug_assertions)]
         compiler: ShaderCompiler::glslc(default()),
         source_path: &source_path,
         asset_path: &asset_path,
@@ -150,25 +187,48 @@ fn main() {
 
     use ShaderType::*;
 
-    let vertex = Shader(Vertex, "triangle", &["common"]);
-
-    let fragment = Shader(Fragment, "triangle", &["common"]);
-
-    let pipeline = pipeline_compiler
+    let draw_pipeline = pipeline_compiler
         .create_graphics_pipeline(GraphicsPipelineInfo {
-            shaders: &[vertex, fragment],
+            shaders: &[Shader(Vertex, "voxel", &[]), Shader(Fragment, "voxel", &[])],
             color: &[gpu::prelude::Color {
                 format: device.presentation_format(swapchain.get()).unwrap(),
                 ..default()
             }],
             depth: Some(default()),
             raster: Raster {
-                face_cull: FaceCull::FRONT,
+                face_cull: FaceCull::BACK,
                 ..default()
             },
             ..default()
         })
         .expect("failed to create pipeline");
+
+    let lighting_pipeline = pipeline_compiler
+        .create_graphics_pipeline(GraphicsPipelineInfo {
+            shaders: &[
+                Shader(Vertex, "lighting", &[]),
+                Shader(Fragment, "lighting", &[]),
+            ],
+            color: &[],
+            depth: Some(default()),
+            raster: Raster {
+                face_cull: FaceCull::BACK,
+                ..default()
+            },
+            ..default()
+        })
+        .expect("failed to create pipeline");
+
+    let mut light_depth_img = Cell::new(
+        device
+            .create_image(ImageInfo {
+                extent: ImageExtent::TwoDim(width as _, height as _),
+                usage: ImageUsage::DEPTH_STENCIL,
+                format: Format::D32Sfloat,
+                ..default()
+            })
+            .expect("failed to create depth image"),
+    );
 
     let mut depth_img = Cell::new(
         device
@@ -183,7 +243,7 @@ fn main() {
 
     let staging_buffer = device
         .create_buffer(BufferInfo {
-            size: REALLY_LARGE_SIZE,
+            size: SUPER_LARGE_SIZE,
             memory: Memory::HOST_ACCESS,
             debug_name: "Staging Buffer",
             ..default()
@@ -198,7 +258,7 @@ fn main() {
         })
         .expect("failed to create buffer");
 
-    let index_buffer = device
+    let octree_buffer = device
         .create_buffer(BufferInfo {
             size: REALLY_LARGE_SIZE,
             debug_name: "General Buffer",
@@ -206,7 +266,7 @@ fn main() {
         })
         .expect("failed to create buffer");
 
-    let color_buffer = device
+    let info_buffer = device
         .create_buffer(BufferInfo {
             size: 1024,
             debug_name: "Color Buffer",
@@ -216,7 +276,15 @@ fn main() {
 
     let camera_buffer = device
         .create_buffer(BufferInfo {
-            size: 1024,
+            size: 512,
+            debug_name: "Color Buffer",
+            ..default()
+        })
+        .expect("failed to create buffer");
+
+    let light_camera_buffer = device
+        .create_buffer(BufferInfo {
+            size: 512,
             debug_name: "Color Buffer",
             ..default()
         })
@@ -235,8 +303,8 @@ fn main() {
             ..default()
         })
         .expect("failed to create semaphore");
+
     let vertices = mesh.vertices();
-    let indices = mesh.indices();
 
     let colors = [
         [1.0, 0.0, 0.0, 1.0],
@@ -244,26 +312,42 @@ fn main() {
         [0.0, 0.0, 1.0, 1.0],
     ];
 
-    let mut camera = Cell::new(Camera {
+    let mut camera = Cell::new(Camera::Perspective {
         fov: 90.0 * std::f32::consts::PI / 360.0,
-        clip: (0.1, 1000.0),
+        clip: (0.1, 500.0),
         aspect_ratio: width as f32 / height as f32,
-        position: Vector::new([32.0, -30.0, -32.0]),
+        position: Vector::new([WORLD_SIZE as f32 / 2.0, 70.0, (WORLD_SIZE as f32) / 2.0]),
+        rotation: default(),
+    });
+
+    let mut light_camera = Cell::new(Camera::Orthographic {
+        left: -50.0,
+        right: 50.0,
+        top: 50.0,
+        bottom: -50.0,
+        clip: (0.1, 1000.0),
+        position: Vector::new([WORLD_SIZE as f32 / 2.0, 70.0, (WORLD_SIZE as f32) / 2.0]),
         rotation: default(),
     });
 
     let camera_info = Cell::new(default());
+
+    let light_camera_info = Cell::new(default());
+
+    let info = Cell::new(default());
 
     let updated = Cell::new(true);
 
     let mut game_input = Input::default();
 
     let vertex_buffer = || vertex_buffer;
-    let index_buffer = || index_buffer;
-    let color_buffer = || color_buffer;
+    let octree_buffer = || octree_buffer;
+    let info_buffer = || info_buffer;
     let camera_buffer = || camera_buffer;
     let staging_buffer = || staging_buffer;
     let depth_image = || depth_img.get();
+    let light_camera_buffer = || light_camera_buffer;
+    let light_depth_image = || light_depth_img.get();
     let present_image = || {
         device
             .acquire_next_image(Acquire {
@@ -282,13 +366,11 @@ fn main() {
 
     let startup_instant = time::Instant::now();
     let mut last_instant = startup_instant;
-    let mut fps_instant = startup_instant;
-
-    let mut fps = 0;
 
     profiling::finish_frame!();
 
     event_loop.run_return(|event, _, control_flow| {
+        profiling::scope!("event loop", "ev");
         *control_flow = ControlFlow::Poll;
 
         let current_instant = time::Instant::now();
@@ -297,54 +379,66 @@ fn main() {
 
         last_instant = current_instant;
 
+        info.set(Info {
+            time: current_instant
+                .duration_since(startup_instant)
+                .as_secs_f32(),
+            ..info.get()
+        });
+
         if cursor_captured {
-            let mut position = camera.get().position;
+            let new_camera = {
+                let mut camera = camera.get();
 
-            let pitch = camera.get().pitch();
-            let roll = camera.get().roll();
+                let mut position = camera.get_position();
 
-            let mut movement = Vector::default();
+                let pitch = camera.pitch();
+                let roll = camera.roll();
 
-            let mut diff = Matrix::identity();
+                let mut movement = Vector::default();
 
-            let mut direction = Vector::<f32, 3>::default();
+                let mut diff = Matrix::identity();
 
-            direction[0] += game_input.right as u8 as f32;
-            direction[0] -= game_input.left as u8 as f32;
-            direction[1] += game_input.down as u8 as f32;
-            direction[1] -= game_input.up as u8 as f32;
-            direction[2] += game_input.forward as u8 as f32;
-            direction[2] -= game_input.backward as u8 as f32;
+                let mut direction = Vector::<f32, 3>::default();
 
-            diff[3][0] = direction[0];
-            diff[3][2] = direction[2];
+                direction[0] += game_input.right as u8 as f32;
+                direction[0] -= game_input.left as u8 as f32;
+                direction[1] += game_input.up as u8 as f32;
+                direction[1] -= game_input.down as u8 as f32;
+                direction[2] += game_input.backward as u8 as f32;
+                direction[2] -= game_input.forward as u8 as f32;
 
-            movement[1] = direction[1];
+                diff[3][0] = direction[0];
+                diff[3][2] = direction[2];
 
-            let diff = diff * roll * pitch;
+                movement[1] = direction[1];
 
-            let mut oriented_direction = Vector::<f32, 4>::new(*diff[3]);
+                let diff = diff * roll * pitch;
 
-            oriented_direction[1] = 0.0;
-            oriented_direction[3] = 0.0;
+                let mut oriented_direction = Vector::<f32, 4>::new(*diff[3]);
 
-            oriented_direction = if oriented_direction.magnitude() > 0.0 {
-                oriented_direction.normalize()
-            } else {
-                oriented_direction
+                oriented_direction[1] = 0.0;
+                oriented_direction[3] = 0.0;
+
+                oriented_direction = if oriented_direction.magnitude() > 0.0 {
+                    oriented_direction.normalize()
+                } else {
+                    oriented_direction
+                };
+
+                movement[0] = oriented_direction[0];
+                movement[2] = oriented_direction[2];
+
+                movement *= speed * delta_time as f32;
+
+                position += movement;
+
+                camera.set_position(position);
+
+                camera
             };
 
-            movement[0] = oriented_direction[0];
-            movement[2] = oriented_direction[2];
-
-            movement *= speed * delta_time as f32;
-
-            position += movement;
-
-            camera.set(Camera {
-                position,
-                ..camera.get()
-            });
+            camera.set(new_camera);
         }
 
         match event {
@@ -353,28 +447,32 @@ fn main() {
                 window_id,
             } if window_id == window.id() => *control_flow = ControlFlow::Exit,
             Event::MainEventsCleared => {
+                profiling::scope!("draw executable", "ev");
                 camera_info.set(CameraInfo {
                     projection: camera.get().projection(),
                     view: camera.get().view(),
                     transform: camera.get().transform(),
                 });
 
-                if current_instant.duration_since(fps_instant).as_secs_f64() > 1.0 {
-                    window.set_title(&format!("FPS {}", fps));
-                    fps_instant = current_instant;
-                    fps = 0;
-                } else {
-                    fps += 1;
+                light_camera_info.set(CameraInfo {
+                    projection: light_camera.get().projection(),
+                    view: light_camera.get().view(),
+                    transform: light_camera.get().transform(),
+                });
+
+                if let Some(e) = &draw_executable {
+                    window.set_title(&format!("Hexane | FPS {}", e.fps()));
                 }
 
                 (draw_executable.as_mut().unwrap())();
-    
+
                 profiling::finish_frame!();
             }
             Event::WindowEvent {
                 event: WindowEvent::CursorMoved { position, .. },
                 window_id,
             } => {
+                profiling::scope!("cursor moved", "ev");
                 if cursor_captured {
                     let winit::dpi::PhysicalPosition { x, y } = position;
 
@@ -391,26 +489,40 @@ fn main() {
                     let x_rot = (y_diff * delta_time) / sens;
                     let y_rot = (x_diff * delta_time) / sens;
 
-                    let mut rotation = camera.get().rotation;
+                    let new_camera = {
+                        let mut camera = camera.get();
 
-                    rotation[0] += x_rot as f32;
-                    rotation[1] += y_rot as f32;
+                        let mut rotation = camera.get_rotation();
 
-                    rotation[0] = rotation[0].clamp(
-                        -std::f32::consts::PI / 2.0 + 0.1,
-                        std::f32::consts::PI / 2.0 - 0.1,
-                    );
+                        rotation[0] -= x_rot as f32;
+                        rotation[1] -= y_rot as f32;
 
-                    camera.set(Camera {
-                        rotation,
-                        ..camera.get()
-                    });
+                        rotation[0] = rotation[0].clamp(
+                            -std::f32::consts::PI / 2.0 + 0.1,
+                            std::f32::consts::PI / 2.0 - 0.1,
+                        );
+
+                        camera.set_rotation(rotation);
+
+                        {
+                            let mut camera = light_camera.get();
+
+                            camera.set_rotation(rotation);
+
+                            light_camera.set(camera);
+                        }
+
+                        camera
+                    };
+
+                    camera.set(new_camera);
                 }
             }
             Event::WindowEvent {
                 event: WindowEvent::MouseInput { button, .. },
                 window_id,
             } => {
+                profiling::scope!("mouse input", "ev");
                 use winit::event::MouseButton::*;
 
                 match button {
@@ -428,6 +540,7 @@ fn main() {
                 event: WindowEvent::KeyboardInput { input, .. },
                 window_id,
             } => {
+                profiling::scope!("keyboard input", "ev");
                 let Some(key_code) = input.virtual_keycode else {
                     return;
                 };
@@ -455,6 +568,8 @@ fn main() {
                 event: WindowEvent::Resized(size),
                 window_id,
             } => {
+                profiling::scope!("resized", "ev");
+
                 let winit::dpi::PhysicalSize { width, height } = size;
 
                 resolution = (width, height);
@@ -482,38 +597,68 @@ fn main() {
                         .expect("failed to create depth image"),
                 );
 
-                camera.set(Camera {
-                    aspect_ratio: width as f32 / height as f32,
-                    ..camera.get()
-                });
+                let new_camera = {
+                    let mut camera = camera.get();
 
-                let mut draw_executor = device.create_executor(default());
+                    let new_aspect_ratio = width as f32 / height as f32;
+
+                    match &mut camera {
+                        Camera::Perspective { aspect_ratio, .. } => {
+                            *aspect_ratio = new_aspect_ratio
+                        }
+                        _ => {}
+                    }
+
+                    camera
+                };
+
+                camera.set(new_camera);
+
+                let mut draw_executor = device
+                    .create_executor(ExecutorInfo {
+                        swapchain: swapchain.get(),
+                        ..default()
+                    })
+                    .expect("failed to create executor");
 
                 record_update(Update {
                     executor: &mut draw_executor,
                     vertices: &vertices,
-                    indices: &indices,
+                    octree: &octree,
                     colors: &colors,
                     camera_info: &camera_info,
+                    light_camera_info: &light_camera_info,
+                    info: &info,
                     updated: &updated,
                     staging_buffer: &staging_buffer,
                     vertex_buffer: &vertex_buffer,
-                    index_buffer: &index_buffer,
-                    color_buffer: &color_buffer,
+                    octree_buffer: &octree_buffer,
+                    info_buffer: &info_buffer,
                     camera_buffer: &camera_buffer,
+                    light_camera_buffer: &light_camera_buffer,
                 });
+
+                /*record_lighting(Lighting {
+                    executor: &mut draw_executor,
+                    pipeline: &lighting_pipeline,
+                    light_depth_image: &light_depth_image,
+                    light_camera_buffer: &light_camera_buffer,
+                    vertex_buffer: &vertex_buffer,
+                    vertices: &vertices,
+                    resolution,
+                });*/
 
                 record_draw(Draw {
                     executor: &mut draw_executor,
                     vertices: &vertices,
-                    indices: &indices,
-                    pipeline: &pipeline,
+                    octree: &octree,
+                    pipeline: &draw_pipeline,
                     present_image: &present_image,
                     depth_image: &depth_image,
                     vertex_buffer: &vertex_buffer,
-                    index_buffer: &index_buffer,
+                    octree_buffer: &octree_buffer,
                     resolution,
-                    color_buffer: &color_buffer,
+                    info_buffer: &info_buffer,
                     camera_buffer: &camera_buffer,
                 });
 
@@ -523,7 +668,6 @@ fn main() {
                 });
 
                 draw_executor.present(Present {
-                    swapchain: swapchain.get(),
                     wait_semaphore: &present_semaphore,
                 });
 
@@ -540,21 +684,24 @@ fn main() {
     });
 }
 
-pub const VERTEX_OFFSET: usize = 0;
-pub const INDEX_OFFSET: usize = 65536;
+pub const VERTEX_OFFSET: usize = 2048;
+pub const INDEX_OFFSET: usize = 1_000_000_000;
 
 struct Update<'a, 'b: 'a> {
     pub executor: &'a mut Executor<'b>,
     pub vertices: &'b [common::mesh::Vertex],
-    pub indices: &'b [Index],
+    pub octree: &'b SparseOctree<Voxel>,
     pub colors: &'b [Color],
     pub camera_info: &'b Cell<CameraInfo>,
+    pub light_camera_info: &'b Cell<CameraInfo>,
+    pub info: &'b Cell<Info>,
     pub updated: &'b Cell<bool>,
     pub vertex_buffer: &'b dyn ops::Fn() -> Buffer,
-    pub index_buffer: &'b dyn ops::Fn() -> Buffer,
+    pub octree_buffer: &'b dyn ops::Fn() -> Buffer,
     pub staging_buffer: &'b dyn ops::Fn() -> Buffer,
-    pub color_buffer: &'b dyn ops::Fn() -> Buffer,
+    pub info_buffer: &'b dyn ops::Fn() -> Buffer,
     pub camera_buffer: &'b dyn ops::Fn() -> Buffer,
+    pub light_camera_buffer: &'b dyn ops::Fn() -> Buffer,
 }
 
 struct Draw<'a, 'b: 'a> {
@@ -563,12 +710,22 @@ struct Draw<'a, 'b: 'a> {
     pub present_image: &'b dyn ops::Fn() -> Image,
     pub depth_image: &'b dyn ops::Fn() -> Image,
     pub vertex_buffer: &'b dyn ops::Fn() -> Buffer,
-    pub index_buffer: &'b dyn ops::Fn() -> Buffer,
-    pub color_buffer: &'b dyn ops::Fn() -> Buffer,
+    pub octree_buffer: &'b dyn ops::Fn() -> Buffer,
+    pub info_buffer: &'b dyn ops::Fn() -> Buffer,
     pub camera_buffer: &'b dyn ops::Fn() -> Buffer,
     pub pipeline: &'b Pipeline<'b>,
     pub vertices: &'b [common::mesh::Vertex],
-    pub indices: &'b [Index],
+    pub octree: &'b SparseOctree<Voxel>,
+}
+
+struct Lighting<'a, 'b: 'a> {
+    pub executor: &'a mut Executor<'b>,
+    pub resolution: (u32, u32),
+    pub light_camera_buffer: &'b dyn ops::Fn() -> Buffer,
+    pub light_depth_image: &'b dyn ops::Fn() -> Image,
+    pub vertex_buffer: &'b dyn ops::Fn() -> Buffer,
+    pub vertices: &'b [common::mesh::Vertex],
+    pub pipeline: &'b Pipeline<'b>,
 }
 
 #[derive(Clone, Copy, Default, Debug)]
@@ -577,6 +734,12 @@ struct CameraInfo {
     projection: Matrix<f32, 4, 4>,
     transform: Matrix<f32, 4, 4>,
     view: Matrix<f32, 4, 4>,
+}
+
+#[derive(Clone, Copy, Default, Debug)]
+#[repr(C)]
+struct Info {
+    time: f32,
 }
 
 #[derive(Clone, Copy, Default, Debug)]
@@ -592,12 +755,87 @@ struct Input {
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub struct Push {
-    pub color_buffer: Buffer,
+    pub info_buffer: Buffer,
     pub camera_buffer: Buffer,
     pub vertex_buffer: Buffer,
-    pub index_buffer: Buffer,
+    pub octree_buffer: Buffer,
 }
 
+#[profiling::function]
+fn record_lighting<'a, 'b: 'a>(lighting: Lighting<'a, 'b>) {
+    use Resource::*;
+
+    let Lighting {
+        executor,
+        light_depth_image,
+        light_camera_buffer,
+        vertices,
+        vertex_buffer,
+        pipeline,
+        resolution,
+    } = lighting;
+
+    executor.add(Task {
+        resources: [
+            Image(light_depth_image, ImageAccess::DepthStencilAttachment),
+            Buffer(light_camera_buffer, BufferAccess::ShaderReadOnly),
+            Buffer(vertex_buffer, BufferAccess::ShaderReadOnly),
+        ],
+        task: move |commands| {
+            let (width, height) = resolution;
+
+            commands.pipeline_barrier(PipelineBarrier {
+                src_stage: PipelineStage::TopOfPipe,
+                dst_stage: PipelineStage::EarlyFragmentTests,
+                barriers: &[Barrier::Image {
+                    image: 0,
+                    old_layout: ImageLayout::Undefined,
+                    new_layout: ImageLayout::DepthAttachmentOptimal,
+                    src_access: Access::empty(),
+                    dst_access: Access::DEPTH_ATTACHMENT_READ | Access::DEPTH_ATTACHMENT_WRITE,
+                }],
+            })?;
+
+            commands.set_resolution(resolution)?;
+
+            commands.start_rendering(Render {
+                color: &[],
+                depth: Some(Attachment {
+                    image: 0,
+                    load_op: LoadOp::Clear,
+                    clear: Clear::Depth(1.0),
+                }),
+                render_area: RenderArea {
+                    width,
+                    height,
+                    ..default()
+                },
+            })?;
+
+            commands.set_pipeline(&pipeline)?;
+
+            commands.push_constant(PushConstant {
+                data: Push {
+                    info_buffer: 0.into(),
+                    camera_buffer: (light_camera_buffer)(),
+                    vertex_buffer: (vertex_buffer)(),
+                    octree_buffer: 0.into(),
+                },
+                pipeline: &pipeline,
+            })?;
+
+            const VERTICES_PER_CUBE: usize = 6;
+
+            commands.draw(gpu::prelude::Draw {
+                vertex_count: vertices.len() * VERTICES_PER_CUBE,
+            })?;
+
+            commands.end_rendering()
+        },
+    });
+}
+
+#[profiling::function]
 fn record_draw<'a, 'b: 'a>(draw: Draw<'a, 'b>) {
     use Resource::*;
 
@@ -606,12 +844,12 @@ fn record_draw<'a, 'b: 'a>(draw: Draw<'a, 'b>) {
         present_image,
         depth_image,
         vertex_buffer,
-        index_buffer,
-        color_buffer,
+        octree_buffer,
+        info_buffer,
         camera_buffer,
         resolution,
         vertices,
-        indices,
+        octree,
         pipeline,
     } = draw;
 
@@ -619,10 +857,10 @@ fn record_draw<'a, 'b: 'a>(draw: Draw<'a, 'b>) {
         resources: [
             Image(present_image, ImageAccess::ColorAttachment),
             Image(depth_image, ImageAccess::DepthStencilAttachment),
-            Buffer(color_buffer, BufferAccess::ShaderReadOnly),
+            Buffer(info_buffer, BufferAccess::ShaderReadOnly),
             Buffer(camera_buffer, BufferAccess::ShaderReadOnly),
             Buffer(vertex_buffer, BufferAccess::ShaderReadOnly),
-            Buffer(index_buffer, BufferAccess::ShaderReadOnly),
+            Buffer(octree_buffer, BufferAccess::ShaderReadOnly),
         ],
         task: move |commands| {
             let (width, height) = resolution;
@@ -662,7 +900,7 @@ fn record_draw<'a, 'b: 'a>(draw: Draw<'a, 'b>) {
                 depth: Some(Attachment {
                     image: 1,
                     load_op: LoadOp::Clear,
-                    clear: Clear::Depth(0.0),
+                    clear: Clear::Depth(1.0),
                 }),
                 render_area: RenderArea {
                     width,
@@ -675,16 +913,18 @@ fn record_draw<'a, 'b: 'a>(draw: Draw<'a, 'b>) {
 
             commands.push_constant(PushConstant {
                 data: Push {
-                    color_buffer: (color_buffer)(),
+                    info_buffer: (info_buffer)(),
                     camera_buffer: (camera_buffer)(),
                     vertex_buffer: (vertex_buffer)(),
-                    index_buffer: (index_buffer)(),
+                    octree_buffer: (octree_buffer)(),
                 },
                 pipeline: &pipeline,
-            });
+            })?;
+
+            const VERTICES_PER_CUBE: usize = 6;
 
             commands.draw(gpu::prelude::Draw {
-                vertex_count: vertices.len(),
+                vertex_count: vertices.len() * VERTICES_PER_CUBE,
             })?;
 
             commands.end_rendering()?;
@@ -704,6 +944,7 @@ fn record_draw<'a, 'b: 'a>(draw: Draw<'a, 'b>) {
     });
 }
 
+#[profiling::function]
 fn record_update<'a, 'b: 'a>(update: Update<'a, 'b>) {
     use Resource::*;
 
@@ -711,23 +952,27 @@ fn record_update<'a, 'b: 'a>(update: Update<'a, 'b>) {
         executor,
         staging_buffer,
         vertex_buffer,
-        index_buffer,
-        color_buffer,
+        octree_buffer,
+        info_buffer,
         camera_buffer,
+        light_camera_buffer,
         vertices,
-        indices,
+        octree,
         colors,
         updated,
         camera_info,
+        light_camera_info,
+        info,
     } = update;
 
     executor.add(Task {
         resources: [
             Buffer(staging_buffer, BufferAccess::TransferRead),
             Buffer(camera_buffer, BufferAccess::TransferWrite),
-            Buffer(color_buffer, BufferAccess::TransferWrite),
+            Buffer(info_buffer, BufferAccess::TransferWrite),
             Buffer(vertex_buffer, BufferAccess::TransferWrite),
-            Buffer(index_buffer, BufferAccess::TransferWrite),
+            Buffer(octree_buffer, BufferAccess::TransferWrite),
+            Buffer(light_camera_buffer, BufferAccess::TransferWrite),
         ],
         task: move |commands| {
             commands.write_buffer(BufferWrite {
@@ -744,35 +989,81 @@ fn record_update<'a, 'b: 'a>(update: Update<'a, 'b>) {
                 size: mem::size_of::<CameraInfo>(),
             })?;
 
+            commands.write_buffer(BufferWrite {
+                buffer: 0,
+                offset: 512,
+                src: &[light_camera_info.get()],
+            })?;
+
+            commands.copy_buffer_to_buffer(BufferCopy {
+                from: 0,
+                to: 5,
+                src: 512,
+                dst: 0,
+                size: mem::size_of::<CameraInfo>(),
+            })?;
+
+            commands.write_buffer(BufferWrite {
+                buffer: 0,
+                offset: 1024,
+                src: &[info.get()],
+            })?;
+
+            commands.copy_buffer_to_buffer(BufferCopy {
+                from: 0,
+                to: 2,
+                src: 1024,
+                dst: 0,
+                size: mem::size_of::<Info>(),
+            })?;
+
             if updated.get() {
                 updated.set(false);
-                dbg!("yo");
+
                 commands.write_buffer(BufferWrite {
                     buffer: 0,
-                    offset: 1024,
-                    src: colors,
+                    offset: VERTEX_OFFSET,
+                    src: &[vertices.len()],
                 })?;
 
                 commands.write_buffer(BufferWrite {
                     buffer: 0,
-                    offset: 2048,
+                    offset: VERTEX_OFFSET + mem::size_of::<u32>(),
                     src: vertices,
                 })?;
 
-                commands.copy_buffer_to_buffer(BufferCopy {
-                    from: 0,
-                    to: 2,
-                    src: 1024,
-                    dst: 0,
-                    size: 1024,
+                commands.write_buffer(BufferWrite {
+                    buffer: 0,
+                    offset: INDEX_OFFSET,
+                    src: &[octree.size() as u32],
+                })?;
+
+                commands.write_buffer(BufferWrite {
+                    buffer: 0,
+                    offset: INDEX_OFFSET + mem::size_of::<u32>(),
+                    src: &[octree.nodes().len() as u32],
+                })?;
+
+                commands.write_buffer(BufferWrite {
+                    buffer: 0,
+                    offset: INDEX_OFFSET + 2 * mem::size_of::<u32>(),
+                    src: &octree.nodes(),
                 })?;
 
                 commands.copy_buffer_to_buffer(BufferCopy {
                     from: 0,
                     to: 3,
-                    src: 2048,
+                    src: VERTEX_OFFSET,
                     dst: 0,
-                    size: 900_000_000,
+                    size: REALLY_LARGE_SIZE,
+                })?;
+
+                commands.copy_buffer_to_buffer(BufferCopy {
+                    from: 0,
+                    to: 4,
+                    src: INDEX_OFFSET,
+                    dst: 0,
+                    size: REALLY_LARGE_SIZE,
                 })?;
             }
             Ok(())
