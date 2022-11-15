@@ -1,18 +1,23 @@
-#pragma once
-
-#include "hexane.glsl"
-
 struct Node {
 	u32 child;
 	u32 valid;
 	u64 morton;
-}
+	u32 id;
+	u32 _pad0;
+};
 
 struct Octree {
 	u32 size;
 	u32 len;
 	Node nodes[1000000];
-}
+};
+
+DECL_BUFFER_STRUCT(
+	OctreeBuffer,
+	{
+		Octree octree;
+	}
+)
 
 struct OctreeQuery {
 	//input
@@ -21,7 +26,7 @@ struct OctreeQuery {
 	//output
 	u32 node_index;
 	u32 node_depth;
-}
+};
 
 bool octree_query(inout OctreeQuery query) {
 	u32 size_cursor = u32(pow(2, query.octree.size));
@@ -39,9 +44,9 @@ bool octree_query(inout OctreeQuery query) {
 
 		Node current_node = query.octree.nodes[query.node_index];
 
-		if(current_node.valid != 0 && current_node.valid & mask == mask) {
+		if(current_node.valid != 0 && (current_node.valid & mask) == mask) {
 			u32 child_offset = bitCount(current_node.valid & (mask - 1));
-			node_index = current_node.child + child_offset;
+			query.node_index = current_node.child + child_offset;
 		} else {
 			break;
 		}

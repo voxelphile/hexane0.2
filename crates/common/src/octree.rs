@@ -11,11 +11,12 @@ use std::iter;
 use std::marker;
 
 //TODO change this with dynamic size
-const SIZE: usize = 8;
+const SIZE: usize = 10;
 
 #[derive(Debug)]
 pub enum Error {
     NodeNotFound,
+    NoData,
     InvalidMask,
 }
 
@@ -59,7 +60,7 @@ impl<T: Eq + Copy + Default> Octree<T> for SparseOctree<T> {
 
         let node = self.add_node(&hierarchy);
 
-        node.unwrap().data = data;
+        node.unwrap().data = Some(data);
     }
 
     fn query(&self, position: Vector<usize, 3>) -> Option<&T> {
@@ -67,9 +68,15 @@ impl<T: Eq + Copy + Default> Octree<T> for SparseOctree<T> {
 
         let hierarchy = self.get_position_hierarchy(x, y, z);
 
-        let node = self.get_node(&hierarchy);
+        let Ok((node, _)) = self.get_node(&hierarchy) else {
+            None?
+        };
+    
+        let Some(data) = &node.data else {
+            None?
+        };
 
-        node.map(|node| &node.0.data).as_ref().ok().copied()
+        Some(data)
     }
 }
 
@@ -112,6 +119,7 @@ impl<T: Eq + Copy + Default> SparseOctree<T> {
 
                 let new_node = Node {
                     data: node.data,
+                    morton: Self::get_morton_code(&hierarchy[..=level]),
                     ..default()
                 };
 
@@ -149,32 +157,27 @@ impl<T: Eq + Copy + Default> SparseOctree<T> {
 
         let node_order = 0..nodes.len();
 
-        for i in node_order.clone().rev() {
-            let node = nodes[i];
-
-            let child_invalid = node.child == u32::MAX;
-            let partial_solid = node.valid != u8::MAX as u32;
+        for i in node_order.rev() {
+            let child_invalid = nodes[i].child == u32::MAX;
+            let partial_solid = nodes[i].valid != u8::MAX as u32;
 
             if child_invalid || partial_solid {
                 continue;
             }
 
-            let child_index = node.child as usize;
+            let child_index = nodes[i].child as usize;
 
             let child_order = child_index..child_index + 8;
 
-            let first_child = nodes[child_index];
-
             let all_children_same = nodes[child_order.clone()]
                 .iter()
-                .all(|node| node.data == first_child.data);
+                .all(|node| node.data.is_some() && node.data == nodes[child_index].data);
 
             if all_children_same {
                 nodes[i] = Node {
-                    morton: node.morton,
-                    child: u32::MAX,
-                    valid: 0,
-                    ..first_child
+                    morton: nodes[i].morton,
+                    data: nodes[child_index].data,
+                    ..default()
                 };
 
                 for j in child_order {
@@ -186,24 +189,21 @@ impl<T: Eq + Copy + Default> SparseOctree<T> {
         nodes.retain(|node| node.morton != u64::MAX);
 
         nodes.sort_by(|a, b| a.morton.cmp(&b.morton));
+        
+        let node_order = 0..nodes.len();
 
         for i in node_order {
-            let node = nodes[i];
-
-            let child_invalid = node.child == u32::MAX;
-
-            dbg!(nodes[i].morton);
+            let child_invalid = nodes[i].child == u32::MAX;
 
             if child_invalid {
                 continue;
             }
 
-            let child = self.nodes[node.child as usize];
-
-            nodes[i].child = nodes
-                .binary_search_by(|probe| dbg!(probe.morton).cmp(dbg!(&child.morton)))
-                .expect("failed to find child") as _;
+            let child = self.nodes.get(nodes[i].child as usize).expect(&format!("{}", nodes[i].child));
+            
+                nodes[i].child = nodes.binary_search_by(|probe| probe.morton.cmp(&child.morton)).expect("failed to find child") as _;
         }
+        
 
         self.nodes = nodes;
     }
@@ -241,30 +241,13 @@ impl<T: Eq + Copy + Default> SparseOctree<T> {
     pub fn nodes(&self) -> &'_ [Node<T>] {
         &self.nodes
     }
+    
+    pub fn has_data(&self, hierarchy: &[u8]) -> bool {
+        let Ok((node, _)) = self.get_node(&hierarchy) else {
+            return false;
+        };
 
-    pub fn get_node_or_parent(&self, hierarchy: &[u8]) -> Result<(&'_ Node<T>, usize), Error> {
-        let order = (0..hierarchy.len()).rev();
-
-        for i in order {
-            if let Ok(data) = self.get_node(&hierarchy[..i]) {
-                return Ok(data);
-            }
-        }
-
-        Err(Error::NodeNotFound)?
-    }
-
-    pub fn get_node_or_parent_mut(
-        &mut self,
-        hierarchy: &[u8],
-    ) -> Result<(&'_ mut Node<T>, usize), Error> {
-        let (_, index) = self.get_node_or_parent(&hierarchy)?;
-
-        let node = self
-            .get_node_by_index_mut(index)
-            .ok_or(Error::NodeNotFound)?;
-
-        Ok((node, index))
+        return node.data.is_some();
     }
 
     pub fn get_node(&self, hierarchy: &[u8]) -> Result<(&'_ Node<T>, usize), Error> {
@@ -285,7 +268,7 @@ impl<T: Eq + Copy + Default> SparseOctree<T> {
 
                 index = child_index + child_offset as usize;
             } else {
-                Err(Error::NodeNotFound)?
+                break;
             }
         }
 
@@ -319,7 +302,7 @@ pub struct Node<T: Eq + Copy + Default> {
     child: u32,
     valid: u32,
     morton: u64,
-    data: T,
+    data: Option<T>,
 }
 
 impl<T: Eq + Copy + Default> Node<T> {
@@ -335,7 +318,7 @@ impl<T: Eq + Copy + Default> Node<T> {
         self.morton
     }
 
-    pub fn data(&self) -> T {
+    pub fn data(&self) -> Option<T> {
         self.data
     }
 }
@@ -374,9 +357,13 @@ impl Transform<Mesh> for SparseOctree<Voxel> {
                         continue;
                     };
 
+                        if !self.has_data(&hierarchy) {
+                            continue;
+                        }
+
                         let position = Vector::new([x as f32, y as f32, z as f32, 1.0]);
 
-                        let color = node.data.albedo(position);
+                        let color = node.data.unwrap().albedo(position);
 
                         let vertex_ao = |side: Vector<f32, 2>, corner: f32| {
                             (side[0] + side[1] + f32::max(corner, side[0] * side[1])) / 3.0
@@ -434,7 +421,7 @@ impl Transform<Mesh> for SparseOctree<Voxel> {
                         let mut normals = vec![];
 
                         if z < size {
-                            if let Err(_) = self.get_node(&self.get_position_hierarchy(x, y, z + 1))
+                            if !self.has_data(&self.get_position_hierarchy(x, y, z + 1))
                             {
                                 normals.push(Vector::new([0.0, 0.0, 1.0, 0.0]));
                             }
@@ -443,7 +430,7 @@ impl Transform<Mesh> for SparseOctree<Voxel> {
                         }
 
                         if z > 0 {
-                            if let Err(_) = self.get_node(&self.get_position_hierarchy(x, y, z - 1))
+                            if !self.has_data(&self.get_position_hierarchy(x, y, z - 1))
                             {
                                 normals.push(Vector::new([0.0, 0.0, -1.0, 0.0]));
                             }
@@ -452,7 +439,7 @@ impl Transform<Mesh> for SparseOctree<Voxel> {
                         }
 
                         if x < size {
-                            if let Err(_) = self.get_node(&self.get_position_hierarchy(x + 1, y, z))
+                            if !self.has_data(&self.get_position_hierarchy(x + 1, y, z))
                             {
                                 normals.push(Vector::new([1.0, 0.0, 0.0, 0.0]));
                             }
@@ -461,7 +448,7 @@ impl Transform<Mesh> for SparseOctree<Voxel> {
                         }
 
                         if x > 0 {
-                            if let Err(_) = self.get_node(&self.get_position_hierarchy(x - 1, y, z))
+                            if !self.has_data(&self.get_position_hierarchy(x - 1, y, z))
                             {
                                 normals.push(Vector::new([-1.0, 0.0, 0.0, 0.0]));
                             }
@@ -470,7 +457,7 @@ impl Transform<Mesh> for SparseOctree<Voxel> {
                         }
 
                         if y < size {
-                            if let Err(_) = self.get_node(&self.get_position_hierarchy(x, y + 1, z))
+                            if !self.has_data(&self.get_position_hierarchy(x, y + 1, z))
                             {
                                 normals.push(Vector::new([0.0, 1.0, 0.0, 0.0]));
                             }
@@ -479,7 +466,7 @@ impl Transform<Mesh> for SparseOctree<Voxel> {
                         }
 
                         if y > 0 {
-                            if let Err(_) = self.get_node(&self.get_position_hierarchy(x, y - 1, z))
+                            if !self.has_data(&self.get_position_hierarchy(x, y - 1, z))
                             {
                                 normals.push(Vector::new([0.0, -1.0, 0.0, 0.0]));
                             }
@@ -526,10 +513,14 @@ impl Transform<Bitset> for SparseOctree<Voxel> {
                 for z in sz..ez {
                     let hierarchy = self.get_position_hierarchy(x, y, z);
 
-                    for level in 0..hierarchy.len() {
-                        let Ok(_) = self.get_node(&hierarchy[..=level]) else {
+                    for level in (0..hierarchy.len()).rev() {
+                        let Ok((node, _)) = self.get_node(&hierarchy[..=level]) else {
                             break;
                         };
+
+                        if !self.has_data(&hierarchy[..=level]) {
+                            break;
+                        }
 
                         let mut index = 0;
 
@@ -537,9 +528,9 @@ impl Transform<Bitset> for SparseOctree<Voxel> {
                             index += 8usize.pow(i as u32) as usize;
                         }
 
-                        for (i, mask) in hierarchy[..=level].iter().cloned().rev().enumerate() {
+                        for (i, &mask) in hierarchy[..=level].iter().rev().enumerate() {
                             let previous = 8usize.pow(i as u32) as usize;
-                            index += mask.leading_zeros() as usize * previous;
+                            index += mask.trailing_zeros() as usize * previous;
                         }
 
                         bitset.insert(index, true).unwrap();

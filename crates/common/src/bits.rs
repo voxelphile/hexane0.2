@@ -1,19 +1,19 @@
 const U32_bits: usize = 32;
 
 pub struct Bitset {
-    size: usize,
+    len: usize,
     data: Vec<u32>,
 }
 
 impl Bitset {
     pub fn new() -> Self {
         Self {
-            size: 0,
+            len: 0,
             data: vec![],
         }
     }
-    pub fn size(&self) -> usize {
-        self.size
+    pub fn len(&self) -> usize {
+        self.len
     }
 
     pub fn data(&self) -> &[u32] {
@@ -21,9 +21,9 @@ impl Bitset {
     }
 
     pub fn insert(&mut self, index: usize, value: bool) -> Result<bool, ()> {
-        while self.size <= index {
+        while self.len <= index {
             self.data.push(0);
-            self.size = self.data.len() * U32_bits;
+            self.len = self.data.len() * U32_bits;
         }
 
         let previous = self.get(index)?;
@@ -38,7 +38,7 @@ impl Bitset {
     }
 
     pub fn get(&self, index: usize) -> Result<bool, ()> {
-        if self.size <= index {
+        if self.len <= index {
             return Err(());
         }
 

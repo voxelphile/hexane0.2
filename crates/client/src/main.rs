@@ -26,14 +26,14 @@ use winit::{
     event_loop::{ControlFlow, EventLoop},
     platform::run_return::EventLoopExtRunReturn,
     window::WindowBuilder,
-};
+}; 
 
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 
 const REALLY_LARGE_SIZE: usize = 1_000_000_000;
-const SUPER_LARGE_SIZE: usize = 2_000_000_000;
+const SUPER_LARGE_SIZE: usize = 4_000_000_000;
 
-const WORLD_SIZE: usize = 256;
+const WORLD_SIZE: usize = 1024;
 
 pub type Vertex = (f32, f32, f32);
 pub type Color = [f32; 4];
@@ -70,8 +70,23 @@ fn root_path() -> Option<path::PathBuf> {
 fn main() {
     println!("Hello, world!");
 
-    //tracy_client::Client::start();
-    //profiling::register_thread!("main");
+    tracy_client::Client::start();
+    profiling::register_thread!("main");
+
+    let mut event_loop = EventLoop::new();
+
+    let window = WindowBuilder::new()
+        .with_title("Hexane | FPS 0")
+        .with_inner_size(winit::dpi::PhysicalSize {
+            width: 1920,
+            height: 1080,
+        })
+        .build(&event_loop)
+        .unwrap();
+
+    let mut resolution = window.inner_size().into();
+    
+    let (width, height) = resolution;
 
     use common::mesh::*;
     use common::octree::*;
@@ -84,75 +99,49 @@ fn main() {
 
     let mut rng = rand::thread_rng();
 
-    let perlin = Perlin::new(rng.gen());
+    let perlin = Perlin::new(420);
 
     let mut octree = SparseOctree::<Voxel>::new();
 
-    /*    for x in 0..WORLD_SIZE {
-            for z in 0..WORLD_SIZE {
-                const BASE_HEIGHT: usize = 64;
-                const VARIATION_HEIGHT: usize = 40;
+    for x in 0..WORLD_SIZE {
+        for z in 0..WORLD_SIZE {
+            const BASE_HEIGHT: usize = 64;
+            const VARIATION_HEIGHT: usize = 40;
 
-                let mut height = BASE_HEIGHT as isize;
+            let mut height = BASE_HEIGHT as isize;
 
-                const OCTAVES: usize = 4;
-                const SAMPLE_BASIS: f64 = 32.0;
+            const OCTAVES: usize = 4;
+            const SAMPLE_BASIS: f64 = 32.0;
 
-                for i in 1..=OCTAVES {
-                    let sample_x = x as f64 / (SAMPLE_BASIS * i as f64);
-                    let sample_z = z as f64 / (SAMPLE_BASIS * i as f64);
+            for i in 1..=OCTAVES {
+                let sample_x = x as f64 / (SAMPLE_BASIS * i as f64);
+                let sample_z = z as f64 / (SAMPLE_BASIS * i as f64);
 
-                    let diff = (perlin.get([sample_x, 0.0, sample_z])
-                        * (VARIATION_HEIGHT as f64 / i as f64)) as isize;
+                let diff = (perlin.get([sample_x, 0.0, sample_z])
+                    * (VARIATION_HEIGHT as f64 / i as f64)) as isize;
 
-                    height += diff;
-                }
+                height += diff;
+            }
 
-                let height = height as usize;
+            let height = height as usize;
 
-                for y in 0..height {
-                    if y == height - 1 {
-                        octree.place(Vector::new([x, y, z]), Voxel { id: Id::Grass });
-                    } else {
-                        octree.place(Vector::new([x, y, z]), Voxel { id: Id::Dirt });
-                    }
+            for y in 0..height {
+                if y == height - 1 {
+                    octree.place(Vector::new([x, y, z]), Voxel { id: Id::Grass });
+                } else {
+                    octree.place(Vector::new([x, y, z]), Voxel { id: Id::Dirt });
                 }
             }
         }
-
-        println!("Finished world generation.");
-
-        println!("Finished mesh generation.");
-    */
-    for _ in 0..3 {
-        let x = (rng.gen::<f64>() * 256.0) as usize;
-        let y = (rng.gen::<f64>() * 256.0) as usize;
-        let z = (rng.gen::<f64>() * 256.0) as usize;
-        octree.place(Vector::new([x, y, z]), Voxel { id: Id::Dirt });
+        if x % 100 == 0 {
+            octree.optimize();
+        }
     }
-    let bitset: Bitset = octree.transform(Transformation {
-        regions: [Region {
-            start: Vector::new([0, 0, 0]),
-            end: Vector::new([256, 256, 256]),
-        }],
-        lod: 1,
-    });
+    octree.optimize();
 
-    panic!("");
-    let mut event_loop: EventLoop<winit::window::Window> = todo!(); //EventLoop::new();
 
-    let window: winit::window::Window = todo!(); /*WindowBuilder::new()
-                                                 .with_title("Hexane | FPS 0")
-                                                 .with_inner_size(winit::dpi::PhysicalSize {
-                                                     width: 1920,
-                                                     height: 1080,
-                                                 })
-                                                 .build(&event_loop)
-                                                 .unwrap();*/
+    println!("Finished world generation.");
 
-    let mut resolution = window.inner_size().into();
-
-    let (width, height) = resolution;
     let mesh: Mesh = octree.transform(Transformation {
         regions: [Region {
             start: Vector::new([0, 0, 0]),
@@ -160,6 +149,18 @@ fn main() {
         }],
         lod: 1,
     });
+
+    println!("Finished mesh generation.");
+
+    let bitset: Bitset = octree.transform(Transformation {
+        regions: [Region {
+            start: Vector::new([0, 0, 0]),
+            end: Vector::new([WORLD_SIZE, 128, WORLD_SIZE]),
+        }],
+        lod: 1,
+    });
+
+    dbg!(bitset.data().len() * mem::size_of::<u32>());
 
     println!("Finished bitset generation.");
 
@@ -283,6 +284,14 @@ fn main() {
             ..default()
         })
         .expect("failed to create buffer");
+    
+    let bitset_buffer = device
+        .create_buffer(BufferInfo {
+            size: REALLY_LARGE_SIZE,
+            debug_name: "General Buffer",
+            ..default()
+        })
+        .expect("failed to create buffer");
 
     let info_buffer = device
         .create_buffer(BufferInfo {
@@ -354,12 +363,15 @@ fn main() {
 
     let info = Cell::new(default());
 
+
+    dbg!(bitset.data().len());
     let updated = Cell::new(true);
 
     let mut game_input = Input::default();
 
     let vertex_buffer = || vertex_buffer;
     let octree_buffer = || octree_buffer;
+    let bitset_buffer = || bitset_buffer;
     let info_buffer = || info_buffer;
     let camera_buffer = || camera_buffer;
     let staging_buffer = || staging_buffer;
@@ -643,6 +655,7 @@ fn main() {
                     executor: &mut draw_executor,
                     vertices: &vertices,
                     octree: &octree,
+                    bitset: &bitset,
                     colors: &colors,
                     camera_info: &camera_info,
                     light_camera_info: &light_camera_info,
@@ -651,6 +664,7 @@ fn main() {
                     staging_buffer: &staging_buffer,
                     vertex_buffer: &vertex_buffer,
                     octree_buffer: &octree_buffer,
+                    bitset_buffer: &bitset_buffer,
                     info_buffer: &info_buffer,
                     camera_buffer: &camera_buffer,
                     light_camera_buffer: &light_camera_buffer,
@@ -669,12 +683,12 @@ fn main() {
                 record_draw(Draw {
                     executor: &mut draw_executor,
                     vertices: &vertices,
-                    octree: &octree,
                     pipeline: &draw_pipeline,
                     present_image: &present_image,
                     depth_image: &depth_image,
                     vertex_buffer: &vertex_buffer,
                     octree_buffer: &octree_buffer,
+                    bitset_buffer: &bitset_buffer,
                     resolution,
                     info_buffer: &info_buffer,
                     camera_buffer: &camera_buffer,
@@ -709,6 +723,7 @@ struct Update<'a, 'b: 'a> {
     pub executor: &'a mut Executor<'b>,
     pub vertices: &'b [common::mesh::Vertex],
     pub octree: &'b SparseOctree<Voxel>,
+    pub bitset: &'b Bitset,
     pub colors: &'b [Color],
     pub camera_info: &'b Cell<CameraInfo>,
     pub light_camera_info: &'b Cell<CameraInfo>,
@@ -716,6 +731,7 @@ struct Update<'a, 'b: 'a> {
     pub updated: &'b Cell<bool>,
     pub vertex_buffer: &'b dyn ops::Fn() -> Buffer,
     pub octree_buffer: &'b dyn ops::Fn() -> Buffer,
+    pub bitset_buffer: &'b dyn ops::Fn() -> Buffer,
     pub staging_buffer: &'b dyn ops::Fn() -> Buffer,
     pub info_buffer: &'b dyn ops::Fn() -> Buffer,
     pub camera_buffer: &'b dyn ops::Fn() -> Buffer,
@@ -729,11 +745,11 @@ struct Draw<'a, 'b: 'a> {
     pub depth_image: &'b dyn ops::Fn() -> Image,
     pub vertex_buffer: &'b dyn ops::Fn() -> Buffer,
     pub octree_buffer: &'b dyn ops::Fn() -> Buffer,
+    pub bitset_buffer: &'b dyn ops::Fn() -> Buffer,
     pub info_buffer: &'b dyn ops::Fn() -> Buffer,
     pub camera_buffer: &'b dyn ops::Fn() -> Buffer,
     pub pipeline: &'b Pipeline<'b>,
     pub vertices: &'b [common::mesh::Vertex],
-    pub octree: &'b SparseOctree<Voxel>,
 }
 
 struct Lighting<'a, 'b: 'a> {
@@ -777,6 +793,7 @@ pub struct Push {
     pub camera_buffer: Buffer,
     pub vertex_buffer: Buffer,
     pub octree_buffer: Buffer,
+    pub bitset_buffer: Buffer,
 }
 
 #[profiling::function]
@@ -832,6 +849,7 @@ fn record_lighting<'a, 'b: 'a>(lighting: Lighting<'a, 'b>) {
 
             commands.set_pipeline(&pipeline)?;
 
+            /*
             commands.push_constant(PushConstant {
                 data: Push {
                     info_buffer: 0.into(),
@@ -840,7 +858,7 @@ fn record_lighting<'a, 'b: 'a>(lighting: Lighting<'a, 'b>) {
                     octree_buffer: 0.into(),
                 },
                 pipeline: &pipeline,
-            })?;
+            })?;*/
 
             const VERTICES_PER_CUBE: usize = 6;
 
@@ -863,11 +881,11 @@ fn record_draw<'a, 'b: 'a>(draw: Draw<'a, 'b>) {
         depth_image,
         vertex_buffer,
         octree_buffer,
+        bitset_buffer,
         info_buffer,
         camera_buffer,
         resolution,
         vertices,
-        octree,
         pipeline,
     } = draw;
 
@@ -879,6 +897,7 @@ fn record_draw<'a, 'b: 'a>(draw: Draw<'a, 'b>) {
             Buffer(camera_buffer, BufferAccess::ShaderReadOnly),
             Buffer(vertex_buffer, BufferAccess::ShaderReadOnly),
             Buffer(octree_buffer, BufferAccess::ShaderReadOnly),
+            Buffer(bitset_buffer, BufferAccess::ShaderReadOnly),
         ],
         task: move |commands| {
             let (width, height) = resolution;
@@ -935,6 +954,7 @@ fn record_draw<'a, 'b: 'a>(draw: Draw<'a, 'b>) {
                     camera_buffer: (camera_buffer)(),
                     vertex_buffer: (vertex_buffer)(),
                     octree_buffer: (octree_buffer)(),
+                    bitset_buffer: (bitset_buffer)(),
                 },
                 pipeline: &pipeline,
             })?;
@@ -971,11 +991,13 @@ fn record_update<'a, 'b: 'a>(update: Update<'a, 'b>) {
         staging_buffer,
         vertex_buffer,
         octree_buffer,
+        bitset_buffer,
         info_buffer,
         camera_buffer,
         light_camera_buffer,
         vertices,
         octree,
+        bitset,
         colors,
         updated,
         camera_info,
@@ -991,6 +1013,7 @@ fn record_update<'a, 'b: 'a>(update: Update<'a, 'b>) {
             Buffer(vertex_buffer, BufferAccess::TransferWrite),
             Buffer(octree_buffer, BufferAccess::TransferWrite),
             Buffer(light_camera_buffer, BufferAccess::TransferWrite),
+            Buffer(bitset_buffer, BufferAccess::TransferWrite),
         ],
         task: move |commands| {
             commands.write_buffer(BufferWrite {
@@ -1055,7 +1078,7 @@ fn record_update<'a, 'b: 'a>(update: Update<'a, 'b>) {
                     offset: INDEX_OFFSET,
                     src: &[octree.size() as u32],
                 })?;
-
+/*
                 commands.write_buffer(BufferWrite {
                     buffer: 0,
                     offset: INDEX_OFFSET + mem::size_of::<u32>(),
@@ -1066,6 +1089,18 @@ fn record_update<'a, 'b: 'a>(update: Update<'a, 'b>) {
                     buffer: 0,
                     offset: INDEX_OFFSET + 2 * mem::size_of::<u32>(),
                     src: &octree.nodes(),
+                })?;
+  */              
+                commands.write_buffer(BufferWrite {
+                    buffer: 0,
+                    offset: INDEX_OFFSET,
+                    src: &[bitset.len() as u32],
+                })?;
+
+                commands.write_buffer(BufferWrite {
+                    buffer: 0,
+                    offset:  INDEX_OFFSET + mem::size_of::<u32>(),
+                    src: &bitset.data(),
                 })?;
 
                 commands.copy_buffer_to_buffer(BufferCopy {
@@ -1078,7 +1113,7 @@ fn record_update<'a, 'b: 'a>(update: Update<'a, 'b>) {
 
                 commands.copy_buffer_to_buffer(BufferCopy {
                     from: 0,
-                    to: 4,
+                    to: 6,
                     src: INDEX_OFFSET,
                     dst: 0,
                     size: REALLY_LARGE_SIZE,

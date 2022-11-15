@@ -1,9 +1,12 @@
 #version 450
 
 #include "hexane.glsl"
+#include "octree.glsl"
+#include "transform.glsl"
+#include "bits.glsl"
+#include "raycast.glsl"
 
 #define CHUNK_SIZE 8
-#define MAX_STEP_COUNT 4096
 
 #define VERTICES_PER_CUBE 6
 
@@ -12,6 +15,7 @@ struct Push {
 	BufferId camera_buffer_id;
 	BufferId vertex_buffer_id;
 	BufferId octree_buffer_id;
+	BufferId bitset_buffer_id;
 };
 
 USE_PUSH_CONSTANT(Push)
@@ -54,7 +58,7 @@ DECL_BUFFER_STRUCT(
 	}
 )
 
-layout(location = 0) flat out vec4 position;
+layout(location = 0) out vec4 position;
 layout(location = 1) flat out vec4 normal;
 layout(location = 2) flat out vec4 color;
 layout(location = 3) flat out vec4 ambient;
@@ -134,7 +138,7 @@ void main() {
 #define SHOW_NORMALS false
 #define SHOW_AO true
 
-layout(location = 0) flat in vec4 position;
+layout(location = 0) in vec4 position;
 layout(location = 1) flat in vec4 normal;
 layout(location = 2) flat in vec4 color;
 layout(location = 3) flat in vec4 ambient;
@@ -145,10 +149,23 @@ layout(location = 0) out vec4 result;
 void main() {
     	result = color;
 	
+	BufferRef(BitsetBuffer) bitset_buffer = buffer_id_to_ref(BitsetBuffer, BufferRef, push_constant.bitset_buffer_id);
+	
 	float ao = 0;
 
 	ao = mix(mix(ambient.z, ambient.w, uv.y), mix(ambient.y, ambient.x, uv.y), uv.x);
 
+	vec3 sun_position = vec3(1000, 2000, 100);
+	
+	Ray ray;
+	ray.bitset_buffer_id = push_constant.bitset_buffer_id;
+	ray.origin = position.xyz + normal.xyz * EPSILON * EPSILON;
+	ray.direction = normalize(sun_position - ray.origin);
+
+	RayHit ray_hit;
+
+	bool success = ray_cast(ray, ray_hit);
+	
 	if(SHOW_UV) {
 		result = vec4(0, 0, 0, 1);
 		result.xy = uv.xy;
@@ -168,6 +185,10 @@ void main() {
 	
 	if(SHOW_AO) {
 		result.xyz = result.xyz - vec3(1 - ao) * 0.25;
+	}
+
+	if(success) {
+		result.xyz *= 0.5;
 	}
 }
 

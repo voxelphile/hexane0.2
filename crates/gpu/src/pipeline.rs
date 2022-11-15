@@ -127,6 +127,7 @@ impl ShaderCompiler {
 
                 let glslc = process::Command::new("glslc")
                     .current_dir(glslc_path)
+                    .arg("-g")
                     .arg(format!("-fshader-stage={}", options.ty))
                     .arg("-c")
                     .arg(&temporary_path)
