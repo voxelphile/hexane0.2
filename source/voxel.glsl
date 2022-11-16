@@ -14,12 +14,11 @@ struct Push {
 	BufferId color_buffer_id;
 	BufferId camera_buffer_id;
 	BufferId vertex_buffer_id;
-	BufferId octree_buffer_id;
+	BufferId transform_buffer_id;
 	BufferId bitset_buffer_id;
 };
 
 USE_PUSH_CONSTANT(Push)
-
 	
 #ifdef vertex
 
@@ -45,8 +44,6 @@ DECL_BUFFER_STRUCT(
 	CameraBuffer,
 	{
 		mat4 projection;
-		mat4 transform;
-		mat4 view;
 	}
 )
 
@@ -66,6 +63,7 @@ layout(location = 4) out vec4 uv;
 
 void main() {
 	BufferRef(CameraBuffer) camera_buffer = buffer_id_to_ref(CameraBuffer, BufferRef, push_constant.camera_buffer_id);
+	BufferRef(TransformBuffer) transform_buffer = buffer_id_to_ref(TransformBuffer, BufferRef, push_constant.transform_buffer_id);
 	BufferRef(VertexBuffer) vertex_buffer = buffer_id_to_ref(VertexBuffer, BufferRef, push_constant.vertex_buffer_id);
 
 	u32 i = gl_VertexIndex / VERTICES_PER_CUBE;
@@ -127,8 +125,10 @@ void main() {
 		//TODO
 		uv.xy = uvs[j].xy;
 	}
+	
+	Transform transform = transform_buffer.transform;
 			
-	gl_Position = camera_buffer.projection * inverse(camera_buffer.transform) * position;
+	gl_Position = camera_buffer.projection * inverse(compute_transform_matrix(transform)) * position;
 }
 
 #elif defined fragment
@@ -161,6 +161,7 @@ void main() {
 	ray.bitset_buffer_id = push_constant.bitset_buffer_id;
 	ray.origin = position.xyz + normal.xyz * EPSILON * EPSILON;
 	ray.direction = normalize(sun_position - ray.origin);
+	ray.max_distance = 5;
 
 	RayHit ray_hit;
 

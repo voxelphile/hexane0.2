@@ -30,10 +30,11 @@ use winit::{
 
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 
+const SMALL_SIZE: usize = 512;
 const REALLY_LARGE_SIZE: usize = 1_000_000_000;
 const SUPER_LARGE_SIZE: usize = 4_000_000_000;
 
-const WORLD_SIZE: usize = 1024;
+const WORLD_SIZE: usize = 64;
 
 pub type Vertex = (f32, f32, f32);
 pub type Color = [f32; 4];
@@ -106,16 +107,16 @@ fn main() {
     for x in 0..WORLD_SIZE {
         for z in 0..WORLD_SIZE {
             const BASE_HEIGHT: usize = 64;
-            const VARIATION_HEIGHT: usize = 40;
+            const VARIATION_HEIGHT: usize = 10;
 
             let mut height = BASE_HEIGHT as isize;
 
             const OCTAVES: usize = 4;
-            const SAMPLE_BASIS: f64 = 32.0;
+            const SAMPLE_BASIS: f64 = 128.0;
 
             for i in 1..=OCTAVES {
-                let sample_x = x as f64 / (SAMPLE_BASIS * i as f64);
-                let sample_z = z as f64 / (SAMPLE_BASIS * i as f64);
+                let sample_x = x as f64 / (SAMPLE_BASIS / i as f64);
+                let sample_z = z as f64 / (SAMPLE_BASIS / i as f64);
 
                 let diff = (perlin.get([sample_x, 0.0, sample_z])
                     * (VARIATION_HEIGHT as f64 / i as f64)) as isize;
@@ -190,7 +191,7 @@ fn main() {
             .create_swapchain(SwapchainInfo {
                 width,
                 height,
-                present_mode: PresentMode::DoubleBufferWaitForVBlank,
+                present_mode: PresentMode::DoNotWaitForVBlank,
                 ..default()
             })
             .expect("failed to create swapchain"),
@@ -208,8 +209,8 @@ fn main() {
 
     let draw_pipeline = pipeline_compiler
         .create_graphics_pipeline(GraphicsPipelineInfo {
-            shaders: &[Shader(Vertex, "voxel", &[]), Shader(Fragment, "voxel", &[])],
-            color: &[gpu::prelude::Color {
+            shaders: [Shader(Vertex, "voxel", &[]), Shader(Fragment, "voxel", &[])],
+            color: [gpu::prelude::Color {
                 format: device.presentation_format(swapchain.get()).unwrap(),
                 ..default()
             }],
@@ -222,18 +223,9 @@ fn main() {
         })
         .expect("failed to create pipeline");
 
-    let lighting_pipeline = pipeline_compiler
-        .create_graphics_pipeline(GraphicsPipelineInfo {
-            shaders: &[
-                Shader(Vertex, "lighting", &[]),
-                Shader(Fragment, "lighting", &[]),
-            ],
-            color: &[],
-            depth: Some(default()),
-            raster: Raster {
-                face_cull: FaceCull::BACK,
-                ..default()
-            },
+    let physics_pipeline = pipeline_compiler
+        .create_compute_pipeline(ComputePipelineInfo {
+            shader: Shader(Compute, "physics", &[]),
             ..default()
         })
         .expect("failed to create pipeline");
@@ -277,9 +269,9 @@ fn main() {
         })
         .expect("failed to create buffer");
 
-    let octree_buffer = device
+    let transform_buffer = device
         .create_buffer(BufferInfo {
-            size: REALLY_LARGE_SIZE,
+            size: SMALL_SIZE,
             debug_name: "General Buffer",
             ..default()
         })
@@ -295,7 +287,7 @@ fn main() {
 
     let info_buffer = device
         .create_buffer(BufferInfo {
-            size: 1024,
+            size: SMALL_SIZE,
             debug_name: "Color Buffer",
             ..default()
         })
@@ -303,7 +295,7 @@ fn main() {
 
     let camera_buffer = device
         .create_buffer(BufferInfo {
-            size: 512,
+            size: SMALL_SIZE,
             debug_name: "Color Buffer",
             ..default()
         })
@@ -311,7 +303,7 @@ fn main() {
 
     let light_camera_buffer = device
         .create_buffer(BufferInfo {
-            size: 512,
+            size: SMALL_SIZE,
             debug_name: "Color Buffer",
             ..default()
         })
@@ -341,9 +333,9 @@ fn main() {
 
     let mut camera = Cell::new(Camera::Perspective {
         fov: 90.0 * std::f32::consts::PI / 360.0,
-        clip: (0.1, 500.0),
+        clip: (0.001, 500.0),
         aspect_ratio: width as f32 / height as f32,
-        position: Vector::new([WORLD_SIZE as f32 / 2.0, 70.0, (WORLD_SIZE as f32) / 2.0]),
+        position: Vector::new([WORLD_SIZE as f32 / 2.0, 100.0, (WORLD_SIZE as f32) / 2.0]),
         rotation: default(),
     });
 
@@ -353,24 +345,24 @@ fn main() {
         top: 50.0,
         bottom: -50.0,
         clip: (0.1, 1000.0),
-        position: Vector::new([WORLD_SIZE as f32 / 2.0, 70.0, (WORLD_SIZE as f32) / 2.0]),
+        position: Vector::new([WORLD_SIZE as f32 / 2.0, 100.0, (WORLD_SIZE as f32) / 2.0]),
         rotation: default(),
     });
 
     let camera_info = Cell::new(default());
+                
+    camera_info.set(CameraInfo {
+                    projection: camera.get().projection(),
+                });
 
     let light_camera_info = Cell::new(default());
 
     let info = Cell::new(default());
 
-
-    dbg!(bitset.data().len());
     let updated = Cell::new(true);
 
-    let mut game_input = Input::default();
-
     let vertex_buffer = || vertex_buffer;
-    let octree_buffer = || octree_buffer;
+    let transform_buffer = || transform_buffer;
     let bitset_buffer = || bitset_buffer;
     let info_buffer = || info_buffer;
     let camera_buffer = || camera_buffer;
@@ -413,12 +405,12 @@ fn main() {
             time: current_instant
                 .duration_since(startup_instant)
                 .as_secs_f32(),
+            delta_time: delta_time as f32,
             ..info.get()
         });
 
         if cursor_captured {
-            let new_camera = {
-                let mut camera = camera.get();
+               /* let mut camera = camera.get();
 
                 let mut position = camera.get_position();
 
@@ -431,12 +423,12 @@ fn main() {
 
                 let mut direction = Vector::<f32, 3>::default();
 
-                direction[0] += game_input.right as u8 as f32;
-                direction[0] -= game_input.left as u8 as f32;
-                direction[1] += game_input.up as u8 as f32;
-                direction[1] -= game_input.down as u8 as f32;
-                direction[2] += game_input.backward as u8 as f32;
-                direction[2] -= game_input.forward as u8 as f32;
+                direction[0] += entity_input.right as u8 as f32;
+                direction[0] -= entity_input.left as u8 as f32;
+                direction[1] += entity_input.up as u8 as f32;
+                direction[1] -= entity_input.down as u8 as f32;
+                direction[2] += entity_input.forward as u8 as f32;
+                direction[2] -= entity_input.backward as u8 as f32;
 
                 diff[3][0] = direction[0];
                 diff[3][2] = direction[2];
@@ -458,17 +450,16 @@ fn main() {
 
                 movement[0] = oriented_direction[0];
                 movement[2] = oriented_direction[2];
+        
+                movement *= speed;
 
-                movement *= speed * delta_time as f32;
-
-                position += movement;
-
-                camera.set_position(position);
-
-                camera
-            };
-
-            camera.set(new_camera);
+                info.set(Info {
+                    input:EntityInput {
+                        movement,
+                        ..info.get().input
+                    },
+                    ..info.get()
+                });*/
         }
 
         match event {
@@ -478,20 +469,17 @@ fn main() {
             } if window_id == window.id() => *control_flow = ControlFlow::Exit,
             Event::MainEventsCleared => {
                 profiling::scope!("draw executable", "ev");
-                camera_info.set(CameraInfo {
-                    projection: camera.get().projection(),
-                    view: camera.get().view(),
-                    transform: camera.get().transform(),
-                });
-
-                light_camera_info.set(CameraInfo {
-                    projection: light_camera.get().projection(),
-                    view: light_camera.get().view(),
-                    transform: light_camera.get().transform(),
-                });
 
                 if let Some(e) = &draw_executable {
                     window.set_title(&format!("Hexane | FPS {}", e.fps()));
+                }
+
+                if !cursor_captured {
+                        info.set(Info {
+                            entity_input: default(),
+                            ..info.get()
+                        });
+                        dbg!("yo");
                 }
 
                 (draw_executable.as_mut().unwrap())();
@@ -519,33 +507,14 @@ fn main() {
                     let x_rot = (y_diff * delta_time) / sens;
                     let y_rot = (x_diff * delta_time) / sens;
 
-                    let new_camera = {
-                        let mut camera = camera.get();
+                    info.set(Info {
+                    entity_input: EntityInput {
+                        look: Vector::new([x_diff as _, y_diff as _, 0.0, 0.0]),
+                        ..info.get().entity_input
+                    },
+                        ..info.get()
+                    });
 
-                        let mut rotation = camera.get_rotation();
-
-                        rotation[0] -= x_rot as f32;
-                        rotation[1] -= y_rot as f32;
-
-                        rotation[0] = rotation[0].clamp(
-                            -std::f32::consts::PI / 2.0 + 0.1,
-                            std::f32::consts::PI / 2.0 - 0.1,
-                        );
-
-                        camera.set_rotation(rotation);
-
-                        {
-                            let mut camera = light_camera.get();
-
-                            camera.set_rotation(rotation);
-
-                            light_camera.set(camera);
-                        }
-
-                        camera
-                    };
-
-                    camera.set(new_camera);
                 }
             }
             Event::WindowEvent {
@@ -575,15 +544,21 @@ fn main() {
                     return;
                 };
 
+                let mut entity_input = info.get().entity_input;
+
                 use winit::event::VirtualKeyCode::*;
 
                 match key_code {
-                    W => game_input.forward = input.state == winit::event::ElementState::Pressed,
-                    A => game_input.left = input.state == winit::event::ElementState::Pressed,
-                    S => game_input.backward = input.state == winit::event::ElementState::Pressed,
-                    D => game_input.right = input.state == winit::event::ElementState::Pressed,
-                    Space => game_input.up = input.state == winit::event::ElementState::Pressed,
-                    LShift => game_input.down = input.state == winit::event::ElementState::Pressed,
+                    W => entity_input.forward = (input.state == winit::event::ElementState::Pressed) as _,
+                    A => entity_input.left = (input.state == winit::event::ElementState::Pressed) as _,
+                    S => entity_input.backward = (input.state == winit::event::ElementState::Pressed) as _,
+                    D => entity_input.right = (input.state == winit::event::ElementState::Pressed) as _,
+                    Space => entity_input.up = (input.state == winit::event::ElementState::Pressed) as _,
+                    LShift => entity_input.down = (input.state == winit::event::ElementState::Pressed) as _,
+                    R => {
+                        pipeline_compiler.refresh_graphics_pipeline(&draw_pipeline).unwrap();
+                        pipeline_compiler.refresh_compute_pipeline(&physics_pipeline).unwrap();
+                    }
                     Escape => {
                         cursor_captured = false;
                         window.set_cursor_icon(winit::window::CursorIcon::Default);
@@ -593,6 +568,10 @@ fn main() {
                     }
                     _ => {}
                 };
+                info.set(Info {
+                    entity_input,
+                    ..info.get()
+                });
             }
             Event::WindowEvent {
                 event: WindowEvent::Resized(size),
@@ -610,11 +589,15 @@ fn main() {
                             width,
                             height,
                             old_swapchain: Some(swapchain.get()),
-                            present_mode: PresentMode::TripleBufferWaitForVBlank,
+                            present_mode: PresentMode::DoNotWaitForVBlank,
                             ..default()
                         })
                         .expect("failed to create swapchain"),
                 );
+    
+                camera_info.set(CameraInfo {
+                    projection: camera.get().projection(),
+                });
 
                 depth_img.set(
                     device
@@ -663,22 +646,21 @@ fn main() {
                     updated: &updated,
                     staging_buffer: &staging_buffer,
                     vertex_buffer: &vertex_buffer,
-                    octree_buffer: &octree_buffer,
+                    transform_buffer: &transform_buffer,
                     bitset_buffer: &bitset_buffer,
                     info_buffer: &info_buffer,
                     camera_buffer: &camera_buffer,
                     light_camera_buffer: &light_camera_buffer,
                 });
 
-                /*record_lighting(Lighting {
+                record_physics(Physics {
                     executor: &mut draw_executor,
-                    pipeline: &lighting_pipeline,
-                    light_depth_image: &light_depth_image,
-                    light_camera_buffer: &light_camera_buffer,
-                    vertex_buffer: &vertex_buffer,
-                    vertices: &vertices,
-                    resolution,
-                });*/
+                    pipeline: &physics_pipeline,
+                    info_buffer: &info_buffer,
+                    camera_buffer: &camera_buffer,
+                    transform_buffer: &transform_buffer,
+                    bitset_buffer: &bitset_buffer,
+                });
 
                 record_draw(Draw {
                     executor: &mut draw_executor,
@@ -687,7 +669,7 @@ fn main() {
                     present_image: &present_image,
                     depth_image: &depth_image,
                     vertex_buffer: &vertex_buffer,
-                    octree_buffer: &octree_buffer,
+                    transform_buffer: &transform_buffer,
                     bitset_buffer: &bitset_buffer,
                     resolution,
                     info_buffer: &info_buffer,
@@ -730,7 +712,7 @@ struct Update<'a, 'b: 'a> {
     pub info: &'b Cell<Info>,
     pub updated: &'b Cell<bool>,
     pub vertex_buffer: &'b dyn ops::Fn() -> Buffer,
-    pub octree_buffer: &'b dyn ops::Fn() -> Buffer,
+    pub transform_buffer: &'b dyn ops::Fn() -> Buffer,
     pub bitset_buffer: &'b dyn ops::Fn() -> Buffer,
     pub staging_buffer: &'b dyn ops::Fn() -> Buffer,
     pub info_buffer: &'b dyn ops::Fn() -> Buffer,
@@ -744,46 +726,47 @@ struct Draw<'a, 'b: 'a> {
     pub present_image: &'b dyn ops::Fn() -> Image,
     pub depth_image: &'b dyn ops::Fn() -> Image,
     pub vertex_buffer: &'b dyn ops::Fn() -> Buffer,
-    pub octree_buffer: &'b dyn ops::Fn() -> Buffer,
+    pub transform_buffer: &'b dyn ops::Fn() -> Buffer,
     pub bitset_buffer: &'b dyn ops::Fn() -> Buffer,
     pub info_buffer: &'b dyn ops::Fn() -> Buffer,
     pub camera_buffer: &'b dyn ops::Fn() -> Buffer,
-    pub pipeline: &'b Pipeline<'b>,
+    pub pipeline: &'b Pipeline<'b, 2, 1>,
     pub vertices: &'b [common::mesh::Vertex],
 }
 
-struct Lighting<'a, 'b: 'a> {
+struct Physics<'a, 'b: 'a> {
     pub executor: &'a mut Executor<'b>,
-    pub resolution: (u32, u32),
-    pub light_camera_buffer: &'b dyn ops::Fn() -> Buffer,
-    pub light_depth_image: &'b dyn ops::Fn() -> Image,
-    pub vertex_buffer: &'b dyn ops::Fn() -> Buffer,
-    pub vertices: &'b [common::mesh::Vertex],
-    pub pipeline: &'b Pipeline<'b>,
+    pub camera_buffer: &'b dyn ops::Fn() -> Buffer,
+    pub transform_buffer: &'b dyn ops::Fn() -> Buffer,
+    pub bitset_buffer: &'b dyn ops::Fn() -> Buffer,
+    pub info_buffer: &'b dyn ops::Fn() -> Buffer,
+    pub pipeline: &'b Pipeline<'b, 1, 0>,
 }
 
 #[derive(Clone, Copy, Default, Debug)]
 #[repr(C)]
 struct CameraInfo {
     projection: Matrix<f32, 4, 4>,
-    transform: Matrix<f32, 4, 4>,
-    view: Matrix<f32, 4, 4>,
 }
 
 #[derive(Clone, Copy, Default, Debug)]
 #[repr(C)]
 struct Info {
     time: f32,
+    delta_time: f32,
+    entity_input: EntityInput,
 }
 
 #[derive(Clone, Copy, Default, Debug)]
-struct Input {
-    forward: bool,
-    backward: bool,
-    left: bool,
-    right: bool,
-    up: bool,
-    down: bool,
+#[repr(C)]
+struct EntityInput {
+    up: u32,
+    down: u32,
+    left: u32,
+    right: u32,
+    forward: u32,
+    backward: u32,
+    look: Vector<f32, 4>,
 }
 
 #[derive(Clone, Copy)]
@@ -792,81 +775,56 @@ pub struct Push {
     pub info_buffer: Buffer,
     pub camera_buffer: Buffer,
     pub vertex_buffer: Buffer,
-    pub octree_buffer: Buffer,
+    pub transform_buffer: Buffer,
     pub bitset_buffer: Buffer,
 }
 
 #[profiling::function]
-fn record_lighting<'a, 'b: 'a>(lighting: Lighting<'a, 'b>) {
+fn record_physics<'a, 'b: 'a>(physics: Physics<'a, 'b>) {
     use Resource::*;
 
-    let Lighting {
+    let Physics {
         executor,
-        light_depth_image,
-        light_camera_buffer,
-        vertices,
-        vertex_buffer,
+        camera_buffer,
+        info_buffer,
+        bitset_buffer,
+        transform_buffer,
         pipeline,
-        resolution,
-    } = lighting;
+    } = physics;
 
     executor.add(Task {
         resources: [
-            Image(light_depth_image, ImageAccess::DepthStencilAttachment),
-            Buffer(light_camera_buffer, BufferAccess::ShaderReadOnly),
-            Buffer(vertex_buffer, BufferAccess::ShaderReadOnly),
+            Buffer(camera_buffer, BufferAccess::ShaderReadOnly),
+            Buffer(info_buffer, BufferAccess::ShaderReadOnly),
+            Buffer(bitset_buffer, BufferAccess::ShaderReadOnly),
         ],
         task: move |commands| {
-            let (width, height) = resolution;
-
-            commands.pipeline_barrier(PipelineBarrier {
-                src_stage: PipelineStage::TopOfPipe,
-                dst_stage: PipelineStage::EarlyFragmentTests,
-                barriers: &[Barrier::Image {
-                    image: 0,
-                    old_layout: ImageLayout::Undefined,
-                    new_layout: ImageLayout::DepthAttachmentOptimal,
-                    src_access: Access::empty(),
-                    dst_access: Access::DEPTH_ATTACHMENT_READ | Access::DEPTH_ATTACHMENT_WRITE,
-                }],
-            })?;
-
-            commands.set_resolution(resolution)?;
-
-            commands.start_rendering(Render {
-                color: &[],
-                depth: Some(Attachment {
-                    image: 0,
-                    load_op: LoadOp::Clear,
-                    clear: Clear::Depth(1.0),
-                }),
-                render_area: RenderArea {
-                    width,
-                    height,
-                    ..default()
-                },
-            })?;
-
             commands.set_pipeline(&pipeline)?;
-
-            /*
+            
             commands.push_constant(PushConstant {
                 data: Push {
-                    info_buffer: 0.into(),
-                    camera_buffer: (light_camera_buffer)(),
-                    vertex_buffer: (vertex_buffer)(),
-                    octree_buffer: 0.into(),
+                    info_buffer: (info_buffer)(),
+                    camera_buffer: (camera_buffer)(),
+                    vertex_buffer: 0.into(),
+                    transform_buffer: (transform_buffer)(),
+                    bitset_buffer: (bitset_buffer)(),
                 },
                 pipeline: &pipeline,
-            })?;*/
-
-            const VERTICES_PER_CUBE: usize = 6;
-
-            commands.draw(gpu::prelude::Draw {
-                vertex_count: vertices.len() * VERTICES_PER_CUBE,
             })?;
 
-            commands.end_rendering()
+            commands.dispatch(1, 1, 1)?;
+
+            commands.pipeline_barrier(PipelineBarrier {
+                src_stage: PipelineStage::ComputeShader,
+                dst_stage: PipelineStage::VertexShader,
+                barriers: &[Barrier::Buffer {
+                    buffer: 0,
+                    offset: 0,
+                    size: SMALL_SIZE,
+                    src_access: Access::SHADER_WRITE,
+                    dst_access: Access::SHADER_READ,
+                }],
+            })
         },
     });
 }
@@ -880,7 +838,7 @@ fn record_draw<'a, 'b: 'a>(draw: Draw<'a, 'b>) {
         present_image,
         depth_image,
         vertex_buffer,
-        octree_buffer,
+        transform_buffer,
         bitset_buffer,
         info_buffer,
         camera_buffer,
@@ -896,7 +854,7 @@ fn record_draw<'a, 'b: 'a>(draw: Draw<'a, 'b>) {
             Buffer(info_buffer, BufferAccess::ShaderReadOnly),
             Buffer(camera_buffer, BufferAccess::ShaderReadOnly),
             Buffer(vertex_buffer, BufferAccess::ShaderReadOnly),
-            Buffer(octree_buffer, BufferAccess::ShaderReadOnly),
+            Buffer(transform_buffer, BufferAccess::ShaderReadOnly),
             Buffer(bitset_buffer, BufferAccess::ShaderReadOnly),
         ],
         task: move |commands| {
@@ -953,7 +911,7 @@ fn record_draw<'a, 'b: 'a>(draw: Draw<'a, 'b>) {
                     info_buffer: (info_buffer)(),
                     camera_buffer: (camera_buffer)(),
                     vertex_buffer: (vertex_buffer)(),
-                    octree_buffer: (octree_buffer)(),
+                    transform_buffer: (transform_buffer)(),
                     bitset_buffer: (bitset_buffer)(),
                 },
                 pipeline: &pipeline,
@@ -990,7 +948,7 @@ fn record_update<'a, 'b: 'a>(update: Update<'a, 'b>) {
         executor,
         staging_buffer,
         vertex_buffer,
-        octree_buffer,
+        transform_buffer,
         bitset_buffer,
         info_buffer,
         camera_buffer,
@@ -1011,24 +969,11 @@ fn record_update<'a, 'b: 'a>(update: Update<'a, 'b>) {
             Buffer(camera_buffer, BufferAccess::TransferWrite),
             Buffer(info_buffer, BufferAccess::TransferWrite),
             Buffer(vertex_buffer, BufferAccess::TransferWrite),
-            Buffer(octree_buffer, BufferAccess::TransferWrite),
+            Buffer(transform_buffer, BufferAccess::TransferWrite),
             Buffer(light_camera_buffer, BufferAccess::TransferWrite),
             Buffer(bitset_buffer, BufferAccess::TransferWrite),
         ],
         task: move |commands| {
-            commands.write_buffer(BufferWrite {
-                buffer: 0,
-                offset: 0,
-                src: &[camera_info.get()],
-            })?;
-
-            commands.copy_buffer_to_buffer(BufferCopy {
-                from: 0,
-                to: 1,
-                src: 0,
-                dst: 0,
-                size: mem::size_of::<CameraInfo>(),
-            })?;
 
             commands.write_buffer(BufferWrite {
                 buffer: 0,
@@ -1060,6 +1005,20 @@ fn record_update<'a, 'b: 'a>(update: Update<'a, 'b>) {
 
             if updated.get() {
                 updated.set(false);
+            
+                commands.write_buffer(BufferWrite {
+                buffer: 0,
+                offset: 0,
+                src: &[camera_info.get()],
+            })?;
+
+            commands.copy_buffer_to_buffer(BufferCopy {
+                from: 0,
+                to: 1,
+                src: 0,
+                dst: 0,
+                size: mem::size_of::<CameraInfo>(),
+            })?;
 
                 commands.write_buffer(BufferWrite {
                     buffer: 0,

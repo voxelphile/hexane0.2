@@ -80,9 +80,9 @@ pub struct PipelineBarrier<'a> {
     pub barriers: &'a [Barrier],
 }
 
-pub struct PushConstant<'a, T: Copy> {
+pub struct PushConstant<'a, T: Copy, const S: usize, const C: usize> {
     pub data: T,
-    pub pipeline: &'a Pipeline<'a>,
+    pub pipeline: &'a Pipeline<'a, S, C>,
 }
 
 pub struct BindIndexBuffer {
@@ -186,7 +186,7 @@ impl Commands<'_> {
         Ok(())
     }
 
-    pub fn push_constant<T: Copy>(&mut self, push_constant: PushConstant<T>) -> Result<()> {
+    pub fn push_constant<T: Copy, const S: usize, const C: usize>(&mut self, push_constant: PushConstant<T, S, C>) -> Result<()> {
         let Commands {
             device,
             command_buffer,
@@ -196,6 +196,14 @@ impl Commands<'_> {
         let Device { logical_device, .. } = device;
 
         let PushConstant { data, pipeline } = push_constant;
+
+        let Pipeline {
+            inner, ..
+        } = pipeline;
+        
+        let crate::pipeline::Inner {
+            layout, ..
+        } = inner.lock().unwrap().clone();
 
         use crate::pipeline::PipelineBindPoint;
 
@@ -209,7 +217,7 @@ impl Commands<'_> {
         unsafe {
             logical_device.cmd_push_constants(
                 **command_buffer,
-                pipeline.layout,
+                layout,
                 shader_stage,
                 0,
                 slice::from_raw_parts(&data as *const _ as *const u8, mem::size_of::<T>()),
@@ -510,7 +518,7 @@ impl Commands<'_> {
         Ok(())
     }
 
-    pub fn set_pipeline(&mut self, pipeline: &Pipeline) -> Result<()> {
+    pub fn set_pipeline<const S: usize, const C: usize>(&mut self, pipeline: &Pipeline<S, C>) -> Result<()> {
         let Commands {
             device,
             command_buffer,
@@ -524,23 +532,26 @@ impl Commands<'_> {
         } = device;
 
         let Pipeline {
-            pipeline,
             bind_point,
-            layout,
+            inner,
             ..
         } = pipeline;
+
+        let crate::pipeline::Inner {
+            layout, pipeline,
+        } = inner.lock().unwrap().clone();
 
         let bind_point = vk::PipelineBindPoint::from(*bind_point);
 
         unsafe {
-            logical_device.cmd_bind_pipeline(**command_buffer, bind_point, *pipeline);
+            logical_device.cmd_bind_pipeline(**command_buffer, bind_point, pipeline);
         }
 
         unsafe {
             logical_device.cmd_bind_descriptor_sets(
                 **command_buffer,
                 bind_point,
-                *layout,
+                layout,
                 0,
                 &[*descriptor_set],
                 &[],

@@ -5,6 +5,7 @@ use std::default::default;
 use std::env;
 use std::ffi;
 use std::fmt;
+use std::sync::Mutex;
 use std::fs;
 use std::path;
 use std::process;
@@ -21,6 +22,11 @@ pub type Spv = Vec<u32>;
 #[derive(Clone, Copy)]
 pub struct Shader<'a>(pub ShaderType, pub &'a str, pub &'a [&'a str]);
 
+impl Default for Shader<'_> {
+    fn default() -> Self {
+        Self(ShaderType::Vertex, "", &[])
+    }
+}
 #[derive(Clone, Copy, Default)]
 pub enum ShaderLanguage {
     #[default]
@@ -220,8 +226,8 @@ pub struct PipelineCompiler<'a> {
     pub(crate) debug_name: String,
 }
 
-impl PipelineCompiler<'_> {
-    pub fn create_graphics_pipeline(&self, info: GraphicsPipelineInfo<'_>) -> Result<Pipeline> {
+impl<'a> PipelineCompiler<'a> {
+    pub fn create_graphics_pipeline<const S: usize, const C: usize>(&'a self, info: GraphicsPipelineInfo<'a, S, C>) -> Result<Pipeline<'a, S, C>> {
         let PipelineCompiler { device, .. } = self;
 
         let Device {
@@ -456,16 +462,23 @@ impl PipelineCompiler<'_> {
             )
         }
         .map_err(|_| Error::Creation)?[0];
+        
+        let spec = Spec::Graphics(info);
+
+        let inner = Mutex::new(Inner {
+            pipeline,
+            layout,
+        });
 
         Ok(Pipeline {
             compiler: &self,
-            pipeline,
-            layout,
+            inner,
+            spec,
             bind_point: PipelineBindPoint::Graphics,
         })
     }
 
-    pub fn create_compute_pipeline(&self, info: ComputePipelineInfo<'_>) -> Result<Pipeline> {
+    pub fn create_compute_pipeline(&'a self, info: ComputePipelineInfo<'a>) -> Result<Pipeline<1, 0>> {
         let PipelineCompiler { device, .. } = self;
 
         let Device {
@@ -578,18 +591,55 @@ impl PipelineCompiler<'_> {
         }
         .map_err(|_| Error::Creation)?[0];
 
-        Ok(Pipeline {
-            compiler: &self,
+        let spec = Spec::Compute(info);
+
+        let inner = Mutex::new(Inner {
             pipeline,
             layout,
+        });
+
+        Ok(Pipeline {
+            compiler: &self,
+            inner,
+            spec,
             bind_point: PipelineBindPoint::Compute,
         })
     }
 
-    pub fn refresh(&self, pipeline: &Pipeline) {}
+    pub fn refresh_graphics_pipeline<const S: usize, const C: usize>(&'a self, pipeline: &'a Pipeline<'a, S, C>) -> Result<()> {
+        let Spec::Graphics(info) = pipeline.spec else {
+            Err(Error::InvalidResource)?
+        };
+
+        let new_pipeline = self.create_graphics_pipeline(info).unwrap();
+
+        let mut pipeline_inner = pipeline.inner.lock().unwrap();
+
+        let new_pipeline_inner = new_pipeline.inner.lock().unwrap();
+
+        *pipeline_inner = *new_pipeline_inner;
+        
+        Ok(())
+    }
+    
+    pub fn refresh_compute_pipeline(&'a self, pipeline: &'a Pipeline<'a, 1, 0>) -> Result<()> {
+        let Spec::Compute(info) = pipeline.spec else {
+            Err(Error::InvalidResource)?
+        };
+
+        let new_pipeline = self.create_compute_pipeline(info).unwrap();
+
+        let mut pipeline_inner = pipeline.inner.lock().unwrap();
+
+        let new_pipeline_inner = new_pipeline.inner.lock().unwrap();
+
+        *pipeline_inner = *new_pipeline_inner;
+        
+        Ok(())
+    }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 pub enum FrontFace {
     Clockwise,
     #[default]
@@ -605,7 +655,7 @@ impl From<FrontFace> for vk::FrontFace {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 pub enum PolygonMode {
     #[default]
     Fill,
@@ -684,6 +734,8 @@ impl From<ColorComponent> for vk::ColorComponentFlags {
     }
 }
 
+
+#[derive(Clone, Copy)]
 pub struct Raster {
     pub polygon_mode: PolygonMode,
     pub face_cull: FaceCull,
@@ -832,13 +884,13 @@ impl From<Blend> for vk::PipelineColorBlendAttachmentState {
     }
 }
 
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 pub struct Color {
     pub format: Format,
     pub blend: Option<Blend>,
 }
 
-#[derive(Default)]
+#[derive(Default, Clone, Copy)]
 pub enum CompareOp {
     Never,
     #[default]
@@ -866,6 +918,7 @@ impl From<CompareOp> for vk::CompareOp {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct Depth {
     pub write: bool,
     pub compare: CompareOp,
@@ -895,20 +948,21 @@ impl From<Depth> for vk::PipelineDepthStencilStateCreateInfo {
     }
 }
 
-pub struct GraphicsPipelineInfo<'a> {
-    pub shaders: &'a [Shader<'a>],
-    pub color: &'a [Color],
+#[derive(Clone, Copy)]
+pub struct GraphicsPipelineInfo<'a, const S: usize, const C: usize> {
+    pub shaders: [Shader<'a>; S],
+    pub color: [Color; C],
     pub depth: Option<Depth>,
     pub raster: Raster,
     pub push_constant_size: usize,
     pub debug_name: &'a str,
 }
 
-impl Default for GraphicsPipelineInfo<'_> {
+impl<const S: usize, const C: usize> Default for GraphicsPipelineInfo<'_, S, C> {
     fn default() -> Self {
         Self {
-            shaders: &[],
-            color: &[],
+            shaders: [default(); S],
+            color: [default(); C],
             depth: None,
             raster: default(),
             push_constant_size: 128,
@@ -917,6 +971,7 @@ impl Default for GraphicsPipelineInfo<'_> {
     }
 }
 
+#[derive(Clone, Copy)]
 pub struct ComputePipelineInfo<'a> {
     pub shader: Shader<'a>,
     pub push_constant_size: usize,
@@ -983,9 +1038,21 @@ impl From<PipelineBindPoint> for vk::PipelineBindPoint {
     }
 }
 
-pub struct Pipeline<'a> {
+#[derive(Clone, Copy)]
+pub(crate) enum Spec<'a, const S: usize, const C: usize> {
+    Graphics(GraphicsPipelineInfo<'a, S, C>),
+    Compute(ComputePipelineInfo<'a>),
+}
+
+pub struct Pipeline<'a, const S: usize, const C: usize> {
     pub(crate) compiler: &'a PipelineCompiler<'a>,
+    pub(crate) inner: Mutex<Inner>,
+    pub(crate) bind_point: PipelineBindPoint,
+    pub(crate) spec: Spec<'a, S, C>,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct Inner {
     pub(crate) pipeline: vk::Pipeline,
     pub(crate) layout: vk::PipelineLayout,
-    pub(crate) bind_point: PipelineBindPoint,
 }

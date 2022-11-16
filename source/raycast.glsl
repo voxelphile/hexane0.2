@@ -5,10 +5,12 @@ struct Ray {
 	BufferId bitset_buffer_id;
 	vec3 origin;
 	vec3 direction;
+	f32 max_distance;
 };
 
 struct RayHit {
-	bool dummy;
+	f32 dist;
+	vec3 normal;
 };
 
 bool ray_cast(inout Ray ray, out RayHit hit) {
@@ -55,6 +57,10 @@ bool ray_cast(inout Ray ray, out RayHit hit) {
 		int lod = int(SIZE) - int(node_depth) - 1;
 
 		if (voxel_found) {
+			vec3 normal = vec3(mask) * sign(-ray.direction);
+			
+			hit.dist = dist;
+			hit.normal = normal;
 			return true;
 		}
 
@@ -67,7 +73,7 @@ bool ray_cast(inout Ray ray, out RayHit hit) {
 		p += c_dist * ray.direction;
 		dist += c_dist;
 	
-		if(dist > 5) {
+		if(dist > ray.max_distance) {
 			break;
 		}
 
