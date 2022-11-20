@@ -1,10 +1,10 @@
 use math::prelude::*;
 
-pub trait Transform<T> {
-    fn transform<const N: usize>(&self, transformation: Transformation<N>) -> T;
+pub trait Convert<T> {
+    fn convert<const N: usize>(&self, conversion: Conversion<N>) -> T;
 }
 
-pub struct Transformation<const N: usize> {
+pub struct Conversion<const N: usize> {
     pub regions: [Region; N],
     pub lod: usize,
 }

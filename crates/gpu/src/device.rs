@@ -1,5 +1,6 @@
 use crate::memory;
 use crate::prelude::*;
+use crate::semaphore::InternalSemaphore;
 
 use std::default::default;
 use std::ffi;
@@ -109,14 +110,18 @@ pub(crate) struct DeviceResources {
     pub(crate) buffers: DeviceResource<InternalBuffer, Buffer>,
     pub(crate) images: DeviceResource<InternalImage, Image>,
     pub(crate) swapchains: DeviceResource<InternalSwapchain, Swapchain>,
+    pub(crate) binary_semaphores: DeviceResource<InternalSemaphore, BinarySemaphore>,
+    pub(crate) timeline_semaphores: DeviceResource<InternalSemaphore, TimelineSemaphore>,
 }
 
 impl DeviceResources {
     pub fn new() -> Self {
         Self {
-            buffers: DeviceResource::new(),
-            images: DeviceResource::new(),
-            swapchains: DeviceResource::new(),
+            buffers: DeviceResource::<InternalBuffer, Buffer>::new(),
+            images: DeviceResource::<InternalImage, Image>::new(),
+            swapchains: DeviceResource::<InternalSwapchain, Swapchain>::new(),
+            binary_semaphores: DeviceResource::<InternalSemaphore, BinarySemaphore>::new(),
+            timeline_semaphores: DeviceResource::<InternalSemaphore, TimelineSemaphore>::new(),
         }
     }
 }
@@ -708,10 +713,6 @@ impl<'a> Device<'a> {
 
         let nodes = vec![];
 
-        let submit = None;
-
-        let present = None;
-
         self.resources
             .lock()
             .unwrap()
@@ -724,8 +725,6 @@ impl<'a> Device<'a> {
             swapchain,
             optimizer,
             nodes,
-            submit,
-            present,
             debug_name,
         })
     }
@@ -945,8 +944,8 @@ impl<'a> Device<'a> {
     pub fn create_binary_semaphore(
         &'a self,
         info: BinarySemaphoreInfo<'a>,
-    ) -> Result<BinarySemaphore<'a>> {
-        let Device { logical_device, .. } = self;
+    ) -> Result<BinarySemaphore> {
+        let Device { logical_device, resources, .. } = self;
 
         let BinarySemaphoreInfo { debug_name } = info;
 
@@ -960,18 +959,17 @@ impl<'a> Device<'a> {
             semaphores.push(semaphore);
         }
 
-        Ok(BinarySemaphore {
-            device: &self,
+        Ok(resources.lock().unwrap().binary_semaphores.add(InternalSemaphore {
             semaphores,
             debug_name,
-        })
+        }))
     }
 
     pub fn create_timeline_semaphore(
         &'a self,
         info: TimelineSemaphoreInfo<'a>,
-    ) -> Result<TimelineSemaphore<'a>> {
-        let Device { logical_device, .. } = self;
+    ) -> Result<TimelineSemaphore> {
+        let Device { logical_device, resources, .. } = self;
 
         let TimelineSemaphoreInfo {
             initial_value,
@@ -1001,17 +999,22 @@ impl<'a> Device<'a> {
                 .map_err(|_| Error::Creation)?;
             semaphores.push(semaphore);
         }
-        Ok(TimelineSemaphore {
-            device: &self,
+        Ok(resources.lock().unwrap().timeline_semaphores.add(InternalSemaphore {
             semaphores,
             debug_name,
-        })
+        }))
     }
 
-    pub fn acquire_next_image(&self, acquire: Acquire<'_>) -> Result<Image> {
+    pub fn acquire_next_image(&self, acquire: Acquire) -> Result<Image> {
         let Device { resources, .. } = self;
 
         let mut resources = resources.lock().unwrap();
+        
+        let semaphores = if let Some(handle) = acquire.semaphore { 
+            resources.binary_semaphores.get(handle).ok_or(Error::InvalidResource)?.semaphores.clone()
+        } else {
+            vec![]
+        };
 
         let InternalSwapchain {
             loader,
@@ -1019,21 +1022,30 @@ impl<'a> Device<'a> {
             images,
             last_acquisition_index,
             current_frame,
+            allow_acquisition,
             ..
         } = resources
             .swapchains
             .get_mut(acquire.swapchain)
             .ok_or(Error::ResourceNotFound)?;
 
-        let semaphore = acquire
-            .semaphore
-            .map(|handle| handle.semaphores[*current_frame])
-            .unwrap_or(vk::Semaphore::null());
+        let semaphore = if semaphores.len() > 0 {
+            semaphores[*current_frame]
+        } else {
+            vk::Semaphore::null()
+        };
+
+        if !*allow_acquisition {
+            return last_acquisition_index
+                .map(|i| images[i as usize])
+                .ok_or(Error::FailedToAcquire);
+        }
 
         let (next_image_index, suboptimal) =
             unsafe { loader.acquire_next_image(*handle, u64::MAX, semaphore, vk::Fence::null()) }
-                .unwrap();
+                .map_err(|_| Error::FailedToAcquire)?;
 
+        *allow_acquisition = false;
         *last_acquisition_index = Some(next_image_index);
 
         Ok(images[next_image_index as usize])
@@ -1234,6 +1246,8 @@ impl<'a> Device<'a> {
 
         let current_frame = 0;
 
+        let allow_acquisition = true;
+
         Ok(resources.swapchains.add(InternalSwapchain {
             loader,
             handle,
@@ -1241,6 +1255,7 @@ impl<'a> Device<'a> {
             images,
             last_acquisition_index,
             current_frame,
+            allow_acquisition,
         }))
     }
 

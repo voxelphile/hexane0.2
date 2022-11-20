@@ -5,10 +5,10 @@ use std::default::default;
 use std::env;
 use std::ffi;
 use std::fmt;
-use std::sync::Mutex;
 use std::fs;
 use std::path;
 use std::process;
+use std::sync::Mutex;
 
 use ash::vk;
 
@@ -115,7 +115,7 @@ impl ShaderCompiler {
 
                 let source_code = fs::read_to_string(options.input_path).map_err(|_| {
                     Error::ShaderCompilationError {
-                        message: String::from("failed to read shader"),
+                        message: format!("failed to read shader: {}", options.input_path.display()),
                     }
                 })?;
 
@@ -227,7 +227,10 @@ pub struct PipelineCompiler<'a> {
 }
 
 impl<'a> PipelineCompiler<'a> {
-    pub fn create_graphics_pipeline<const S: usize, const C: usize>(&'a self, info: GraphicsPipelineInfo<'a, S, C>) -> Result<Pipeline<'a, S, C>> {
+    pub fn create_graphics_pipeline<const S: usize, const C: usize>(
+        &'a self,
+        info: GraphicsPipelineInfo<'a, S, C>,
+    ) -> Result<Pipeline<'a, S, C>> {
         let PipelineCompiler { device, .. } = self;
 
         let Device {
@@ -462,13 +465,10 @@ impl<'a> PipelineCompiler<'a> {
             )
         }
         .map_err(|_| Error::Creation)?[0];
-        
+
         let spec = Spec::Graphics(info);
 
-        let inner = Mutex::new(Inner {
-            pipeline,
-            layout,
-        });
+        let inner = Mutex::new(Inner { pipeline, layout });
 
         Ok(Pipeline {
             compiler: &self,
@@ -478,7 +478,10 @@ impl<'a> PipelineCompiler<'a> {
         })
     }
 
-    pub fn create_compute_pipeline(&'a self, info: ComputePipelineInfo<'a>) -> Result<Pipeline<1, 0>> {
+    pub fn create_compute_pipeline(
+        &'a self,
+        info: ComputePipelineInfo<'a>,
+    ) -> Result<Pipeline<1, 0>> {
         let PipelineCompiler { device, .. } = self;
 
         let Device {
@@ -593,10 +596,7 @@ impl<'a> PipelineCompiler<'a> {
 
         let spec = Spec::Compute(info);
 
-        let inner = Mutex::new(Inner {
-            pipeline,
-            layout,
-        });
+        let inner = Mutex::new(Inner { pipeline, layout });
 
         Ok(Pipeline {
             compiler: &self,
@@ -606,7 +606,10 @@ impl<'a> PipelineCompiler<'a> {
         })
     }
 
-    pub fn refresh_graphics_pipeline<const S: usize, const C: usize>(&'a self, pipeline: &'a Pipeline<'a, S, C>) -> Result<()> {
+    pub fn refresh_graphics_pipeline<const S: usize, const C: usize>(
+        &'a self,
+        pipeline: &'a Pipeline<'a, S, C>,
+    ) -> Result<()> {
         let Spec::Graphics(info) = pipeline.spec else {
             Err(Error::InvalidResource)?
         };
@@ -618,10 +621,10 @@ impl<'a> PipelineCompiler<'a> {
         let new_pipeline_inner = new_pipeline.inner.lock().unwrap();
 
         *pipeline_inner = *new_pipeline_inner;
-        
+
         Ok(())
     }
-    
+
     pub fn refresh_compute_pipeline(&'a self, pipeline: &'a Pipeline<'a, 1, 0>) -> Result<()> {
         let Spec::Compute(info) = pipeline.spec else {
             Err(Error::InvalidResource)?
@@ -634,7 +637,7 @@ impl<'a> PipelineCompiler<'a> {
         let new_pipeline_inner = new_pipeline.inner.lock().unwrap();
 
         *pipeline_inner = *new_pipeline_inner;
-        
+
         Ok(())
     }
 }
@@ -733,7 +736,6 @@ impl From<ColorComponent> for vk::ColorComponentFlags {
         result
     }
 }
-
 
 #[derive(Clone, Copy)]
 pub struct Raster {
@@ -988,38 +990,80 @@ impl Default for ComputePipelineInfo<'_> {
     }
 }
 
-#[derive(Clone, Copy)]
-pub enum PipelineStage {
-    TopOfPipe,
-    VertexShader,
-    FragmentShader,
-    EarlyFragmentTests,
-    LateFragmentTests,
-    ColorAttachmentOutput,
-    ComputeShader,
-    Transfer,
-    BottomOfPipe,
-    Host,
-    AllGraphics,
-    AllCommands,
+bitflags! {
+    pub struct PipelineStage: u32 {
+        const TOP_OF_PIPE = 0x00000001;
+        const VERTEX_SHADER = 0x00000002;
+        const FRAGMENT_SHADER = 0x00000004;
+        const EARLY_FRAGMENT_TESTS = 0x00000008;
+        const LATE_FRAGMENT_TESTS = 0x00000010;
+        const COLOR_ATTACHMENT_OUTPUT = 0x00000020;
+        const COMPUTE_SHADER = 0x00000040;
+        const TRANSFER = 0x00000080;
+        const BOTTOM_OF_PIPE = 0x00000100;
+        const HOST = 0x00000200;
+        const ALL_GRAPHICS = 0x00000400;
+        const ALL_COMMANDS = 0x00000800;
+    }
 }
 
 impl From<PipelineStage> for vk::PipelineStageFlags {
     fn from(stage: PipelineStage) -> Self {
-        match stage {
-            PipelineStage::TopOfPipe => Self::TOP_OF_PIPE,
-            PipelineStage::VertexShader => Self::VERTEX_SHADER,
-            PipelineStage::FragmentShader => Self::FRAGMENT_SHADER,
-            PipelineStage::EarlyFragmentTests => Self::EARLY_FRAGMENT_TESTS,
-            PipelineStage::LateFragmentTests => Self::LATE_FRAGMENT_TESTS,
-            PipelineStage::ColorAttachmentOutput => Self::COLOR_ATTACHMENT_OUTPUT,
-            PipelineStage::ComputeShader => Self::COMPUTE_SHADER,
-            PipelineStage::Transfer => Self::TRANSFER,
-            PipelineStage::BottomOfPipe => Self::BOTTOM_OF_PIPE,
-            PipelineStage::Host => Self::HOST,
-            PipelineStage::AllGraphics => Self::ALL_GRAPHICS,
-            PipelineStage::AllCommands => Self::ALL_COMMANDS,
+        let mut result = vk::PipelineStageFlags::empty();
+
+        if stage == PipelineStage::empty() {
+            result |= vk::PipelineStageFlags::NONE;
         }
+
+        if stage.contains(PipelineStage::TOP_OF_PIPE) {
+            result |= vk::PipelineStageFlags::TOP_OF_PIPE;
+        }
+
+        if stage.contains(PipelineStage::VERTEX_SHADER) {
+            result |= vk::PipelineStageFlags::VERTEX_SHADER;
+        }
+
+        if stage.contains(PipelineStage::FRAGMENT_SHADER) {
+            result |= vk::PipelineStageFlags::FRAGMENT_SHADER;
+        }
+
+        if stage.contains(PipelineStage::EARLY_FRAGMENT_TESTS) {
+            result |= vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS;
+        }
+
+        if stage.contains(PipelineStage::LATE_FRAGMENT_TESTS) {
+            result |= vk::PipelineStageFlags::LATE_FRAGMENT_TESTS;
+        }
+
+        if stage.contains(PipelineStage::COLOR_ATTACHMENT_OUTPUT) {
+            result |= vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT;
+        }
+
+        if stage.contains(PipelineStage::COMPUTE_SHADER) {
+            result |= vk::PipelineStageFlags::COMPUTE_SHADER;
+        }
+
+        if stage.contains(PipelineStage::TRANSFER) {
+            result |= vk::PipelineStageFlags::TRANSFER;
+        }
+
+        if stage.contains(PipelineStage::BOTTOM_OF_PIPE) {
+            result |= vk::PipelineStageFlags::BOTTOM_OF_PIPE;
+        }
+
+        if stage.contains(PipelineStage::HOST) {
+            result |= vk::PipelineStageFlags::HOST;
+        }
+
+        if stage.contains(PipelineStage::ALL_GRAPHICS) {
+            result |= vk::PipelineStageFlags::ALL_GRAPHICS;
+        }
+
+        if stage.contains(PipelineStage::ALL_COMMANDS) {
+            result |= vk::PipelineStageFlags::ALL_COMMANDS;
+        }
+
+        result
     }
 }
 

@@ -69,6 +69,7 @@ pub struct InternalSwapchain {
     pub(crate) images: Vec<Image>,
     pub(crate) last_acquisition_index: Option<u32>,
     pub(crate) current_frame: usize,
+    pub(crate) allow_acquisition: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -86,7 +87,7 @@ impl From<u32> for Swapchain {
     }
 }
 
-pub struct Acquire<'a> {
+pub struct Acquire {
     pub swapchain: Swapchain,
-    pub semaphore: Option<&'a BinarySemaphore<'a>>,
+    pub semaphore: Option<BinarySemaphore>,
 }

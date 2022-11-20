@@ -50,7 +50,7 @@ pub(crate) struct InternalBuffer {
     pub(crate) debug_name: String,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
 #[repr(transparent)]
 pub struct Buffer(pub(crate) u32);
 

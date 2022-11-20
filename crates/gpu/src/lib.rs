@@ -67,6 +67,7 @@ pub enum Error {
     InvalidResource,
     MemoryMapFailed,
     InvalidAttachment,
+    FailedToAcquire,
 }
 
 impl fmt::Display for Error {

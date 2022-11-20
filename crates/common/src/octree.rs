@@ -1,6 +1,6 @@
 use crate::bits::*;
+use crate::convert::*;
 use crate::mesh::*;
-use crate::transform::*;
 use crate::voxel::*;
 
 use math::prelude::*;
@@ -71,7 +71,7 @@ impl<T: Eq + Copy + Default> Octree<T> for SparseOctree<T> {
         let Ok((node, _)) = self.get_node(&hierarchy) else {
             None?
         };
-    
+
         let Some(data) = &node.data else {
             None?
         };
@@ -189,7 +189,7 @@ impl<T: Eq + Copy + Default> SparseOctree<T> {
         nodes.retain(|node| node.morton != u64::MAX);
 
         nodes.sort_by(|a, b| a.morton.cmp(&b.morton));
-        
+
         let node_order = 0..nodes.len();
 
         for i in node_order {
@@ -199,11 +199,15 @@ impl<T: Eq + Copy + Default> SparseOctree<T> {
                 continue;
             }
 
-            let child = self.nodes.get(nodes[i].child as usize).expect(&format!("{}", nodes[i].child));
-            
-                nodes[i].child = nodes.binary_search_by(|probe| probe.morton.cmp(&child.morton)).expect("failed to find child") as _;
+            let child = self
+                .nodes
+                .get(nodes[i].child as usize)
+                .expect(&format!("{}", nodes[i].child));
+
+            nodes[i].child = nodes
+                .binary_search_by(|probe| probe.morton.cmp(&child.morton))
+                .expect("failed to find child") as _;
         }
-        
 
         self.nodes = nodes;
     }
@@ -241,7 +245,7 @@ impl<T: Eq + Copy + Default> SparseOctree<T> {
     pub fn nodes(&self) -> &'_ [Node<T>] {
         &self.nodes
     }
-    
+
     pub fn has_data(&self, hierarchy: &[u8]) -> bool {
         let Ok((node, _)) = self.get_node(&hierarchy) else {
             return false;
@@ -334,9 +338,9 @@ impl<T: Eq + Copy + Default> Default for Node<T> {
     }
 }
 
-impl Transform<Mesh> for SparseOctree<Voxel> {
-    fn transform<const N: usize>(&self, transformation: Transformation<N>) -> Mesh {
-        let Transformation { regions, lod } = transformation;
+impl Convert<Mesh> for SparseOctree<Voxel> {
+    fn convert<const N: usize>(&self, conversion: Conversion<N>) -> Mesh {
+        let Conversion { regions, lod } = conversion;
 
         let mut vertices = vec![];
 
@@ -421,8 +425,7 @@ impl Transform<Mesh> for SparseOctree<Voxel> {
                         let mut normals = vec![];
 
                         if z < size {
-                            if !self.has_data(&self.get_position_hierarchy(x, y, z + 1))
-                            {
+                            if !self.has_data(&self.get_position_hierarchy(x, y, z + 1)) {
                                 normals.push(Vector::new([0.0, 0.0, 1.0, 0.0]));
                             }
                         } else {
@@ -430,8 +433,7 @@ impl Transform<Mesh> for SparseOctree<Voxel> {
                         }
 
                         if z > 0 {
-                            if !self.has_data(&self.get_position_hierarchy(x, y, z - 1))
-                            {
+                            if !self.has_data(&self.get_position_hierarchy(x, y, z - 1)) {
                                 normals.push(Vector::new([0.0, 0.0, -1.0, 0.0]));
                             }
                         } else {
@@ -439,8 +441,7 @@ impl Transform<Mesh> for SparseOctree<Voxel> {
                         }
 
                         if x < size {
-                            if !self.has_data(&self.get_position_hierarchy(x + 1, y, z))
-                            {
+                            if !self.has_data(&self.get_position_hierarchy(x + 1, y, z)) {
                                 normals.push(Vector::new([1.0, 0.0, 0.0, 0.0]));
                             }
                         } else {
@@ -448,8 +449,7 @@ impl Transform<Mesh> for SparseOctree<Voxel> {
                         }
 
                         if x > 0 {
-                            if !self.has_data(&self.get_position_hierarchy(x - 1, y, z))
-                            {
+                            if !self.has_data(&self.get_position_hierarchy(x - 1, y, z)) {
                                 normals.push(Vector::new([-1.0, 0.0, 0.0, 0.0]));
                             }
                         } else {
@@ -457,8 +457,7 @@ impl Transform<Mesh> for SparseOctree<Voxel> {
                         }
 
                         if y < size {
-                            if !self.has_data(&self.get_position_hierarchy(x, y + 1, z))
-                            {
+                            if !self.has_data(&self.get_position_hierarchy(x, y + 1, z)) {
                                 normals.push(Vector::new([0.0, 1.0, 0.0, 0.0]));
                             }
                         } else {
@@ -466,8 +465,7 @@ impl Transform<Mesh> for SparseOctree<Voxel> {
                         }
 
                         if y > 0 {
-                            if !self.has_data(&self.get_position_hierarchy(x, y - 1, z))
-                            {
+                            if !self.has_data(&self.get_position_hierarchy(x, y - 1, z)) {
                                 normals.push(Vector::new([0.0, -1.0, 0.0, 0.0]));
                             }
                         } else {
@@ -493,10 +491,10 @@ impl Transform<Mesh> for SparseOctree<Voxel> {
     }
 }
 
-impl Transform<Bitset> for SparseOctree<Voxel> {
+impl Convert<Bitset> for SparseOctree<Voxel> {
     //TODO implement this for N regions
-    fn transform<const N: usize>(&self, transformation: Transformation<N>) -> Bitset {
-        let Transformation { regions, lod } = transformation;
+    fn convert<const N: usize>(&self, conversion: Conversion<N>) -> Bitset {
+        let Conversion { regions, lod } = conversion;
 
         let Region { start, end } = regions[0];
 

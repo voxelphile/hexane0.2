@@ -70,7 +70,7 @@ impl Default for ImageInfo<'_> {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Hash, PartialEq, Eq)]
 pub struct Image(pub(crate) u32);
 
 impl From<Image> for u32 {
@@ -89,6 +89,9 @@ impl From<u32> for Image {
 pub enum ImageLayout {
     Undefined,
     General,
+    ReadOnlyOptimal,
+    TransferSrcOptimal,
+    TransferDstOptimal,
     ColorAttachmentOptimal,
     DepthAttachmentOptimal,
     Present,
@@ -98,6 +101,9 @@ impl From<ImageLayout> for vk::ImageLayout {
     fn from(layout: ImageLayout) -> Self {
         match layout {
             ImageLayout::Undefined => Self::UNDEFINED,
+            ImageLayout::ReadOnlyOptimal => Self::READ_ONLY_OPTIMAL,
+            ImageLayout::TransferSrcOptimal => Self::TRANSFER_SRC_OPTIMAL,
+            ImageLayout::TransferDstOptimal => Self::TRANSFER_DST_OPTIMAL,
             ImageLayout::General => Self::GENERAL,
             ImageLayout::ColorAttachmentOptimal => Self::COLOR_ATTACHMENT_OPTIMAL,
             ImageLayout::DepthAttachmentOptimal => Self::DEPTH_ATTACHMENT_OPTIMAL,

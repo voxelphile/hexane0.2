@@ -4,8 +4,8 @@ struct Transform {
 		vec4 velocity;
 		bool first;
 		bool jumping;
-		bool was_on_ground;
-		bool was_colliding;
+		bool on_ground;
+		bool colliding;
 		vec3 last_normal;
 };
 

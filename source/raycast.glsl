@@ -11,6 +11,8 @@ struct Ray {
 struct RayHit {
 	f32 dist;
 	vec3 normal;
+	vec3 back_step;
+	vec3 destination;
 };
 
 bool ray_cast(inout Ray ray, out RayHit hit) {
@@ -57,10 +59,14 @@ bool ray_cast(inout Ray ray, out RayHit hit) {
 		int lod = int(SIZE) - int(node_depth) - 1;
 
 		if (voxel_found) {
+			vec3 destination = ray.origin + ray.direction * (dist - 1e-4);
 			vec3 normal = vec3(mask) * sign(-ray.direction);
-			
+			vec3 back_step = p - s * vec3(mask);
+
 			hit.dist = dist;
+			hit.back_step = back_step;	
 			hit.normal = normal;
+			hit.destination = destination;
 			return true;
 		}
 

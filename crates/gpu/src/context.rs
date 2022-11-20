@@ -275,9 +275,19 @@ impl Context {
 
         let extensions = [khr::Swapchain::name()];
 
-        let mut scalar_block_layout_features = vk::PhysicalDeviceScalarBlockLayoutFeatures {
-            scalar_block_layout: true as _,
+        let mut synchronization2_features = vk::PhysicalDeviceSynchronization2Features {
+            synchronization2: true as _,
             ..default()
+        };
+
+        let mut scalar_block_layout_features = {
+            let p_next = &mut synchronization2_features as *mut _ as *mut _;
+
+            vk::PhysicalDeviceScalarBlockLayoutFeatures {
+                p_next,
+                scalar_block_layout: true as _,
+                ..default()
+            }
         };
 
         let mut buffer_address_features = {

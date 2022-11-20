@@ -5,56 +5,130 @@ use std::mem;
 use std::ops;
 use std::ptr;
 use std::slice;
+use std::sync::Mutex;
 
 use ash::vk;
 
 use bitflags::bitflags;
 
-pub struct Commands<'a> {
-    pub(crate) device: &'a Device<'a>,
+pub struct Commands<'a, 'b: 'a> {
+    pub(crate) device: &'a Device<'b>,
     pub(crate) qualifiers: &'a [Qualifier],
     pub(crate) command_buffer: &'a vk::CommandBuffer,
+    pub(crate) submit: &'a mut Option<Submit>,
+    pub(crate) present: &'a mut Option<Present>,
 }
-
 bitflags! {
     pub struct Access: u32 {
-        const COLOR_ATTACHMENT_WRITE = 0x00000001;
-        const DEPTH_ATTACHMENT_READ = 0x00000002;
-        const DEPTH_ATTACHMENT_WRITE = 0x00000004;
-        const SHADER_READ = 0x00000008;
-        const SHADER_WRITE = 0x00000010;
-/*      const DEPTH_STENCIL = 0x00000020;
-        const TRANSIENT = 0x00000040;
-        const INPUT = 0x00000080;
-*/    }
+        const WRITE = 0x00000001;
+        const READ = 0x00000002;
+    }
 }
 
-impl From<Access> for vk::AccessFlags {
-    fn from(access: Access) -> Self {
-        let mut result = vk::AccessFlags::empty();
+fn stage_access_to_access((stage, access): (PipelineStage, Access)) -> vk::AccessFlags {
+    let mut result = vk::AccessFlags::empty();
 
-        if access.contains(Access::COLOR_ATTACHMENT_WRITE) {
-            result |= vk::AccessFlags::COLOR_ATTACHMENT_WRITE;
+    if access.contains(Access::READ) {
+        if stage.contains(PipelineStage::TOP_OF_PIPE) {
+            result |= vk::AccessFlags::MEMORY_READ;
         }
 
-        if access.contains(Access::DEPTH_ATTACHMENT_READ) {
-            result |= vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_READ;
-        }
-
-        if access.contains(Access::DEPTH_ATTACHMENT_WRITE) {
-            result |= vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE;
-        }
-
-        if access.contains(Access::SHADER_READ) {
+        if stage.contains(PipelineStage::VERTEX_SHADER) {
             result |= vk::AccessFlags::SHADER_READ;
         }
 
-        if access.contains(Access::SHADER_WRITE) {
+        if stage.contains(PipelineStage::FRAGMENT_SHADER) {
+            result |= vk::AccessFlags::SHADER_READ;
+        }
+
+        if stage.contains(PipelineStage::EARLY_FRAGMENT_TESTS) {
+            result |= vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_READ;
+        }
+
+        if stage.contains(PipelineStage::LATE_FRAGMENT_TESTS) {
+            result |= vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_READ;
+        }
+
+        if stage.contains(PipelineStage::COLOR_ATTACHMENT_OUTPUT) {
+            result |= vk::AccessFlags::COLOR_ATTACHMENT_READ;
+        }
+
+        if stage.contains(PipelineStage::COMPUTE_SHADER) {
+            result |= vk::AccessFlags::SHADER_READ;
+        }
+
+        if stage.contains(PipelineStage::TRANSFER) {
+            result |= vk::AccessFlags::TRANSFER_READ;
+        }
+
+        if stage.contains(PipelineStage::BOTTOM_OF_PIPE) {
+            result |= vk::AccessFlags::MEMORY_READ;
+        }
+
+        if stage.contains(PipelineStage::HOST) {
+            result |= vk::AccessFlags::HOST_READ;
+        }
+
+        if stage.contains(PipelineStage::ALL_GRAPHICS) {
+            result |= vk::AccessFlags::MEMORY_READ;
+        }
+
+        if stage.contains(PipelineStage::ALL_COMMANDS) {
+            result |= vk::AccessFlags::MEMORY_READ;
+        }
+    }
+
+    if access.contains(Access::WRITE) {
+        if stage.contains(PipelineStage::TOP_OF_PIPE) {
+            result |= vk::AccessFlags::MEMORY_WRITE;
+        }
+
+        if stage.contains(PipelineStage::VERTEX_SHADER) {
             result |= vk::AccessFlags::SHADER_WRITE;
         }
 
-        result
+        if stage.contains(PipelineStage::FRAGMENT_SHADER) {
+            result |= vk::AccessFlags::SHADER_WRITE;
+        }
+
+        if stage.contains(PipelineStage::EARLY_FRAGMENT_TESTS) {
+            result |= vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE;
+        }
+
+        if stage.contains(PipelineStage::LATE_FRAGMENT_TESTS) {
+            result |= vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE;
+        }
+
+        if stage.contains(PipelineStage::COLOR_ATTACHMENT_OUTPUT) {
+            result |= vk::AccessFlags::COLOR_ATTACHMENT_WRITE;
+        }
+
+        if stage.contains(PipelineStage::COMPUTE_SHADER) {
+            result |= vk::AccessFlags::SHADER_WRITE;
+        }
+
+        if stage.contains(PipelineStage::TRANSFER) {
+            result |= vk::AccessFlags::TRANSFER_WRITE;
+        }
+
+        if stage.contains(PipelineStage::BOTTOM_OF_PIPE) {
+            result |= vk::AccessFlags::MEMORY_WRITE;
+        }
+
+        if stage.contains(PipelineStage::HOST) {
+            result |= vk::AccessFlags::HOST_WRITE;
+        }
+
+        if stage.contains(PipelineStage::ALL_GRAPHICS) {
+            result |= vk::AccessFlags::MEMORY_WRITE;
+        }
+
+        if stage.contains(PipelineStage::ALL_COMMANDS) {
+            result |= vk::AccessFlags::MEMORY_WRITE;
+        }
     }
+
+    result
 }
 
 pub enum Barrier {
@@ -74,10 +148,10 @@ pub enum Barrier {
     },
 }
 
-pub struct PipelineBarrier<'a> {
+pub struct PipelineBarrier<const N: usize> {
     pub src_stage: PipelineStage,
     pub dst_stage: PipelineStage,
-    pub barriers: &'a [Barrier],
+    pub barriers: [Barrier; N],
 }
 
 pub struct PushConstant<'a, T: Copy, const S: usize, const C: usize> {
@@ -171,8 +245,18 @@ pub struct RenderArea {
     pub height: u32,
 }
 
-impl Commands<'_> {
-    pub fn dispatch(&self, x: usize, y: usize, z: usize) -> Result<()> {
+impl Commands<'_, '_> {
+    pub fn submit(&mut self, submit: Submit) -> Result<()> {
+        *self.submit = Some(submit);
+        Ok(())
+    }
+
+    pub fn present(&mut self, present: Present) -> Result<()> {
+        *self.present = Some(present);
+        Ok(())
+    }
+
+    pub fn dispatch(&mut self, x: usize, y: usize, z: usize) -> Result<()> {
         let Commands {
             device,
             command_buffer,
@@ -186,7 +270,10 @@ impl Commands<'_> {
         Ok(())
     }
 
-    pub fn push_constant<T: Copy, const S: usize, const C: usize>(&mut self, push_constant: PushConstant<T, S, C>) -> Result<()> {
+    pub fn push_constant<'a, T: Copy, const S: usize, const C: usize>(
+        &mut self,
+        push_constant: PushConstant<'a, T, S, C>,
+    ) -> Result<()> {
         let Commands {
             device,
             command_buffer,
@@ -197,13 +284,9 @@ impl Commands<'_> {
 
         let PushConstant { data, pipeline } = push_constant;
 
-        let Pipeline {
-            inner, ..
-        } = pipeline;
-        
-        let crate::pipeline::Inner {
-            layout, ..
-        } = inner.lock().unwrap().clone();
+        let Pipeline { inner, .. } = pipeline;
+
+        let crate::pipeline::Inner { layout, .. } = inner.lock().unwrap().clone();
 
         use crate::pipeline::PipelineBindPoint;
 
@@ -232,6 +315,7 @@ impl Commands<'_> {
             device,
             qualifiers,
             command_buffer,
+            ..
         } = self;
 
         let Device {
@@ -319,6 +403,7 @@ impl Commands<'_> {
             device,
             qualifiers,
             command_buffer,
+            ..
         } = self;
 
         let Device {
@@ -378,6 +463,7 @@ impl Commands<'_> {
             device,
             qualifiers,
             command_buffer,
+            ..
         } = self;
 
         let Device {
@@ -518,7 +604,10 @@ impl Commands<'_> {
         Ok(())
     }
 
-    pub fn set_pipeline<const S: usize, const C: usize>(&mut self, pipeline: &Pipeline<S, C>) -> Result<()> {
+    pub fn set_pipeline<'a, const S: usize, const C: usize>(
+        &mut self,
+        pipeline: &Pipeline<'a, S, C>,
+    ) -> Result<()> {
         let Commands {
             device,
             command_buffer,
@@ -532,14 +621,10 @@ impl Commands<'_> {
         } = device;
 
         let Pipeline {
-            bind_point,
-            inner,
-            ..
+            bind_point, inner, ..
         } = pipeline;
 
-        let crate::pipeline::Inner {
-            layout, pipeline,
-        } = inner.lock().unwrap().clone();
+        let crate::pipeline::Inner { layout, pipeline } = inner.lock().unwrap().clone();
 
         let bind_point = vk::PipelineBindPoint::from(*bind_point);
 
@@ -596,45 +681,10 @@ impl Commands<'_> {
         Ok(())
     }
 
-    pub fn bind_index_buffer(&mut self, bind: BindIndexBuffer) -> Result<()> {
-        let BindIndexBuffer { buffer, offset } = bind;
-
-        let Commands {
-            device,
-            qualifiers,
-            command_buffer,
-        } = self;
-
-        let Device {
-            logical_device,
-            resources,
-            ..
-        } = device;
-
-        let resources = resources.lock().unwrap();
-
-        let Qualifier::Buffer(buffer_handle, _) = qualifiers.get(buffer).ok_or(Error::InvalidResource)? else {
-            Err(Error::InvalidResource)?
-        };
-
-        let InternalBuffer { buffer, .. } = resources
-            .buffers
-            .get(*buffer_handle)
-            .ok_or(Error::ResourceNotFound)?;
-
-        unsafe {
-            logical_device.cmd_bind_index_buffer(
-                **command_buffer,
-                *buffer,
-                offset as _,
-                vk::IndexType::UINT32,
-            )
-        };
-
-        Ok(())
-    }
-
-    pub fn pipeline_barrier(&mut self, pipeline_barrier: PipelineBarrier<'_>) -> Result<()> {
+    pub fn pipeline_barrier<const N: usize>(
+        &mut self,
+        pipeline_barrier: PipelineBarrier<N>,
+    ) -> Result<()> {
         let PipelineBarrier {
             src_stage,
             dst_stage,
@@ -645,6 +695,7 @@ impl Commands<'_> {
             device,
             qualifiers,
             command_buffer,
+            ..
         } = self;
 
         let Device {
@@ -670,7 +721,7 @@ impl Commands<'_> {
                     src_access,
                     dst_access,
                 } => {
-                    let Qualifier::Image(image_handle, _) = qualifiers.get(*image).ok_or(Error::InvalidResource)? else {
+                    let Qualifier::Image(image_handle, image_access) = qualifiers.get(image).ok_or(Error::InvalidResource)? else {
                     Err(Error::InvalidResource)?
                 };
 
@@ -686,13 +737,13 @@ impl Commands<'_> {
                         .ok_or(Error::ResourceNotFound)?
                         .get_format();
 
-                    let src_access_mask = (*src_access).into();
+                    let src_access_mask = stage_access_to_access((src_stage, src_access));
 
-                    let dst_access_mask = (*dst_access).into();
+                    let dst_access_mask = stage_access_to_access((dst_stage, dst_access));
 
-                    let old_layout = (*old_layout).into();
+                    let old_layout = old_layout.into();
 
-                    let new_layout = (*new_layout).into();
+                    let new_layout = new_layout.into();
 
                     let subresource_range = vk::ImageSubresourceRange {
                         aspect_mask: format.into(),
@@ -719,7 +770,7 @@ impl Commands<'_> {
                     src_access,
                     dst_access,
                 } => {
-                    let Qualifier::Buffer(buffer_handle, _) = qualifiers.get(*buffer).ok_or(Error::InvalidResource)? else {
+                    let Qualifier::Buffer(buffer_handle, _) = qualifiers.get(buffer).ok_or(Error::InvalidResource)? else {
                     Err(Error::InvalidResource)?
                 };
 
@@ -729,13 +780,13 @@ impl Commands<'_> {
                         .ok_or(Error::ResourceNotFound)?
                         .buffer;
 
-                    let size = *size as _;
+                    let size = size as _;
 
-                    let offset = *offset as _;
+                    let offset = offset as _;
 
-                    let src_access_mask = (*src_access).into();
+                    let src_access_mask = stage_access_to_access((src_stage, src_access));
 
-                    let dst_access_mask = (*dst_access).into();
+                    let dst_access_mask = stage_access_to_access((dst_stage, dst_access));
 
                     buffer_barriers.push(vk::BufferMemoryBarrier {
                         buffer,

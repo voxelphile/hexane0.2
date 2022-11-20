@@ -7,6 +7,7 @@ use std::default::default;
 use std::marker::PhantomData;
 use std::mem;
 use std::ops;
+use std::collections::HashMap;
 use std::slice;
 use std::time;
 
@@ -14,13 +15,13 @@ use ash::vk;
 
 use bitflags::bitflags;
 
-pub struct Present<'a> {
-    pub wait_semaphore: &'a BinarySemaphore<'a>,
+pub struct Present {
+    pub wait_semaphore: BinarySemaphore,
 }
 
-pub struct Submit<'a> {
-    pub wait_semaphore: &'a BinarySemaphore<'a>,
-    pub signal_semaphore: &'a BinarySemaphore<'a>,
+pub struct Submit {
+    pub wait_semaphore: BinarySemaphore,
+    pub signal_semaphore: BinarySemaphore,
 }
 
 pub struct ExecutorInfo<'a> {
@@ -44,8 +45,6 @@ pub struct Executor<'a> {
     pub(crate) swapchain: Swapchain,
     pub(crate) optimizer: &'a dyn ops::Fn(&mut Executor<'a>),
     pub(crate) nodes: Vec<Node<'a>>,
-    pub(crate) submit: Option<Submit<'a>>,
-    pub(crate) present: Option<Present<'a>>,
     pub(crate) debug_name: String,
 }
 
@@ -64,20 +63,10 @@ impl<'a> Executor<'a> {
         (self.optimizer)(self);
     }
 
-    pub fn submit(&mut self, submit: Submit<'a>) {
-        self.submit = Some(submit);
-    }
-
-    pub fn present(&mut self, present: Present<'a>) {
-        self.present = Some(present);
-    }
-
     pub fn complete(self) -> Result<Executable<'a>> {
         let Executor {
             device,
             nodes,
-            submit,
-            present,
             swapchain,
             ..
         } = self;
@@ -120,11 +109,10 @@ impl<'a> Executor<'a> {
         let fps_counter = 0;
         let fps = 0;
 
+
         Ok(Executable {
             device,
             nodes,
-            submit,
-            present,
             command_buffers,
             fences,
             fps_instant,
@@ -139,8 +127,6 @@ pub struct Executable<'a> {
     pub(crate) device: &'a Device<'a>,
     pub(crate) swapchain: Swapchain,
     pub(crate) nodes: Vec<Node<'a>>,
-    pub(crate) submit: Option<Submit<'a>>,
-    pub(crate) present: Option<Present<'a>>,
     pub(crate) command_buffers: Vec<vk::CommandBuffer>,
     pub(crate) fences: Vec<vk::Fence>,
     pub(crate) fps_instant: time::Instant,
@@ -156,17 +142,17 @@ impl Executable<'_> {
 impl ops::FnMut<()> for Executable<'_> {
     #[profiling::function]
     extern "rust-call" fn call_mut(&mut self, args: ()) {
+        profiling::scope!("executable", "ev");
         let Executable {
             device,
             nodes,
-            submit,
-            present,
             command_buffers,
             fences,
             fps_instant,
             fps_counter,
             fps,
             swapchain,
+            ..
         } = self;
 
         let Device {
@@ -179,6 +165,9 @@ impl ops::FnMut<()> for Executable<'_> {
             descriptor_set,
             ..
         } = device;
+
+        let mut submit: Option<Submit> = None;
+        let mut present: Option<Present> = None;
 
         let (swapchain_handle, current_frame) = {
             let resources = resources.lock().unwrap();
@@ -327,7 +316,11 @@ impl ops::FnMut<()> for Executable<'_> {
             }
         }
 
-        for node in nodes {
+        //TODO make auto sync smarter
+        let mut last_image_access = HashMap::<Image, ImageAccess>::new();
+        let mut last_buffer_access = HashMap::<Buffer, BufferAccess>::new();
+
+        for (i, node) in nodes.iter_mut().enumerate() {
             profiling::scope!("task", "ev");
             let qualifiers = node
                 .resources
@@ -335,11 +328,69 @@ impl ops::FnMut<()> for Executable<'_> {
                 .map(|resource| resource.resolve())
                 .collect::<Vec<_>>();
 
+            let mut barriers = vec![];
+
+            for (i, qualifier) in qualifiers.iter().enumerate() {
+                match qualifier {
+                    Qualifier::Buffer(buffer, dst) => {
+                        let src = last_buffer_access.entry(*buffer).or_default();
+                        
+                            let offset = 0;
+
+                            let size = {
+                                let resources = resources.lock().unwrap();
+
+                                resources.buffers.get(*buffer).unwrap().size
+                            };
+                            
+                            barriers.push(PipelineBarrier {
+                                src_stage: (*src).into(),
+                                dst_stage: (*dst).into(),
+                                barriers: [Barrier::Buffer {
+                                    buffer: i,
+                                    offset,
+                                    size, 
+                                    src_access: (*src).into(),
+                                    dst_access: (*dst).into(),
+                                }],
+                            });
+
+                        
+                            
+                        last_buffer_access.insert(*buffer, *dst);
+                    },
+                    Qualifier::Image(image, dst) => {
+                        let src = last_image_access.entry(*image).or_default();
+
+                            barriers.push(PipelineBarrier {
+                                src_stage: (*src).into(),
+                                dst_stage: (*dst).into(),
+                                barriers: [Barrier::Image {
+                                    image: i,
+                                    old_layout: (*src).into(),
+                                    new_layout: (*dst).into(),
+                                    src_access: (*src).into(),
+                                    dst_access: (*dst).into(),
+                                }],
+                            });
+                        
+                        
+                        last_image_access.insert(*image, *dst);
+                    },
+                }
+            }
+
             let mut commands = Commands {
                 device: &device,
                 qualifiers: &qualifiers,
                 command_buffer: &command_buffers[current_frame],
+                submit: &mut submit,
+                present: &mut present,
             };
+
+            for barrier in barriers {
+                commands.pipeline_barrier(barrier);
+            }
 
             (node.task)(&mut commands).unwrap();
         }
@@ -362,11 +413,11 @@ impl ops::FnMut<()> for Executable<'_> {
 
                 let wait_semaphore_count = 1;
 
-                let p_wait_semaphores = &submit.wait_semaphore.semaphores[current_frame];
+                let p_wait_semaphores = &resources.binary_semaphores.get(submit.wait_semaphore).unwrap().semaphores[current_frame];
 
                 let signal_semaphore_count = 1;
 
-                let p_signal_semaphores = &submit.signal_semaphore.semaphores[current_frame];
+                let p_signal_semaphores = &resources.binary_semaphores.get(submit.signal_semaphore).unwrap().semaphores[current_frame];
 
                 let command_buffer_count = 1;
 
@@ -403,7 +454,7 @@ impl ops::FnMut<()> for Executable<'_> {
 
                 let wait_semaphore_count = 1;
 
-                let p_wait_semaphores = &present.wait_semaphore.semaphores[current_frame];
+                let p_wait_semaphores = &resources.binary_semaphores.get(present.wait_semaphore).unwrap().semaphores[current_frame];
 
                 let image_index = internal_swapchain.last_acquisition_index.unwrap();
 
@@ -434,6 +485,7 @@ impl ops::FnMut<()> for Executable<'_> {
             let current_frame = internal_swapchain.current_frame;
 
             internal_swapchain.current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
+            internal_swapchain.allow_acquisition = true;
 
             drop(resources);
         }
@@ -448,8 +500,9 @@ impl ops::FnOnce<()> for Executable<'_> {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Default)]
 pub enum ImageAccess {
+    #[default]
     None,
     ShaderReadOnly,
     VertexShaderReadOnly,
@@ -467,17 +520,91 @@ pub enum ImageAccess {
     TransferWrite,
     ColorAttachment,
     DepthAttachment,
-    StencilAttachment,
-    DepthStencilAttachment,
     DepthAttachmentReadOnly,
-    StencilAttachmentReadOnly,
-    DepthStencilAttachmentReadOnly,
-    ResolveWrite,
     Present,
 }
 
-#[derive(Clone, Copy)]
+impl From<ImageAccess> for PipelineStage {
+    fn from(access: ImageAccess) -> Self {
+        match access {
+            ImageAccess::None => PipelineStage::empty(),
+    ImageAccess::Present => PipelineStage::ALL_COMMANDS, 
+    ImageAccess::TransferWrite |
+    ImageAccess::TransferRead => PipelineStage::TRANSFER,
+    ImageAccess::DepthAttachmentReadOnly |
+    ImageAccess::DepthAttachment => PipelineStage::EARLY_FRAGMENT_TESTS | PipelineStage::LATE_FRAGMENT_TESTS,
+    ImageAccess::ShaderReadWrite |
+    ImageAccess::ShaderWriteOnly |
+    ImageAccess::ShaderReadOnly => PipelineStage::ALL_GRAPHICS | PipelineStage::COMPUTE_SHADER,
+    ImageAccess::VertexShaderReadWrite |
+    ImageAccess::VertexShaderWriteOnly |
+    ImageAccess::VertexShaderReadOnly => PipelineStage::VERTEX_SHADER,
+    ImageAccess::FragmentShaderReadWrite |
+    ImageAccess::FragmentShaderWriteOnly |
+    ImageAccess::FragmentShaderReadOnly => PipelineStage::FRAGMENT_SHADER,
+    ImageAccess::ComputeShaderReadWrite |
+    ImageAccess::ComputeShaderWriteOnly |
+    ImageAccess::ComputeShaderReadOnly => PipelineStage::COMPUTE_SHADER,
+    ImageAccess::ColorAttachment => PipelineStage::COLOR_ATTACHMENT_OUTPUT,
+        } 
+    }
+}
+
+impl From<ImageAccess> for ImageLayout {
+    fn from(access: ImageAccess) -> Self {
+        match access {
+            ImageAccess::None => ImageLayout::Undefined,
+    ImageAccess::Present => ImageLayout::Present, 
+    ImageAccess::TransferWrite => ImageLayout::TransferDstOptimal,
+    ImageAccess::TransferRead => ImageLayout::TransferSrcOptimal,
+    ImageAccess::DepthAttachment => ImageLayout::DepthAttachmentOptimal,
+    ImageAccess::DepthAttachmentReadOnly |
+    ImageAccess::VertexShaderReadOnly |
+    ImageAccess::FragmentShaderReadOnly |
+    ImageAccess::ComputeShaderReadOnly |
+    ImageAccess::ShaderReadOnly => ImageLayout::ReadOnlyOptimal,
+    ImageAccess::ShaderWriteOnly |
+    ImageAccess::VertexShaderWriteOnly |
+    ImageAccess::FragmentShaderWriteOnly |
+    ImageAccess::ComputeShaderWriteOnly |
+    ImageAccess::VertexShaderReadWrite |
+    ImageAccess::FragmentShaderReadWrite |
+    ImageAccess::ComputeShaderReadWrite |
+    ImageAccess::ShaderReadWrite => ImageLayout::General,
+    ImageAccess::ColorAttachment => ImageLayout::ColorAttachmentOptimal,
+        } 
+    }
+}
+
+impl From<ImageAccess> for Access {
+    fn from(access: ImageAccess) -> Self {
+        match access {
+            ImageAccess::None => Access::empty(),
+    ImageAccess::Present |
+    ImageAccess::TransferRead |
+    ImageAccess::DepthAttachmentReadOnly |
+    ImageAccess::ShaderReadOnly |
+    ImageAccess::VertexShaderReadOnly |
+    ImageAccess::FragmentShaderReadOnly |
+    ImageAccess::ComputeShaderReadOnly => Access::READ,
+    ImageAccess::TransferWrite |
+    ImageAccess::ShaderWriteOnly |
+    ImageAccess::VertexShaderWriteOnly |
+    ImageAccess::FragmentShaderWriteOnly |
+    ImageAccess::ComputeShaderWriteOnly => Access::WRITE,
+    ImageAccess::ColorAttachment | 
+    ImageAccess::DepthAttachment |
+    ImageAccess::ShaderReadWrite |
+    ImageAccess::VertexShaderReadWrite |
+    ImageAccess::FragmentShaderReadWrite |
+    ImageAccess::ComputeShaderReadWrite => Access::READ | Access::WRITE,
+        } 
+    }
+}
+
+#[derive(Clone, Copy, Default)]
 pub enum BufferAccess {
+    #[default]
     None,
     ShaderReadOnly,
     VertexShaderReadOnly,
@@ -495,6 +622,54 @@ pub enum BufferAccess {
     TransferWrite,
     HostTransferRead,
     HostTransferWrite,
+}
+
+impl From<BufferAccess> for PipelineStage {
+    fn from(access: BufferAccess) -> Self {
+        match access {
+            BufferAccess::None => PipelineStage::empty(),
+            BufferAccess::ShaderReadOnly => PipelineStage::ALL_GRAPHICS | PipelineStage::COMPUTE_SHADER,
+            BufferAccess::VertexShaderReadOnly => PipelineStage::VERTEX_SHADER,
+            BufferAccess::FragmentShaderReadOnly => PipelineStage::FRAGMENT_SHADER,
+            BufferAccess::ComputeShaderReadOnly => PipelineStage::COMPUTE_SHADER,
+            BufferAccess::ShaderWriteOnly => PipelineStage::ALL_GRAPHICS | PipelineStage::COMPUTE_SHADER,
+            BufferAccess::VertexShaderWriteOnly => PipelineStage::VERTEX_SHADER,
+            BufferAccess::FragmentShaderWriteOnly => PipelineStage::FRAGMENT_SHADER,
+            BufferAccess::ComputeShaderWriteOnly => PipelineStage::COMPUTE_SHADER,
+            BufferAccess::ShaderReadWrite => PipelineStage::ALL_GRAPHICS | PipelineStage::COMPUTE_SHADER,
+            BufferAccess::VertexShaderReadWrite => PipelineStage::VERTEX_SHADER,
+            BufferAccess::FragmentShaderReadWrite => PipelineStage::FRAGMENT_SHADER,
+            BufferAccess::ComputeShaderReadWrite => PipelineStage::COMPUTE_SHADER,
+            BufferAccess::TransferRead => PipelineStage::TRANSFER,
+            BufferAccess::TransferWrite => PipelineStage::TRANSFER,
+            BufferAccess::HostTransferRead => PipelineStage::HOST,
+            BufferAccess::HostTransferWrite => PipelineStage::HOST,
+        }
+    }
+}
+
+impl From<BufferAccess> for Access {
+    fn from(access: BufferAccess) -> Self {
+        match access {
+            BufferAccess::None => Access::empty(),
+            BufferAccess::HostTransferRead |
+            BufferAccess::TransferRead |
+            BufferAccess::ShaderReadOnly |
+            BufferAccess::VertexShaderReadOnly |
+            BufferAccess::FragmentShaderReadOnly |
+            BufferAccess::ComputeShaderReadOnly => Access::READ,
+            BufferAccess::HostTransferWrite |
+            BufferAccess::TransferWrite |
+            BufferAccess::ShaderWriteOnly |
+            BufferAccess::VertexShaderWriteOnly |
+            BufferAccess::FragmentShaderWriteOnly |
+            BufferAccess::ComputeShaderWriteOnly => Access::WRITE,
+            BufferAccess::ShaderReadWrite |
+            BufferAccess::VertexShaderReadWrite |
+            BufferAccess::FragmentShaderReadWrite |
+            BufferAccess::ComputeShaderReadWrite => Access::READ | Access::WRITE,
+        } 
+    }
 }
 
 #[derive(Clone, Copy)]
