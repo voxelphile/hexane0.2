@@ -18,7 +18,6 @@ impl From<u32> for BinarySemaphore {
     }
 }
 
-
 pub struct InternalSemaphore {
     pub(crate) semaphores: Vec<vk::Semaphore>,
     pub(crate) debug_name: String,

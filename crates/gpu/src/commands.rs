@@ -1,3 +1,5 @@
+use crate::device::DeviceInner;
+use crate::pipeline::{PipelineInner, PipelineModify};
 use crate::prelude::*;
 
 use std::default::default;
@@ -11,8 +13,8 @@ use ash::vk;
 
 use bitflags::bitflags;
 
-pub struct Commands<'a, 'b: 'a> {
-    pub(crate) device: &'a Device<'b>,
+pub struct Commands<'a> {
+    pub(crate) device: &'a DeviceInner,
     pub(crate) qualifiers: &'a [Qualifier],
     pub(crate) command_buffer: &'a vk::CommandBuffer,
     pub(crate) submit: &'a mut Option<Submit>,
@@ -186,8 +188,8 @@ pub struct DrawIndexed {
     pub index_count: usize,
 }
 
-pub struct Render<'a> {
-    pub color: &'a [Attachment],
+pub struct Render<const N: usize> {
+    pub color: [Attachment; N],
     pub depth: Option<Attachment>,
     pub render_area: RenderArea,
 }
@@ -245,7 +247,7 @@ pub struct RenderArea {
     pub height: u32,
 }
 
-impl Commands<'_, '_> {
+impl Commands<'_> {
     pub fn submit(&mut self, submit: Submit) -> Result<()> {
         *self.submit = Some(submit);
         Ok(())
@@ -263,7 +265,7 @@ impl Commands<'_, '_> {
             ..
         } = self;
 
-        let Device { logical_device, .. } = device;
+        let DeviceInner { logical_device, .. } = &*device;
 
         unsafe { logical_device.cmd_dispatch(**command_buffer, x as _, y as _, z as _) };
 
@@ -280,17 +282,19 @@ impl Commands<'_, '_> {
             ..
         } = self;
 
-        let Device { logical_device, .. } = device;
+        let DeviceInner { logical_device, .. } = &*device;
 
         let PushConstant { data, pipeline } = push_constant;
 
-        let Pipeline { inner, .. } = pipeline;
+        let PipelineInner {
+            bind_point, modify, ..
+        } = &*pipeline.inner;
 
-        let crate::pipeline::Inner { layout, .. } = inner.lock().unwrap().clone();
+        let PipelineModify { layout, .. } = modify.lock().unwrap().clone();
 
         use crate::pipeline::PipelineBindPoint;
 
-        let shader_stage = match pipeline.bind_point {
+        let shader_stage = match bind_point {
             PipelineBindPoint::Graphics => {
                 vk::ShaderStageFlags::VERTEX | vk::ShaderStageFlags::FRAGMENT
             }
@@ -318,11 +322,11 @@ impl Commands<'_, '_> {
             ..
         } = self;
 
-        let Device {
+        let DeviceInner {
             logical_device,
             resources,
             ..
-        } = device;
+        } = &*device;
 
         let BufferWrite {
             buffer,
@@ -368,7 +372,7 @@ impl Commands<'_, '_> {
             ..
         } = self;
 
-        let Device { logical_device, .. } = device;
+        let DeviceInner { logical_device, .. } = &*device;
 
         let viewport = vk::Viewport {
             x: 0.0,
@@ -406,11 +410,11 @@ impl Commands<'_, '_> {
             ..
         } = self;
 
-        let Device {
+        let DeviceInner {
             logical_device,
             resources,
             ..
-        } = device;
+        } = &*device;
 
         let BufferCopy {
             from,
@@ -458,7 +462,7 @@ impl Commands<'_, '_> {
         Ok(())
     }
 
-    pub fn start_rendering(&mut self, render: Render<'_>) -> Result<()> {
+    pub fn start_rendering<const N: usize>(&mut self, render: Render<N>) -> Result<()> {
         let Commands {
             device,
             qualifiers,
@@ -466,11 +470,11 @@ impl Commands<'_, '_> {
             ..
         } = self;
 
-        let Device {
+        let DeviceInner {
             logical_device,
             resources,
             ..
-        } = device;
+        } = &*device;
 
         let Render {
             color,
@@ -595,7 +599,7 @@ impl Commands<'_, '_> {
             ..
         } = self;
 
-        let Device { logical_device, .. } = device;
+        let DeviceInner { logical_device, .. } = &*device;
 
         unsafe {
             logical_device.cmd_end_rendering(**command_buffer);
@@ -606,7 +610,7 @@ impl Commands<'_, '_> {
 
     pub fn set_pipeline<'a, const S: usize, const C: usize>(
         &mut self,
-        pipeline: &Pipeline<'a, S, C>,
+        pipeline: &'a Pipeline<'a, S, C>,
     ) -> Result<()> {
         let Commands {
             device,
@@ -614,17 +618,17 @@ impl Commands<'_, '_> {
             ..
         } = self;
 
-        let Device {
+        let DeviceInner {
             logical_device,
             descriptor_set,
             ..
-        } = device;
+        } = &*device;
 
-        let Pipeline {
-            bind_point, inner, ..
-        } = pipeline;
+        let PipelineInner {
+            bind_point, modify, ..
+        } = &*pipeline.inner;
 
-        let crate::pipeline::Inner { layout, pipeline } = inner.lock().unwrap().clone();
+        let PipelineModify { layout, pipeline } = modify.lock().unwrap().clone();
 
         let bind_point = vk::PipelineBindPoint::from(*bind_point);
 
@@ -645,23 +649,6 @@ impl Commands<'_, '_> {
 
         Ok(())
     }
-    pub fn draw_indexed(&mut self, draw: DrawIndexed) -> Result<()> {
-        let Commands {
-            device,
-            command_buffer,
-            ..
-        } = self;
-
-        let Device { logical_device, .. } = device;
-
-        let DrawIndexed { index_count } = draw;
-
-        unsafe {
-            logical_device.cmd_draw_indexed(**command_buffer, index_count as _, 1, 0, 0, 0);
-        }
-
-        Ok(())
-    }
 
     pub fn draw(&mut self, draw: Draw) -> Result<()> {
         let Commands {
@@ -670,7 +657,7 @@ impl Commands<'_, '_> {
             ..
         } = self;
 
-        let Device { logical_device, .. } = device;
+        let DeviceInner { logical_device, .. } = &*device;
 
         let Draw { vertex_count } = draw;
 
@@ -698,11 +685,11 @@ impl Commands<'_, '_> {
             ..
         } = self;
 
-        let Device {
+        let DeviceInner {
             logical_device,
             resources,
             ..
-        } = device;
+        } = &*device;
 
         let resources = resources.lock().unwrap();
 

@@ -1,14 +1,15 @@
 use crate::context::{DEVICE_ADDRESS_BUFFER_BINDING, SPECIAL_BUFFER_BINDING};
-use crate::device::MAX_FRAMES_IN_FLIGHT;
+use crate::device::{DeviceInner, MAX_FRAMES_IN_FLIGHT};
 use crate::prelude::*;
 
 use std::borrow::{Borrow, BorrowMut};
+use std::collections::HashMap;
 use std::default::default;
 use std::marker::PhantomData;
 use std::mem;
 use std::ops;
-use std::collections::HashMap;
 use std::slice;
+use std::sync::{Arc, Mutex};
 use std::time;
 
 use ash::vk;
@@ -41,7 +42,7 @@ impl Default for ExecutorInfo<'_> {
 }
 
 pub struct Executor<'a> {
-    pub(crate) device: &'a Device<'a>,
+    pub(crate) device: Arc<DeviceInner>,
     pub(crate) swapchain: Swapchain,
     pub(crate) optimizer: &'a dyn ops::Fn(&mut Executor<'a>),
     pub(crate) nodes: Vec<Node<'a>>,
@@ -49,7 +50,7 @@ pub struct Executor<'a> {
 }
 
 impl<'a> Executor<'a> {
-    pub fn add<'b: 'a, const N: usize, F: ops::FnMut(&mut Commands) -> Result<()> + 'a>(
+    pub fn add<'b: 'a, const N: usize, F: ops::FnMut(&mut Commands) -> Result<()> + 'b>(
         &mut self,
         task: Task<'b, N, F>,
     ) {
@@ -71,12 +72,12 @@ impl<'a> Executor<'a> {
             ..
         } = self;
 
-        let Device {
+        let DeviceInner {
             logical_device,
             command_pool,
             resources,
             ..
-        } = device;
+        } = &*device;
 
         let resources = resources.lock().unwrap();
 
@@ -109,33 +110,45 @@ impl<'a> Executor<'a> {
         let fps_counter = 0;
         let fps = 0;
 
-
         Ok(Executable {
-            device,
-            nodes,
-            command_buffers,
-            fences,
-            fps_instant,
-            fps_counter,
-            fps,
-            swapchain,
+            inner: Arc::new(ExecutableInner {
+                device: device.clone(),
+                command_buffers,
+                fences,
+                swapchain,
+                modify: Mutex::new(ExecutableModify {
+                    nodes,
+                    fps_instant,
+                    fps_counter,
+                    fps,
+                }),
+            }),
         })
     }
 }
 
 pub struct Executable<'a> {
-    pub(crate) device: &'a Device<'a>,
+    inner: Arc<ExecutableInner<'a>>,
+}
+
+pub struct ExecutableInner<'a> {
+    pub(crate) device: Arc<DeviceInner>,
     pub(crate) swapchain: Swapchain,
-    pub(crate) nodes: Vec<Node<'a>>,
     pub(crate) command_buffers: Vec<vk::CommandBuffer>,
     pub(crate) fences: Vec<vk::Fence>,
+    pub(crate) modify: Mutex<ExecutableModify<'a>>,
+}
+
+pub struct ExecutableModify<'a> {
     pub(crate) fps_instant: time::Instant,
     pub(crate) fps_counter: usize,
     pub(crate) fps: usize,
+    pub(crate) nodes: Vec<Node<'a>>,
 }
+
 impl Executable<'_> {
     pub fn fps(&self) -> usize {
-        self.fps
+        self.inner.modify.lock().unwrap().fps
     }
 }
 
@@ -143,19 +156,18 @@ impl ops::FnMut<()> for Executable<'_> {
     #[profiling::function]
     extern "rust-call" fn call_mut(&mut self, args: ()) {
         profiling::scope!("executable", "ev");
-        let Executable {
+        let ExecutableInner {
             device,
-            nodes,
             command_buffers,
             fences,
-            fps_instant,
-            fps_counter,
-            fps,
+            modify,
             swapchain,
             ..
-        } = self;
+        } = &*self.inner;
 
-        let Device {
+        let mut modify = modify.lock().unwrap();
+
+        let DeviceInner {
             logical_device,
             queue_family_indices,
             resources,
@@ -164,7 +176,7 @@ impl ops::FnMut<()> for Executable<'_> {
             general_address_buffer,
             descriptor_set,
             ..
-        } = device;
+        } = &**device;
 
         let mut submit: Option<Submit> = None;
         let mut present: Option<Present> = None;
@@ -193,15 +205,15 @@ impl ops::FnMut<()> for Executable<'_> {
                 {
                     return;
                 } else if time::Instant::now()
-                    .duration_since(*fps_instant)
+                    .duration_since(modify.fps_instant)
                     .as_secs_f64()
                     > 1.0
                 {
-                    *fps_instant = time::Instant::now();
-                    *fps = *fps_counter;
-                    *fps_counter = 0;
+                    modify.fps_instant = time::Instant::now();
+                    modify.fps = modify.fps_counter;
+                    modify.fps_counter = 0;
                 } else {
-                    *fps_counter += 1;
+                    modify.fps_counter += 1;
                 }
             }
 
@@ -320,7 +332,7 @@ impl ops::FnMut<()> for Executable<'_> {
         let mut last_image_access = HashMap::<Image, ImageAccess>::new();
         let mut last_buffer_access = HashMap::<Buffer, BufferAccess>::new();
 
-        for (i, node) in nodes.iter_mut().enumerate() {
+        for (i, node) in modify.nodes.iter_mut().enumerate() {
             profiling::scope!("task", "ev");
             let qualifiers = node
                 .resources
@@ -334,49 +346,46 @@ impl ops::FnMut<()> for Executable<'_> {
                 match qualifier {
                     Qualifier::Buffer(buffer, dst) => {
                         let src = last_buffer_access.entry(*buffer).or_default();
-                        
-                            let offset = 0;
 
-                            let size = {
-                                let resources = resources.lock().unwrap();
+                        let offset = 0;
 
-                                resources.buffers.get(*buffer).unwrap().size
-                            };
-                            
-                            barriers.push(PipelineBarrier {
-                                src_stage: (*src).into(),
-                                dst_stage: (*dst).into(),
-                                barriers: [Barrier::Buffer {
-                                    buffer: i,
-                                    offset,
-                                    size, 
-                                    src_access: (*src).into(),
-                                    dst_access: (*dst).into(),
-                                }],
-                            });
+                        let size = {
+                            let resources = resources.lock().unwrap();
 
-                        
-                            
+                            resources.buffers.get(*buffer).unwrap().size
+                        };
+
+                        barriers.push(PipelineBarrier {
+                            src_stage: (*src).into(),
+                            dst_stage: (*dst).into(),
+                            barriers: [Barrier::Buffer {
+                                buffer: i,
+                                offset,
+                                size,
+                                src_access: (*src).into(),
+                                dst_access: (*dst).into(),
+                            }],
+                        });
+
                         last_buffer_access.insert(*buffer, *dst);
-                    },
+                    }
                     Qualifier::Image(image, dst) => {
                         let src = last_image_access.entry(*image).or_default();
 
-                            barriers.push(PipelineBarrier {
-                                src_stage: (*src).into(),
-                                dst_stage: (*dst).into(),
-                                barriers: [Barrier::Image {
-                                    image: i,
-                                    old_layout: (*src).into(),
-                                    new_layout: (*dst).into(),
-                                    src_access: (*src).into(),
-                                    dst_access: (*dst).into(),
-                                }],
-                            });
-                        
-                        
+                        barriers.push(PipelineBarrier {
+                            src_stage: (*src).into(),
+                            dst_stage: (*dst).into(),
+                            barriers: [Barrier::Image {
+                                image: i,
+                                old_layout: (*src).into(),
+                                new_layout: (*dst).into(),
+                                src_access: (*src).into(),
+                                dst_access: (*dst).into(),
+                            }],
+                        });
+
                         last_image_access.insert(*image, *dst);
-                    },
+                    }
                 }
             }
 
@@ -413,11 +422,19 @@ impl ops::FnMut<()> for Executable<'_> {
 
                 let wait_semaphore_count = 1;
 
-                let p_wait_semaphores = &resources.binary_semaphores.get(submit.wait_semaphore).unwrap().semaphores[current_frame];
+                let p_wait_semaphores = &resources
+                    .binary_semaphores
+                    .get(submit.wait_semaphore)
+                    .unwrap()
+                    .semaphores[current_frame];
 
                 let signal_semaphore_count = 1;
 
-                let p_signal_semaphores = &resources.binary_semaphores.get(submit.signal_semaphore).unwrap().semaphores[current_frame];
+                let p_signal_semaphores = &resources
+                    .binary_semaphores
+                    .get(submit.signal_semaphore)
+                    .unwrap()
+                    .semaphores[current_frame];
 
                 let command_buffer_count = 1;
 
@@ -454,7 +471,11 @@ impl ops::FnMut<()> for Executable<'_> {
 
                 let wait_semaphore_count = 1;
 
-                let p_wait_semaphores = &resources.binary_semaphores.get(present.wait_semaphore).unwrap().semaphores[current_frame];
+                let p_wait_semaphores = &resources
+                    .binary_semaphores
+                    .get(present.wait_semaphore)
+                    .unwrap()
+                    .semaphores[current_frame];
 
                 let image_index = internal_swapchain.last_acquisition_index.unwrap();
 
@@ -528,25 +549,27 @@ impl From<ImageAccess> for PipelineStage {
     fn from(access: ImageAccess) -> Self {
         match access {
             ImageAccess::None => PipelineStage::empty(),
-    ImageAccess::Present => PipelineStage::ALL_COMMANDS, 
-    ImageAccess::TransferWrite |
-    ImageAccess::TransferRead => PipelineStage::TRANSFER,
-    ImageAccess::DepthAttachmentReadOnly |
-    ImageAccess::DepthAttachment => PipelineStage::EARLY_FRAGMENT_TESTS | PipelineStage::LATE_FRAGMENT_TESTS,
-    ImageAccess::ShaderReadWrite |
-    ImageAccess::ShaderWriteOnly |
-    ImageAccess::ShaderReadOnly => PipelineStage::ALL_GRAPHICS | PipelineStage::COMPUTE_SHADER,
-    ImageAccess::VertexShaderReadWrite |
-    ImageAccess::VertexShaderWriteOnly |
-    ImageAccess::VertexShaderReadOnly => PipelineStage::VERTEX_SHADER,
-    ImageAccess::FragmentShaderReadWrite |
-    ImageAccess::FragmentShaderWriteOnly |
-    ImageAccess::FragmentShaderReadOnly => PipelineStage::FRAGMENT_SHADER,
-    ImageAccess::ComputeShaderReadWrite |
-    ImageAccess::ComputeShaderWriteOnly |
-    ImageAccess::ComputeShaderReadOnly => PipelineStage::COMPUTE_SHADER,
-    ImageAccess::ColorAttachment => PipelineStage::COLOR_ATTACHMENT_OUTPUT,
-        } 
+            ImageAccess::Present => PipelineStage::ALL_COMMANDS,
+            ImageAccess::TransferWrite | ImageAccess::TransferRead => PipelineStage::TRANSFER,
+            ImageAccess::DepthAttachmentReadOnly | ImageAccess::DepthAttachment => {
+                PipelineStage::EARLY_FRAGMENT_TESTS | PipelineStage::LATE_FRAGMENT_TESTS
+            }
+            ImageAccess::ShaderReadWrite
+            | ImageAccess::ShaderWriteOnly
+            | ImageAccess::ShaderReadOnly => {
+                PipelineStage::ALL_GRAPHICS | PipelineStage::COMPUTE_SHADER
+            }
+            ImageAccess::VertexShaderReadWrite
+            | ImageAccess::VertexShaderWriteOnly
+            | ImageAccess::VertexShaderReadOnly => PipelineStage::VERTEX_SHADER,
+            ImageAccess::FragmentShaderReadWrite
+            | ImageAccess::FragmentShaderWriteOnly
+            | ImageAccess::FragmentShaderReadOnly => PipelineStage::FRAGMENT_SHADER,
+            ImageAccess::ComputeShaderReadWrite
+            | ImageAccess::ComputeShaderWriteOnly
+            | ImageAccess::ComputeShaderReadOnly => PipelineStage::COMPUTE_SHADER,
+            ImageAccess::ColorAttachment => PipelineStage::COLOR_ATTACHMENT_OUTPUT,
+        }
     }
 }
 
@@ -554,25 +577,25 @@ impl From<ImageAccess> for ImageLayout {
     fn from(access: ImageAccess) -> Self {
         match access {
             ImageAccess::None => ImageLayout::Undefined,
-    ImageAccess::Present => ImageLayout::Present, 
-    ImageAccess::TransferWrite => ImageLayout::TransferDstOptimal,
-    ImageAccess::TransferRead => ImageLayout::TransferSrcOptimal,
-    ImageAccess::DepthAttachment => ImageLayout::DepthAttachmentOptimal,
-    ImageAccess::DepthAttachmentReadOnly |
-    ImageAccess::VertexShaderReadOnly |
-    ImageAccess::FragmentShaderReadOnly |
-    ImageAccess::ComputeShaderReadOnly |
-    ImageAccess::ShaderReadOnly => ImageLayout::ReadOnlyOptimal,
-    ImageAccess::ShaderWriteOnly |
-    ImageAccess::VertexShaderWriteOnly |
-    ImageAccess::FragmentShaderWriteOnly |
-    ImageAccess::ComputeShaderWriteOnly |
-    ImageAccess::VertexShaderReadWrite |
-    ImageAccess::FragmentShaderReadWrite |
-    ImageAccess::ComputeShaderReadWrite |
-    ImageAccess::ShaderReadWrite => ImageLayout::General,
-    ImageAccess::ColorAttachment => ImageLayout::ColorAttachmentOptimal,
-        } 
+            ImageAccess::Present => ImageLayout::Present,
+            ImageAccess::TransferWrite => ImageLayout::TransferDstOptimal,
+            ImageAccess::TransferRead => ImageLayout::TransferSrcOptimal,
+            ImageAccess::DepthAttachment => ImageLayout::DepthAttachmentOptimal,
+            ImageAccess::DepthAttachmentReadOnly
+            | ImageAccess::VertexShaderReadOnly
+            | ImageAccess::FragmentShaderReadOnly
+            | ImageAccess::ComputeShaderReadOnly
+            | ImageAccess::ShaderReadOnly => ImageLayout::ReadOnlyOptimal,
+            ImageAccess::ShaderWriteOnly
+            | ImageAccess::VertexShaderWriteOnly
+            | ImageAccess::FragmentShaderWriteOnly
+            | ImageAccess::ComputeShaderWriteOnly
+            | ImageAccess::VertexShaderReadWrite
+            | ImageAccess::FragmentShaderReadWrite
+            | ImageAccess::ComputeShaderReadWrite
+            | ImageAccess::ShaderReadWrite => ImageLayout::General,
+            ImageAccess::ColorAttachment => ImageLayout::ColorAttachmentOptimal,
+        }
     }
 }
 
@@ -580,25 +603,25 @@ impl From<ImageAccess> for Access {
     fn from(access: ImageAccess) -> Self {
         match access {
             ImageAccess::None => Access::empty(),
-    ImageAccess::Present |
-    ImageAccess::TransferRead |
-    ImageAccess::DepthAttachmentReadOnly |
-    ImageAccess::ShaderReadOnly |
-    ImageAccess::VertexShaderReadOnly |
-    ImageAccess::FragmentShaderReadOnly |
-    ImageAccess::ComputeShaderReadOnly => Access::READ,
-    ImageAccess::TransferWrite |
-    ImageAccess::ShaderWriteOnly |
-    ImageAccess::VertexShaderWriteOnly |
-    ImageAccess::FragmentShaderWriteOnly |
-    ImageAccess::ComputeShaderWriteOnly => Access::WRITE,
-    ImageAccess::ColorAttachment | 
-    ImageAccess::DepthAttachment |
-    ImageAccess::ShaderReadWrite |
-    ImageAccess::VertexShaderReadWrite |
-    ImageAccess::FragmentShaderReadWrite |
-    ImageAccess::ComputeShaderReadWrite => Access::READ | Access::WRITE,
-        } 
+            ImageAccess::Present
+            | ImageAccess::TransferRead
+            | ImageAccess::DepthAttachmentReadOnly
+            | ImageAccess::ShaderReadOnly
+            | ImageAccess::VertexShaderReadOnly
+            | ImageAccess::FragmentShaderReadOnly
+            | ImageAccess::ComputeShaderReadOnly => Access::READ,
+            ImageAccess::TransferWrite
+            | ImageAccess::ShaderWriteOnly
+            | ImageAccess::VertexShaderWriteOnly
+            | ImageAccess::FragmentShaderWriteOnly
+            | ImageAccess::ComputeShaderWriteOnly => Access::WRITE,
+            ImageAccess::ColorAttachment
+            | ImageAccess::DepthAttachment
+            | ImageAccess::ShaderReadWrite
+            | ImageAccess::VertexShaderReadWrite
+            | ImageAccess::FragmentShaderReadWrite
+            | ImageAccess::ComputeShaderReadWrite => Access::READ | Access::WRITE,
+        }
     }
 }
 
@@ -628,15 +651,21 @@ impl From<BufferAccess> for PipelineStage {
     fn from(access: BufferAccess) -> Self {
         match access {
             BufferAccess::None => PipelineStage::empty(),
-            BufferAccess::ShaderReadOnly => PipelineStage::ALL_GRAPHICS | PipelineStage::COMPUTE_SHADER,
+            BufferAccess::ShaderReadOnly => {
+                PipelineStage::ALL_GRAPHICS | PipelineStage::COMPUTE_SHADER
+            }
             BufferAccess::VertexShaderReadOnly => PipelineStage::VERTEX_SHADER,
             BufferAccess::FragmentShaderReadOnly => PipelineStage::FRAGMENT_SHADER,
             BufferAccess::ComputeShaderReadOnly => PipelineStage::COMPUTE_SHADER,
-            BufferAccess::ShaderWriteOnly => PipelineStage::ALL_GRAPHICS | PipelineStage::COMPUTE_SHADER,
+            BufferAccess::ShaderWriteOnly => {
+                PipelineStage::ALL_GRAPHICS | PipelineStage::COMPUTE_SHADER
+            }
             BufferAccess::VertexShaderWriteOnly => PipelineStage::VERTEX_SHADER,
             BufferAccess::FragmentShaderWriteOnly => PipelineStage::FRAGMENT_SHADER,
             BufferAccess::ComputeShaderWriteOnly => PipelineStage::COMPUTE_SHADER,
-            BufferAccess::ShaderReadWrite => PipelineStage::ALL_GRAPHICS | PipelineStage::COMPUTE_SHADER,
+            BufferAccess::ShaderReadWrite => {
+                PipelineStage::ALL_GRAPHICS | PipelineStage::COMPUTE_SHADER
+            }
             BufferAccess::VertexShaderReadWrite => PipelineStage::VERTEX_SHADER,
             BufferAccess::FragmentShaderReadWrite => PipelineStage::FRAGMENT_SHADER,
             BufferAccess::ComputeShaderReadWrite => PipelineStage::COMPUTE_SHADER,
@@ -652,23 +681,23 @@ impl From<BufferAccess> for Access {
     fn from(access: BufferAccess) -> Self {
         match access {
             BufferAccess::None => Access::empty(),
-            BufferAccess::HostTransferRead |
-            BufferAccess::TransferRead |
-            BufferAccess::ShaderReadOnly |
-            BufferAccess::VertexShaderReadOnly |
-            BufferAccess::FragmentShaderReadOnly |
-            BufferAccess::ComputeShaderReadOnly => Access::READ,
-            BufferAccess::HostTransferWrite |
-            BufferAccess::TransferWrite |
-            BufferAccess::ShaderWriteOnly |
-            BufferAccess::VertexShaderWriteOnly |
-            BufferAccess::FragmentShaderWriteOnly |
-            BufferAccess::ComputeShaderWriteOnly => Access::WRITE,
-            BufferAccess::ShaderReadWrite |
-            BufferAccess::VertexShaderReadWrite |
-            BufferAccess::FragmentShaderReadWrite |
-            BufferAccess::ComputeShaderReadWrite => Access::READ | Access::WRITE,
-        } 
+            BufferAccess::HostTransferRead
+            | BufferAccess::TransferRead
+            | BufferAccess::ShaderReadOnly
+            | BufferAccess::VertexShaderReadOnly
+            | BufferAccess::FragmentShaderReadOnly
+            | BufferAccess::ComputeShaderReadOnly => Access::READ,
+            BufferAccess::HostTransferWrite
+            | BufferAccess::TransferWrite
+            | BufferAccess::ShaderWriteOnly
+            | BufferAccess::VertexShaderWriteOnly
+            | BufferAccess::FragmentShaderWriteOnly
+            | BufferAccess::ComputeShaderWriteOnly => Access::WRITE,
+            BufferAccess::ShaderReadWrite
+            | BufferAccess::VertexShaderReadWrite
+            | BufferAccess::FragmentShaderReadWrite
+            | BufferAccess::ComputeShaderReadWrite => Access::READ | Access::WRITE,
+        }
     }
 }
 

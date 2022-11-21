@@ -21,7 +21,7 @@ DECL_BUFFER_STRUCT(
 
 struct OctreeQuery {
 	//input
-	Octree octree;
+	BufferId octree_buffer_id;
 	f32vec3 position;
 	//output
 	u32 node_index;
@@ -29,11 +29,13 @@ struct OctreeQuery {
 };
 
 bool octree_query(inout OctreeQuery query) {
-	u32 size_cursor = u32(pow(2, query.octree.size));
+	BufferRef(OctreeBuffer) octree_buffer = buffer_id_to_ref(OctreeBuffer, BufferRef, query.octree_buffer_id);
+	
+	u32 size_cursor = u32(pow(2, octree_buffer.octree.size));
 
 	u32vec3 position_cursor = u32vec3(floor(query.position));
 	
-	for(query.node_index = 0, query.node_depth = 0; query.node_depth < query.octree.size; query.node_depth++) {
+	for(query.node_index = 0, query.node_depth = 0; query.node_depth < octree_buffer.octree.size; query.node_depth++) {
 		size_cursor /= 2;
 
 		u32vec3 compare = u32vec3(greaterThanEqual(position_cursor, u32vec3(size_cursor)));
@@ -42,7 +44,7 @@ bool octree_query(inout OctreeQuery query) {
 
 		u32 mask = 1 << octant;
 
-		Node current_node = query.octree.nodes[query.node_index];
+		Node current_node = octree_buffer.octree.nodes[query.node_index];
 
 		if(current_node.valid != 0 && (current_node.valid & mask) == mask) {
 			u32 child_offset = bitCount(current_node.valid & (mask - 1));
@@ -55,6 +57,6 @@ bool octree_query(inout OctreeQuery query) {
 	}
 
 	//TODO this might not be right
-	return query.octree.nodes[query.node_index].valid == 0; 
+	return octree_buffer.octree.nodes[query.node_index].valid == 0; 
 }
 

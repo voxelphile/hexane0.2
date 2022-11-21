@@ -1,3 +1,4 @@
+use crate::device::DeviceInner;
 use crate::memory;
 use crate::prelude::*;
 
@@ -6,7 +7,7 @@ use std::default::default;
 use std::ffi;
 use std::mem;
 use std::os::raw;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use ash::extensions::{ext, khr};
 use ash::{vk, Entry, Instance};
@@ -60,6 +61,10 @@ unsafe extern "system" fn debug_callback(
 #[allow(dead_code)]
 #[derive(Clone)]
 pub struct Context {
+    inner: Arc<ContextInner>,
+}
+
+pub struct ContextInner {
     pub(crate) entry: Entry,
     pub(crate) instance: Instance,
     debug: Option<(ext::DebugUtils, vk::DebugUtilsMessengerEXT)>,
@@ -194,20 +199,23 @@ impl Context {
         };
 
         Ok(Self {
-            entry,
-            instance,
-            debug,
+            inner: Arc::new(ContextInner {
+                entry,
+                instance,
+                debug,
+            }),
         })
     }
-    pub fn create_device(&self, info: DeviceInfo<'_>) -> Result<Device<'_>> {
-        let Context {
+    pub fn create_device(&self, info: DeviceInfo) -> Result<Device> {
+        let ContextInner {
             entry, instance, ..
-        } = &self;
+        } = &*self.inner;
 
-        let surface_loader = khr::Surface::new(entry, instance);
-        let surface_handle =
-            unsafe { ash_window::create_surface(entry, instance, info.display, info.window, None) }
-                .map_err(|_| Error::Creation)?;
+        let surface_loader = khr::Surface::new(&entry, &instance);
+        let surface_handle = unsafe {
+            ash_window::create_surface(&entry, &instance, info.display, info.window, None)
+        }
+        .map_err(|_| Error::Creation)?;
 
         //SAFETY instance is initialized
         let mut physical_devices = unsafe { instance.enumerate_physical_devices() }
@@ -267,7 +275,7 @@ impl Context {
 
         let mut layers = vec![];
 
-        if self.debug.is_some() {
+        if self.inner.debug.is_some() {
             layers.push(unsafe {
                 ffi::CStr::from_bytes_with_nul_unchecked(b"VK_LAYER_KHRONOS_validation\0")
             });
@@ -379,7 +387,8 @@ impl Context {
         };
 
         let logical_device = unsafe {
-            self.instance
+            self.inner
+                .instance
                 .create_device(physical_device, &device_create_info, None)
         }
         .map_err(|_| Error::Creation)?;
@@ -630,20 +639,22 @@ impl Context {
         let resources = Mutex::new(DeviceResources::new());
 
         Ok(Device {
-            context: &self,
-            surface: (surface_loader, surface_handle),
-            physical_device,
-            logical_device,
-            queue_family_indices,
-            descriptor_pool,
-            descriptor_set,
-            descriptor_set_layout,
-            resources,
-            command_pool,
-            staging_address_buffer,
-            staging_address_memory,
-            general_address_buffer,
-            general_address_memory,
+            inner: Arc::new(DeviceInner {
+                context: self.inner.clone(),
+                surface: (surface_loader, surface_handle),
+                physical_device,
+                logical_device,
+                queue_family_indices,
+                descriptor_pool,
+                descriptor_set,
+                descriptor_set_layout,
+                resources,
+                command_pool,
+                staging_address_buffer,
+                staging_address_memory,
+                general_address_buffer,
+                general_address_memory,
+            }),
         })
     }
 }

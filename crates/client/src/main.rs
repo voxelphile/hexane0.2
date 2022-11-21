@@ -31,10 +31,10 @@ use winit::{
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 
 const SMALL_SIZE: usize = 512;
-const REALLY_LARGE_SIZE: usize = 1_000_000_000;
+const REALLY_LARGE_SIZE: usize = 750_000_000;
 const SUPER_LARGE_SIZE: usize = 4_000_000_000;
 
-const WORLD_SIZE: usize = 64;
+const WORLD_SIZE: usize = 512;
 
 pub type Vertex = (f32, f32, f32);
 pub type Color = [f32; 4];
@@ -85,9 +85,9 @@ fn main() {
         .build(&event_loop)
         .unwrap();
 
-    let mut resolution = window.inner_size().into();
+    let mut resolution = Cell::new(window.inner_size().into());
 
-    let (width, height) = resolution;
+    let (width, height) = resolution.get();
 
     use common::mesh::*;
     use common::octree::*;
@@ -141,7 +141,7 @@ fn main() {
     octree.optimize();
 
     println!("Finished world generation.");
-
+/*
     let mesh: Mesh = octree.convert(Conversion {
         regions: [Region {
             start: Vector::new([0, 0, 0]),
@@ -151,7 +151,7 @@ fn main() {
     });
 
     println!("Finished mesh generation.");
-
+*/
     let bitset: Bitset = octree.convert(Conversion {
         regions: [Region {
             start: Vector::new([0, 0, 0]),
@@ -228,6 +228,13 @@ fn main() {
             ..default()
         })
         .expect("failed to create pipeline");
+    
+    let vertex_pipeline = pipeline_compiler
+        .create_compute_pipeline(ComputePipelineInfo {
+            shader: Shader(Compute, "build_mesh", &[]),
+            ..default()
+        })
+        .expect("failed to create pipeline");
 
     let mut light_depth_img = Cell::new(
         device
@@ -250,10 +257,37 @@ fn main() {
             })
             .expect("failed to create depth image"),
     );
-
-    let staging_buffer = device
+    
+    let general_staging_buffer = device
         .create_buffer(BufferInfo {
-            size: SUPER_LARGE_SIZE,
+            size: REALLY_LARGE_SIZE,
+            memory: Memory::HOST_ACCESS,
+            debug_name: "Staging Buffer",
+            ..default()
+        })
+        .expect("failed to create buffer");
+
+    let vertex_staging_buffer = device
+        .create_buffer(BufferInfo {
+            size: REALLY_LARGE_SIZE,
+            memory: Memory::HOST_ACCESS,
+            debug_name: "Staging Buffer",
+            ..default()
+        })
+        .expect("failed to create buffer");
+    
+    let octree_staging_buffer = device
+        .create_buffer(BufferInfo {
+            size: 2 * REALLY_LARGE_SIZE,
+            memory: Memory::HOST_ACCESS,
+            debug_name: "Staging Buffer",
+            ..default()
+        })
+        .expect("failed to create buffer");
+    
+    let bitset_staging_buffer = device
+        .create_buffer(BufferInfo {
+            size: REALLY_LARGE_SIZE,
             memory: Memory::HOST_ACCESS,
             debug_name: "Staging Buffer",
             ..default()
@@ -263,6 +297,14 @@ fn main() {
     let vertex_buffer = device
         .create_buffer(BufferInfo {
             size: REALLY_LARGE_SIZE,
+            debug_name: "General Buffer",
+            ..default()
+        })
+        .expect("failed to create buffer");
+    
+    let octree_buffer = device
+        .create_buffer(BufferInfo {
+            size: 2 * REALLY_LARGE_SIZE,
             debug_name: "General Buffer",
             ..default()
         })
@@ -322,8 +364,6 @@ fn main() {
         })
         .expect("failed to create semaphore");
 
-    let vertices = mesh.vertices();
-
     let colors = [
         [1.0, 0.0, 0.0, 1.0],
         [0.0, 1.0, 0.0, 1.0],
@@ -359,11 +399,15 @@ fn main() {
     let update = Cell::new(true);
 
     let vertex_buffer = || vertex_buffer;
+    let octree_buffer = || octree_buffer;
     let transform_buffer = || transform_buffer;
     let bitset_buffer = || bitset_buffer;
     let info_buffer = || info_buffer;
     let camera_buffer = || camera_buffer;
-    let staging_buffer = || staging_buffer;
+    let general_staging_buffer = || general_staging_buffer;
+    let vertex_staging_buffer = || vertex_staging_buffer;
+    let octree_staging_buffer = || octree_staging_buffer;
+    let bitset_staging_buffer = || bitset_staging_buffer;
     let depth_image = || depth_img.get();
     let light_camera_buffer = || light_camera_buffer;
     let light_depth_image = || light_depth_img.get();
@@ -386,7 +430,6 @@ fn main() {
     let startup_instant = time::Instant::now();
     let mut last_instant = startup_instant;
 
-
     profiling::finish_frame!();
 
     event_loop.run_return(|event, _, control_flow| {
@@ -398,14 +441,12 @@ fn main() {
         let delta_time = current_instant.duration_since(last_instant).as_secs_f64();
 
         last_instant = current_instant;
-        
-
 
         info.set(Info {
             time: current_instant
                 .duration_since(startup_instant)
                 .as_secs_f32(),
-            delta_time: delta_time as f32,
+            delta_time: info.get().delta_time + delta_time as f32,
             ..info.get()
         });
 
@@ -483,14 +524,14 @@ fn main() {
 
                 (executable.as_mut().unwrap())();
 
-
-            info.set(Info {
-                entity_input: EntityInput {
-                    look: default(),
-                    ..info.get().entity_input
-                },
-                ..info.get()
-            });
+                info.set(Info {
+                    entity_input: EntityInput {
+                        look: default(),
+                        ..info.get().entity_input
+                    },
+                    delta_time: default(),
+                    ..info.get()
+                });
 
                 profiling::finish_frame!();
             }
@@ -512,12 +553,9 @@ fn main() {
                         height as i32 / 2,
                     ));
 
-                    let x_rot = (y_diff * delta_time) / sens;
-                    let y_rot = (x_diff * delta_time) / sens;
-
                     info.set(Info {
                         entity_input: EntityInput {
-                            look: Vector::new([x_diff as _, y_diff as _, 0.0, 0.0]),
+                            look: info.get().entity_input.look + Vector::new([x_diff as _, y_diff as _, 0.0, 0.0]),
                             ..info.get().entity_input
                         },
                         ..info.get()
@@ -586,6 +624,9 @@ fn main() {
                         pipeline_compiler
                             .refresh_compute_pipeline(&input_pipeline)
                             .unwrap();
+                        pipeline_compiler
+                            .refresh_compute_pipeline(&vertex_pipeline)
+                            .unwrap();
                     }
                     Escape => {
                         cursor_captured = false;
@@ -609,7 +650,7 @@ fn main() {
 
                 let winit::dpi::PhysicalSize { width, height } = size;
 
-                resolution = (width, height);
+                resolution.set((width, height));
 
                 swapchain.set(
                     device
@@ -662,279 +703,281 @@ fn main() {
                     })
                     .expect("failed to create executor");
 
-                record(Record {
-                    executor: &mut executor,
-                    vertices: &vertices,
-                    octree: &octree,
-                    bitset: &bitset,
-                    colors: &colors,
-                    camera_info: &camera_info,
-                    info: &info,
-                    update: &update,
-                    staging_buffer: &staging_buffer,
-                    vertex_buffer: &vertex_buffer,
-                    transform_buffer: &transform_buffer,
-                    bitset_buffer: &bitset_buffer,
-                    info_buffer: &info_buffer,
-                    camera_buffer: &camera_buffer,
-                    input_pipeline: &input_pipeline,
-                    draw_pipeline: &draw_pipeline,
-                    present_image: &present_image,
-                    depth_image: &depth_image,
-                    resolution,
-                    acquire_semaphore,
-                    present_semaphore,
+                use Resource::*;
+   
+                executor.add(Task {
+                    resources: [Buffer(&general_staging_buffer, BufferAccess::HostTransferWrite)],
+                    task: |commands| {
+                        commands.write_buffer(BufferWrite {
+                            buffer: 0,
+                            offset: 1024,
+                            src: &[info.get()],
+                        })
+                    },
                 });
 
-                executable = Some(
-                    executor
-                        .complete()
-                        .expect("failed to complete executor"),
-                );
+                executor.add(Task {
+                    resources: [
+                        Buffer(&general_staging_buffer, BufferAccess::TransferRead),
+                        Buffer(&info_buffer, BufferAccess::TransferWrite),
+                    ],
+                    task: |commands| {
+                        commands.copy_buffer_to_buffer(BufferCopy {
+                            from: 0,
+                            to: 1,
+                            src: 1024,
+                            dst: 0,
+                            size: mem::size_of::<Info>(),
+                        })?;
+                        Ok(())
+                    },
+                });
+       
+                executor.add(Task {
+                    resources: [Buffer(&general_staging_buffer, BufferAccess::HostTransferWrite)],
+                    task: |commands| {
+                        if update.get() {
+                            commands.write_buffer(BufferWrite {
+                                buffer: 0,
+                                offset: 8192,
+                                src: &[camera_info.get()],
+                            })?;
+                        }
 
+                        Ok(())
+                    },
+                });
+
+                executor.add(Task {
+                    resources: [
+                        Buffer(&general_staging_buffer, BufferAccess::TransferRead),
+                        Buffer(&camera_buffer, BufferAccess::TransferWrite),
+                    ],
+                    task: |commands| {
+                        if update.get() {
+                            commands.copy_buffer_to_buffer(BufferCopy {
+                                from: 0,
+                                to: 1,
+                                src: 8192,
+                                dst: 0,
+                                size: mem::size_of::<CameraInfo>(),
+                            })?;
+                        }
+                        Ok(())
+                    },
+                });
+                
+                executor.add(Task {
+                    resources: [Buffer(&octree_staging_buffer, BufferAccess::HostTransferWrite)],
+                    task: |commands| {
+                        if update.get() {
+                            commands.write_buffer(BufferWrite {
+                                buffer: 0,
+                                offset: 0,
+                                src: &[octree.size() as u32],
+                            })?;
+                            
+                            commands.write_buffer(BufferWrite {
+                                buffer: 0,
+                                offset: mem::size_of::<u32>(),
+                                src: &[octree.nodes().len() as u32],
+                            })?;
+
+                            commands.write_buffer(BufferWrite {
+                                buffer: 0,
+                                offset: 2 * mem::size_of::<u32>(),
+                                src: &octree.nodes(),
+                            })?;
+                        }
+
+                        Ok(())
+                    },
+                });
+
+                executor.add(Task {
+                    resources: [
+                        Buffer(&octree_staging_buffer, BufferAccess::TransferRead),
+                        Buffer(&octree_buffer, BufferAccess::TransferWrite),
+                    ],
+                    task: |commands| {
+                        if update.get() {
+                            commands.copy_buffer_to_buffer(BufferCopy {
+                                from: 0,
+                                to: 1,
+                                src: 0,
+                                dst: 0,
+                                size: REALLY_LARGE_SIZE * 2,
+                            })?;
+                        }
+                        Ok(())
+                    },
+                });
+
+                executor.add(Task {
+                    resources: [Buffer(&bitset_staging_buffer, BufferAccess::HostTransferWrite)],
+                    task: |commands| {
+                        if update.get() {
+                            commands.write_buffer(BufferWrite {
+                                buffer: 0,
+                                offset: 0,
+                                src: &[bitset.len() as u32],
+                            })?;
+
+                            commands.write_buffer(BufferWrite {
+                                buffer: 0,
+                                offset: mem::size_of::<u32>(),
+                                src: &bitset.data(),
+                            })?;
+                        }
+
+                        Ok(())
+                    },
+                });
+
+                executor.add(Task {
+                    resources: [
+                        Buffer(&bitset_staging_buffer, BufferAccess::TransferRead),
+                        Buffer(&bitset_buffer, BufferAccess::TransferWrite),
+                    ],
+                    task: |commands| {
+                        if update.get() {
+                            commands.copy_buffer_to_buffer(BufferCopy {
+                                from: 0,
+                                to: 1,
+                                src: 0,
+                                dst: 0,
+                                size: REALLY_LARGE_SIZE,
+                            })?;
+
+                        }
+                        Ok(())
+                    },
+                });
+               
+                executor.add(Task {
+                    resources: [
+                        Buffer(&octree_buffer, BufferAccess::ComputeShaderReadOnly),
+                        Buffer(&vertex_buffer, BufferAccess::ComputeShaderReadWrite),
+                    ],
+                    task: |commands| {
+                        if update.get() {
+                        commands.set_pipeline(&vertex_pipeline)?;
+
+                        commands.push_constant(PushConstant {
+                            data: BuildMeshPush {
+                                vertex_buffer: (vertex_buffer)(),
+                                octree_buffer: (octree_buffer)(),
+                            },
+                            pipeline: &vertex_pipeline,
+                        })?;
+
+                        let size = 2usize.pow(octree.size() as u32) as usize;
+
+                        const WORK_GROUP_SIZE: usize = 8;
+
+                        let dispatch_size = (1024 as f64 / WORK_GROUP_SIZE as f64).ceil() as usize;
+
+                        commands.dispatch(dispatch_size, dispatch_size, dispatch_size)?;
+                        update.set(false);
+                        }
+                        Ok(())
+                    },
+                });
+
+                executor.add(Task {
+                    resources: [
+                        Buffer(&info_buffer, BufferAccess::ComputeShaderReadOnly),
+                        Buffer(&transform_buffer, BufferAccess::ComputeShaderReadWrite),
+                    ],
+                    task: |commands| {
+                        commands.set_pipeline(&input_pipeline)?;
+
+                        commands.push_constant(PushConstant {
+                            data: InputPush {
+                                info_buffer: (info_buffer)(),
+                                transform_buffer: (transform_buffer)(),
+                            },
+                            pipeline: &input_pipeline,
+                        })?;
+
+                        commands.dispatch(1, 1, 1)
+                    },
+                });
+
+                executor.add(Task {
+                    resources: [
+                        Image(&present_image, ImageAccess::ColorAttachment),
+                        Image(&depth_image, ImageAccess::DepthAttachment),
+                        Buffer(&camera_buffer, BufferAccess::VertexShaderReadOnly),
+                        Buffer(&vertex_buffer, BufferAccess::VertexShaderReadOnly),
+                        Buffer(&transform_buffer, BufferAccess::VertexShaderReadOnly),
+                        Buffer(&bitset_buffer, BufferAccess::FragmentShaderReadOnly),
+                    ],
+                    task: |commands| {
+                        let (width, height) = resolution.get();
+
+                        commands.set_resolution(resolution.get())?;
+
+                        commands.start_rendering(Render {
+                            color: [Attachment {
+                                image: 0,
+                                load_op: LoadOp::Clear,
+                                clear: Clear::Color(0.1, 0.4, 0.8, 1.0),
+                            }],
+                            depth: Some(Attachment {
+                                image: 1,
+                                load_op: LoadOp::Clear,
+                                clear: Clear::Depth(1.0),
+                            }),
+                            render_area: RenderArea {
+                                width,
+                                height,
+                                ..default()
+                            },
+                        })?;
+
+                        commands.set_pipeline(&draw_pipeline)?;
+
+                        commands.push_constant(PushConstant {
+                            data: DrawPush {
+                                info_buffer: (info_buffer)(),
+                                camera_buffer: (camera_buffer)(),
+                                vertex_buffer: (vertex_buffer)(),
+                                transform_buffer: (transform_buffer)(),
+                                bitset_buffer: (bitset_buffer)(),
+                            },
+                            pipeline: &draw_pipeline,
+                        })?;
+
+                        const VERTICES_PER_CUBE: usize = 6;
+
+                        commands.draw(gpu::prelude::Draw {
+                            vertex_count: 400000 * VERTICES_PER_CUBE,
+                        })?;
+
+                        commands.end_rendering()
+                    },
+                });
+
+                executor.add(Task {
+                    resources: [Image(&present_image, ImageAccess::Present)],
+                    task: |commands| {
+                        commands.submit(Submit {
+                            wait_semaphore: acquire_semaphore,
+                            signal_semaphore: present_semaphore,
+                        })?;
+
+                        commands.present(Present {
+                            wait_semaphore: present_semaphore,
+                        })
+                    },
+                });
+
+                executable = Some(executor.complete().expect("failed to complete executor"));
             }
             _ => (),
         }
     });
-}
-
-struct Record<'a, 'b: 'a> {
-    pub executor: &'a mut Executor<'b>,
-    pub vertices: &'b [common::mesh::Vertex],
-    pub octree: &'b SparseOctree<Voxel>,
-    pub bitset: &'b Bitset,
-    pub colors: &'b [Color],
-    pub camera_info: &'b Cell<CameraInfo>,
-    pub info: &'b Cell<Info>,
-    pub update: &'b Cell<bool>,
-    pub vertex_buffer: &'b dyn ops::Fn() -> Buffer,
-    pub transform_buffer: &'b dyn ops::Fn() -> Buffer,
-    pub bitset_buffer: &'b dyn ops::Fn() -> Buffer,
-    pub staging_buffer: &'b dyn ops::Fn() -> Buffer,
-    pub info_buffer: &'b dyn ops::Fn() -> Buffer,
-    pub camera_buffer: &'b dyn ops::Fn() -> Buffer,
-    pub resolution: (u32, u32),
-    pub present_image: &'b dyn ops::Fn() -> Image,
-    pub depth_image: &'b dyn ops::Fn() -> Image,
-    pub draw_pipeline: &'b Pipeline<'b, 2, 1>,
-    pub input_pipeline: &'b Pipeline<'b, 1, 0>,
-    pub acquire_semaphore: BinarySemaphore,
-    pub present_semaphore: BinarySemaphore,
-}
-
-
-fn record<'a, 'b: 'a>(record: Record<'a, 'b>) {
-    let Record {
-        executor, 
-        vertices,
-        octree,
-        bitset,
-        colors,
-        camera_info,
-        info,
-        update,
-        vertex_buffer,
-        transform_buffer,
-        bitset_buffer,
-        staging_buffer,
-        info_buffer,
-        camera_buffer,
-        resolution,
-        present_image,
-        depth_image,
-        input_pipeline,
-        draw_pipeline,
-        acquire_semaphore,
-        present_semaphore,
-    } = record;
-
-    use Resource::*;
-
-    executor.add(Task {
-        resources: [Buffer(staging_buffer, BufferAccess::HostTransferWrite)],
-        task: move |commands| {
-            commands.write_buffer(BufferWrite {
-                buffer: 0,
-                offset: 1024,
-                src: &[info.get()],
-            })?;
-
-            if update.get() {
-                commands.write_buffer(BufferWrite {
-                    buffer: 0,
-                    offset: 0,
-                    src: &[camera_info.get()],
-                })?;
-
-                commands.write_buffer(BufferWrite {
-                    buffer: 0,
-                    offset: VERTEX_OFFSET,
-                    src: &[vertices.len()],
-                })?;
-
-                commands.write_buffer(BufferWrite {
-                    buffer: 0,
-                    offset: VERTEX_OFFSET + mem::size_of::<u32>(),
-                    src: vertices,
-                })?;
-
-                commands.write_buffer(BufferWrite {
-                    buffer: 0,
-                    offset: INDEX_OFFSET,
-                    src: &[bitset.len() as u32],
-                })?;
-
-                commands.write_buffer(BufferWrite {
-                    buffer: 0,
-                    offset: INDEX_OFFSET + mem::size_of::<u32>(),
-                    src: &bitset.data(),
-                })?;
-            }
-
-            Ok(())
-        },
-    });
-
-    executor.add(Task {
-        resources: [
-            Buffer(staging_buffer, BufferAccess::TransferRead),
-            Buffer(camera_buffer, BufferAccess::TransferWrite),
-            Buffer(info_buffer, BufferAccess::TransferWrite),
-            Buffer(vertex_buffer, BufferAccess::TransferWrite),
-            Buffer(bitset_buffer, BufferAccess::TransferWrite),
-        ],
-        task: move |commands| {
-            commands.copy_buffer_to_buffer(BufferCopy {
-                from: 0,
-                to: 2,
-                src: 1024,
-                dst: 0,
-                size: mem::size_of::<Info>(),
-            })?;
-
-            if update.get() {
-                commands.copy_buffer_to_buffer(BufferCopy {
-                    from: 0,
-                    to: 1,
-                    src: 0,
-                    dst: 0,
-                    size: mem::size_of::<CameraInfo>(),
-                })?;
-
-                commands.copy_buffer_to_buffer(BufferCopy {
-                    from: 0,
-                    to: 3,
-                    src: VERTEX_OFFSET,
-                    dst: 0,
-                    size: REALLY_LARGE_SIZE,
-                })?;
-
-                commands.copy_buffer_to_buffer(BufferCopy {
-                    from: 0,
-                    to: 4,
-                    src: INDEX_OFFSET,
-                    dst: 0,
-                    size: REALLY_LARGE_SIZE,
-                })?;
-
-                update.set(false);
-            }
-            Ok(())
-        },
-    });
-
-    executor.add(Task {
-        resources: [
-            Buffer(info_buffer, BufferAccess::ComputeShaderReadOnly),
-            Buffer(transform_buffer, BufferAccess::ComputeShaderReadWrite),
-        ],
-        task: move |commands| {
-            commands.set_pipeline(&input_pipeline)?;
-
-            commands.push_constant(PushConstant {
-                data: Push {
-                    info_buffer: (info_buffer)(),
-                    camera_buffer: (camera_buffer)(),
-                    vertex_buffer: 0.into(),
-                    transform_buffer: (transform_buffer)(),
-                    bitset_buffer: (bitset_buffer)(),
-                },
-                pipeline: &input_pipeline,
-            })?;
-
-            commands.dispatch(1, 1, 1)
-        },
-    });
-
-    executor.add(Task {
-        resources: [
-            Image(present_image, ImageAccess::ColorAttachment),
-            Image(depth_image, ImageAccess::DepthAttachment),
-            Buffer(camera_buffer, BufferAccess::VertexShaderReadOnly),
-            Buffer(vertex_buffer, BufferAccess::VertexShaderReadOnly),
-            Buffer(transform_buffer, BufferAccess::VertexShaderReadOnly),
-            Buffer(bitset_buffer, BufferAccess::FragmentShaderReadOnly),
-        ],
-        task: move |commands| {
-            let (width, height) = resolution;
-
-            commands.set_resolution(resolution)?;
-
-            commands.start_rendering(Render {
-                color: &[Attachment {
-                    image: 0,
-                    load_op: LoadOp::Clear,
-                    clear: Clear::Color(0.1, 0.4, 0.8, 1.0),
-                }],
-                depth: Some(Attachment {
-                    image: 1,
-                    load_op: LoadOp::Clear,
-                    clear: Clear::Depth(1.0),
-                }),
-                render_area: RenderArea {
-                    width,
-                    height,
-                    ..default()
-                },
-            })?;
-
-            commands.set_pipeline(&draw_pipeline)?;
-
-            commands.push_constant(PushConstant {
-                data: Push {
-                    info_buffer: (info_buffer)(),
-                    camera_buffer: (camera_buffer)(),
-                    vertex_buffer: (vertex_buffer)(),
-                    transform_buffer: (transform_buffer)(),
-                    bitset_buffer: (bitset_buffer)(),
-                },
-                pipeline: &draw_pipeline,
-            })?;
-
-            const VERTICES_PER_CUBE: usize = 6;
-
-            commands.draw(gpu::prelude::Draw {
-                vertex_count: vertices.len() * VERTICES_PER_CUBE,
-            })?;
-
-            commands.end_rendering()
-        },
-    });
-
-    executor.add(Task {
-        resources: [Image(present_image, ImageAccess::Present)],
-        task: move |commands| {
-            commands.submit(Submit {
-                wait_semaphore: acquire_semaphore,
-                signal_semaphore: present_semaphore,
-            })?;
-
-            commands.present(Present {
-                wait_semaphore: present_semaphore,
-            })
-        },
-    });
-
 }
 
 pub const VERTEX_OFFSET: usize = 2048;
@@ -968,10 +1011,22 @@ struct EntityInput {
 
 #[derive(Clone, Copy)]
 #[repr(C)]
-pub struct Push {
+pub struct DrawPush {
     pub info_buffer: Buffer,
     pub camera_buffer: Buffer,
     pub vertex_buffer: Buffer,
     pub transform_buffer: Buffer,
     pub bitset_buffer: Buffer,
+}
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct InputPush {
+    pub info_buffer: Buffer,
+    pub transform_buffer: Buffer,
+}
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct BuildMeshPush {
+    pub octree_buffer: Buffer,
+    pub vertex_buffer: Buffer,
 }

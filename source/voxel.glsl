@@ -10,15 +10,15 @@
 
 #define VERTICES_PER_CUBE 6
 
-struct Push {
-	BufferId color_buffer_id;
+struct DrawPush {
+	BufferId info_buffer_id;
 	BufferId camera_buffer_id;
 	BufferId vertex_buffer_id;
 	BufferId transform_buffer_id;
 	BufferId bitset_buffer_id;
 };
 
-USE_PUSH_CONSTANT(Push)
+USE_PUSH_CONSTANT(DrawPush)
 	
 #ifdef vertex
 
@@ -35,7 +35,7 @@ vec3 offsets[8] = vec3[](
 
 struct Vertex {
 	vec4 position;
-	vec4 normal;
+	u32vec4 normal;
 	vec4 color;
 	vec4 ambient;
 };
@@ -50,13 +50,13 @@ DECL_BUFFER_STRUCT(
 DECL_BUFFER_STRUCT(
 	VertexBuffer,
 	{
-		u32 vertex_count;
-		Vertex verts[1048576];
+		u32vec4 vertex_count;
+		Vertex verts[255680];
 	}
 )
 
 layout(location = 0) out vec4 position;
-layout(location = 1) flat out vec4 normal;
+layout(location = 1) flat out u32vec4 normal;
 layout(location = 2) flat out vec4 color;
 layout(location = 3) flat out vec4 ambient;
 layout(location = 4) out vec4 uv;
@@ -83,42 +83,42 @@ void main() {
 		vec2(1, 0)
 	);
 
-	if(normal.xyz == vec3(0, 0, 1)) {
+	if(normal.xyz == u32vec3(0, 0, 1)) {
 		u32 i[6] = u32[](1, 0, 3, 1, 3, 2);
 	
 		position.xyz += offsets[i[j]];	
 		uv.xy = vec2(uvs[j].x, 1 - uvs[j].y);
 	}
 	
-	if(normal.xyz == vec3(0, 0, -1)) {
+	if(normal.xyz == u32vec3(0, 0, -1)) {
 		u32 i[6] = u32[](4, 5, 6, 4, 6, 7);
 		
 		position.xyz += offsets[i[j]];	
 		uv.xy = uvs[j].xy;
 	}
 	
-	if(normal.xyz == vec3(1, 0, 0)) {
+	if(normal.xyz == u32vec3(1, 0, 0)) {
 		u32 i[6] = u32[](2, 3, 7, 2, 7, 6);
 		
 		position.xyz += offsets[i[j]];	
 		uv.xy = 1 - uvs[j].yx;
 	}
 	
-	if(normal.xyz == vec3(-1, 0, 0)) {
+	if(normal.xyz == u32vec3(-1, 0, 0)) {
 		u32 i[6] = u32[](5, 4, 0, 5, 0, 1);
 		
 		position.xyz += offsets[i[j]];
 		uv.xy = vec2(1 - uvs[j].y, uvs[j].x);
 	}
 	
-	if(normal.xyz == vec3(0, 1, 0)) {
+	if(normal.xyz == u32vec3(0, 1, 0)) {
 		u32 i[6] = u32[](6, 5, 1, 6, 1, 2);
 		
 		position.xyz += offsets[i[j]];	
 		uv.xy = vec2(uvs[j].x, 1 - uvs[j].y);
 	}
 	
-	if(normal.xyz == vec3(0, -1, 0)) {
+	if(normal.xyz == u32vec3(0, -1, 0)) {
 		u32 i[6] = u32[](3, 0, 4, 3, 4, 7);
 		
 		position.xyz += offsets[i[j]];	
@@ -139,7 +139,7 @@ void main() {
 #define SHOW_AO true
 
 layout(location = 0) in vec4 position;
-layout(location = 1) flat in vec4 normal;
+layout(location = 1) flat in u32vec4 normal;
 layout(location = 2) flat in vec4 color;
 layout(location = 3) flat in vec4 ambient;
 layout(location = 4) in vec4 uv;

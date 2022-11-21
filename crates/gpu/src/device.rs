@@ -1,4 +1,6 @@
+use crate::context::ContextInner;
 use crate::memory;
+use crate::pipeline::PipelineCompilerInner;
 use crate::prelude::*;
 use crate::semaphore::InternalSemaphore;
 
@@ -8,7 +10,7 @@ use std::marker;
 use std::mem;
 use std::ops;
 use std::os::raw;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use ash::extensions::{ext, khr};
 use ash::{vk, Entry, Instance};
@@ -126,8 +128,12 @@ impl DeviceResources {
     }
 }
 
-pub struct Device<'a> {
-    pub(crate) context: &'a Context,
+pub struct Device {
+    pub(crate) inner: Arc<DeviceInner>,
+}
+
+pub struct DeviceInner {
+    pub(crate) context: Arc<ContextInner>,
     pub(crate) resources: Mutex<DeviceResources>,
     pub(crate) physical_device: vk::PhysicalDevice,
     pub(crate) logical_device: ash::Device,
@@ -697,12 +703,12 @@ impl From<vk::PhysicalDeviceLimits> for Limits {
     }
 }
 
-impl<'a> Device<'a> {
+impl Device {
     pub fn acquire(&self) -> Image {
         todo!()
     }
 
-    pub fn create_executor(&'a self, info: ExecutorInfo<'a>) -> Result<Executor<'a>> {
+    pub fn create_executor<'a>(&self, info: ExecutorInfo<'a>) -> Result<Executor<'a>> {
         let ExecutorInfo {
             optimizer,
             debug_name,
@@ -713,7 +719,8 @@ impl<'a> Device<'a> {
 
         let nodes = vec![];
 
-        self.resources
+        self.inner
+            .resources
             .lock()
             .unwrap()
             .swapchains
@@ -721,7 +728,7 @@ impl<'a> Device<'a> {
             .ok_or(Error::ResourceNotFound)?;
 
         Ok(Executor {
-            device: &self,
+            device: self.inner.clone(),
             swapchain,
             optimizer,
             nodes,
@@ -729,19 +736,19 @@ impl<'a> Device<'a> {
         })
     }
 
-    pub fn create_image(&'a self, info: ImageInfo<'a>) -> Result<Image> {
-        let Device {
+    pub fn create_image(&self, info: ImageInfo<'_>) -> Result<Image> {
+        let DeviceInner {
             context,
             physical_device,
             logical_device,
             resources,
             descriptor_set,
             ..
-        } = self;
+        } = &*self.inner;
 
         let mut resources = resources.lock().unwrap();
 
-        let Context { instance, .. } = context;
+        let ContextInner { instance, .. } = &**context;
 
         let ImageInfo {
             extent,
@@ -856,19 +863,19 @@ impl<'a> Device<'a> {
         }))
     }
 
-    pub fn create_buffer(&'a self, info: BufferInfo<'a>) -> Result<Buffer> {
-        let Device {
+    pub fn create_buffer(&self, info: BufferInfo<'_>) -> Result<Buffer> {
+        let DeviceInner {
             context,
             physical_device,
             logical_device,
             resources,
             descriptor_set,
             ..
-        } = self;
+        } = &*self.inner;
 
         let mut resources = resources.lock().unwrap();
 
-        let Context { instance, .. } = context;
+        let ContextInner { instance, .. } = &**context;
 
         let BufferInfo {
             size,
@@ -942,10 +949,14 @@ impl<'a> Device<'a> {
     }
 
     pub fn create_binary_semaphore(
-        &'a self,
-        info: BinarySemaphoreInfo<'a>,
+        &self,
+        info: BinarySemaphoreInfo<'_>,
     ) -> Result<BinarySemaphore> {
-        let Device { logical_device, resources, .. } = self;
+        let DeviceInner {
+            logical_device,
+            resources,
+            ..
+        } = &*self.inner;
 
         let BinarySemaphoreInfo { debug_name } = info;
 
@@ -959,17 +970,25 @@ impl<'a> Device<'a> {
             semaphores.push(semaphore);
         }
 
-        Ok(resources.lock().unwrap().binary_semaphores.add(InternalSemaphore {
-            semaphores,
-            debug_name,
-        }))
+        Ok(resources
+            .lock()
+            .unwrap()
+            .binary_semaphores
+            .add(InternalSemaphore {
+                semaphores,
+                debug_name,
+            }))
     }
 
     pub fn create_timeline_semaphore(
-        &'a self,
-        info: TimelineSemaphoreInfo<'a>,
+        &self,
+        info: TimelineSemaphoreInfo<'_>,
     ) -> Result<TimelineSemaphore> {
-        let Device { logical_device, resources, .. } = self;
+        let DeviceInner {
+            logical_device,
+            resources,
+            ..
+        } = &*self.inner;
 
         let TimelineSemaphoreInfo {
             initial_value,
@@ -999,19 +1018,28 @@ impl<'a> Device<'a> {
                 .map_err(|_| Error::Creation)?;
             semaphores.push(semaphore);
         }
-        Ok(resources.lock().unwrap().timeline_semaphores.add(InternalSemaphore {
-            semaphores,
-            debug_name,
-        }))
+        Ok(resources
+            .lock()
+            .unwrap()
+            .timeline_semaphores
+            .add(InternalSemaphore {
+                semaphores,
+                debug_name,
+            }))
     }
 
     pub fn acquire_next_image(&self, acquire: Acquire) -> Result<Image> {
-        let Device { resources, .. } = self;
+        let DeviceInner { resources, .. } = &*self.inner;
 
         let mut resources = resources.lock().unwrap();
-        
-        let semaphores = if let Some(handle) = acquire.semaphore { 
-            resources.binary_semaphores.get(handle).ok_or(Error::InvalidResource)?.semaphores.clone()
+
+        let semaphores = if let Some(handle) = acquire.semaphore {
+            resources
+                .binary_semaphores
+                .get(handle)
+                .ok_or(Error::InvalidResource)?
+                .semaphores
+                .clone()
         } else {
             vec![]
         };
@@ -1052,7 +1080,7 @@ impl<'a> Device<'a> {
     }
 
     pub fn presentation_format(&self, swapchain: Swapchain) -> Result<Format> {
-        let Device { resources, .. } = self;
+        let DeviceInner { resources, .. } = &*self.inner;
 
         let resources = resources.lock().unwrap();
 
@@ -1065,7 +1093,7 @@ impl<'a> Device<'a> {
     }
 
     pub fn create_swapchain(&self, info: SwapchainInfo<'_>) -> Result<Swapchain> {
-        let Device {
+        let DeviceInner {
             context,
             surface: (surface_loader, surface_handle),
             physical_device,
@@ -1073,7 +1101,7 @@ impl<'a> Device<'a> {
             queue_family_indices,
             resources,
             ..
-        } = self;
+        } = &*self.inner;
 
         let mut resources = resources.lock().unwrap();
 
@@ -1099,7 +1127,7 @@ impl<'a> Device<'a> {
         }
         .map_err(|_| Error::Creation)?;
 
-        let Context { instance, .. } = &context;
+        let ContextInner { instance, .. } = &**context;
 
         let swapchain_loader = khr::Swapchain::new(&instance, &logical_device);
 
@@ -1108,7 +1136,7 @@ impl<'a> Device<'a> {
         };
 
         let swapchain_create_info = {
-            let surface = *surface_handle;
+            let surface = surface_handle;
 
             let min_image_count = match info.present_mode {
                 PresentMode::TripleBufferWaitForVBlank => 3,
@@ -1171,6 +1199,8 @@ impl<'a> Device<'a> {
             } else {
                 vk::SwapchainKHR::null()
             };
+
+            let surface = *surface;
 
             vk::SwapchainCreateInfoKHR {
                 surface,
@@ -1259,16 +1289,15 @@ impl<'a> Device<'a> {
         }))
     }
 
-    pub fn create_pipeline_compiler(
-        &'a self,
-        info: PipelineCompilerInfo<'a>,
-    ) -> PipelineCompiler<'a> {
+    pub fn create_pipeline_compiler(&self, info: PipelineCompilerInfo<'_>) -> PipelineCompiler {
         PipelineCompiler {
-            device: &self,
-            compiler: info.compiler,
-            source_path: info.source_path.to_path_buf(),
-            asset_path: info.asset_path.to_path_buf(),
-            debug_name: info.debug_name.to_owned(),
+            inner: Arc::new(PipelineCompilerInner {
+                device: self.inner.clone(),
+                compiler: info.compiler,
+                source_path: info.source_path.to_path_buf(),
+                asset_path: info.asset_path.to_path_buf(),
+                debug_name: info.debug_name.to_owned(),
+            }),
         }
     }
 }

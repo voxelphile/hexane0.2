@@ -4,15 +4,12 @@
 #include "rigidbody.glsl"
 #include "transform.glsl"
 
-struct Push {
+struct InputPush {
 	BufferId info_buffer_id;
-	BufferId camera_buffer_id;
-	BufferId vertex_buffer_id;
 	BufferId transform_buffer_id;
-	BufferId bitset_buffer_id;
 };
 
-USE_PUSH_CONSTANT(Push)
+USE_PUSH_CONSTANT(InputPush)
 
 DECL_BUFFER_STRUCT(
 	CameraBuffer,
@@ -124,19 +121,15 @@ void main() {
 
 	transform.velocity.xyz += direction;
 	transform.position.xyz += transform.velocity.xyz * delta_time;
+	
 	transform_buffer.transform = transform;
-/*
+	/*
 	{
-		RigidbodyInfo info;
-		info.rigidbody_buffer_id = push_constant.rigidbody_buffer_id;
-		info.entity_id = entity_input.entity_id;
-
-		Rigidbody rigidbody = get_rigidbody(info);
+		Rigidbody rigidbody = rigidbody_buffer.info[entity_input.entity_id];
 
 		if(rigidbody.id != 0) {
-			apply_force(rigidbody, vec3(0), 10);	https://github.com/Ipotrick/Daxa/blob/d4c41e5051fac8ed197a4b0d0280c35ce2353fc3/src/utils/impl_task_list.cpp
+			apply_force(rigidbody, vec3(0), 10);
 		}
-	}
-*/
+	}*/
 }
 #endif

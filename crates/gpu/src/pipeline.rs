@@ -1,3 +1,4 @@
+use crate::device::DeviceInner;
 use crate::prelude::*;
 
 use std::borrow;
@@ -8,7 +9,7 @@ use std::fmt;
 use std::fs;
 use std::path;
 use std::process;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use ash::vk;
 
@@ -218,50 +219,57 @@ impl Default for PipelineCompilerInfo<'_> {
     }
 }
 
-pub struct PipelineCompiler<'a> {
-    pub(crate) device: &'a Device<'a>,
+pub struct PipelineCompiler {
+    pub(crate) inner: Arc<PipelineCompilerInner>,
+}
+
+pub struct PipelineCompilerInner {
+    pub(crate) device: Arc<DeviceInner>,
     pub(crate) compiler: ShaderCompiler,
     pub(crate) source_path: path::PathBuf,
     pub(crate) asset_path: path::PathBuf,
     pub(crate) debug_name: String,
 }
 
-impl<'a> PipelineCompiler<'a> {
-    pub fn create_graphics_pipeline<const S: usize, const C: usize>(
+impl PipelineCompiler {
+    pub fn create_graphics_pipeline<'a, const S: usize, const C: usize>(
         &'a self,
         info: GraphicsPipelineInfo<'a, S, C>,
     ) -> Result<Pipeline<'a, S, C>> {
-        let PipelineCompiler { device, .. } = self;
+        let PipelineCompilerInner { device, .. } = &*self.inner;
 
-        let Device {
+        let DeviceInner {
             logical_device,
             descriptor_set_layout,
             ..
-        } = device;
+        } = &**device;
 
         let shader_data = info
             .shaders
             .iter()
             .map(|Shader(ty, name, _)| {
-                let extension = self.compiler.extension().unwrap_or("");
+                let extension = self.inner.compiler.extension().unwrap_or("");
 
-                let mut input_path = self.source_path.clone();
+                let mut input_path = self.inner.source_path.clone();
 
                 input_path.push(name);
                 input_path.set_extension(extension);
 
-                let mut output_path = self.asset_path.clone();
+                let mut output_path = self.inner.asset_path.clone();
 
                 let short_ty = format!("{}", ty).chars().take(4).collect::<String>();
 
                 output_path.push(name);
                 output_path.set_extension(format!("{}.spv", &short_ty));
 
-                let spv = self.compiler.compile_to_spv(ShaderCompilationOptions {
-                    input_path: &input_path,
-                    output_path: &output_path,
-                    ty: *ty,
-                })?;
+                let spv = self
+                    .inner
+                    .compiler
+                    .compile_to_spv(ShaderCompilationOptions {
+                        input_path: &input_path,
+                        output_path: &output_path,
+                        ty: *ty,
+                    })?;
 
                 let shader_module_create_info = {
                     let code_size = 4 * spv.len();
@@ -468,50 +476,55 @@ impl<'a> PipelineCompiler<'a> {
 
         let spec = Spec::Graphics(info);
 
-        let inner = Mutex::new(Inner { pipeline, layout });
+        let modify = Mutex::new(PipelineModify { pipeline, layout });
 
         Ok(Pipeline {
-            compiler: &self,
-            inner,
-            spec,
-            bind_point: PipelineBindPoint::Graphics,
+            inner: Arc::new(PipelineInner {
+                compiler: self.inner.clone(),
+                modify,
+                spec,
+                bind_point: PipelineBindPoint::Graphics,
+            }),
         })
     }
 
-    pub fn create_compute_pipeline(
+    pub fn create_compute_pipeline<'a>(
         &'a self,
         info: ComputePipelineInfo<'a>,
     ) -> Result<Pipeline<1, 0>> {
-        let PipelineCompiler { device, .. } = self;
+        let PipelineCompilerInner { device, .. } = &*self.inner;
 
-        let Device {
+        let DeviceInner {
             logical_device,
             descriptor_set_layout,
             ..
-        } = device;
+        } = &**device;
 
         let module = {
             let Shader(ty, name, _) = info.shader;
 
-            let extension = self.compiler.extension().unwrap_or("");
+            let extension = self.inner.compiler.extension().unwrap_or("");
 
-            let mut input_path = self.source_path.clone();
+            let mut input_path = self.inner.source_path.clone();
 
             input_path.push(name);
             input_path.set_extension(extension);
 
-            let mut output_path = self.asset_path.clone();
+            let mut output_path = self.inner.asset_path.clone();
 
             let short_ty = format!("{}", ty).chars().take(4).collect::<String>();
 
             output_path.push(name);
             output_path.set_extension(format!("{}.spv", &short_ty));
 
-            let spv = self.compiler.compile_to_spv(ShaderCompilationOptions {
-                input_path: &input_path,
-                output_path: &output_path,
-                ty,
-            })?;
+            let spv = self
+                .inner
+                .compiler
+                .compile_to_spv(ShaderCompilationOptions {
+                    input_path: &input_path,
+                    output_path: &output_path,
+                    ty,
+                })?;
 
             let shader_module_create_info = {
                 let code_size = 4 * spv.len();
@@ -596,47 +609,49 @@ impl<'a> PipelineCompiler<'a> {
 
         let spec = Spec::Compute(info);
 
-        let inner = Mutex::new(Inner { pipeline, layout });
+        let modify = Mutex::new(PipelineModify { pipeline, layout });
 
         Ok(Pipeline {
-            compiler: &self,
-            inner,
-            spec,
-            bind_point: PipelineBindPoint::Compute,
+            inner: Arc::new(PipelineInner {
+                compiler: self.inner.clone(),
+                modify,
+                spec,
+                bind_point: PipelineBindPoint::Compute,
+            }),
         })
     }
 
-    pub fn refresh_graphics_pipeline<const S: usize, const C: usize>(
+    pub fn refresh_graphics_pipeline<'a, const S: usize, const C: usize>(
         &'a self,
         pipeline: &'a Pipeline<'a, S, C>,
     ) -> Result<()> {
-        let Spec::Graphics(info) = pipeline.spec else {
+        let Spec::Graphics(info) = pipeline.inner.spec else {
             Err(Error::InvalidResource)?
         };
 
         let new_pipeline = self.create_graphics_pipeline(info).unwrap();
 
-        let mut pipeline_inner = pipeline.inner.lock().unwrap();
+        let mut pipeline_modify = pipeline.inner.modify.lock().unwrap();
 
-        let new_pipeline_inner = new_pipeline.inner.lock().unwrap();
+        let new_pipeline_modify = new_pipeline.inner.modify.lock().unwrap();
 
-        *pipeline_inner = *new_pipeline_inner;
+        *pipeline_modify = *new_pipeline_modify;
 
         Ok(())
     }
 
-    pub fn refresh_compute_pipeline(&'a self, pipeline: &'a Pipeline<'a, 1, 0>) -> Result<()> {
-        let Spec::Compute(info) = pipeline.spec else {
+    pub fn refresh_compute_pipeline<'a>(&'a self, pipeline: &'a Pipeline<'a, 1, 0>) -> Result<()> {
+        let Spec::Compute(info) = pipeline.inner.spec else {
             Err(Error::InvalidResource)?
         };
 
         let new_pipeline = self.create_compute_pipeline(info).unwrap();
 
-        let mut pipeline_inner = pipeline.inner.lock().unwrap();
+        let mut pipeline_modify = pipeline.inner.modify.lock().unwrap();
 
-        let new_pipeline_inner = new_pipeline.inner.lock().unwrap();
+        let new_pipeline_modify = new_pipeline.inner.modify.lock().unwrap();
 
-        *pipeline_inner = *new_pipeline_inner;
+        *pipeline_modify = *new_pipeline_modify;
 
         Ok(())
     }
@@ -1089,14 +1104,18 @@ pub(crate) enum Spec<'a, const S: usize, const C: usize> {
 }
 
 pub struct Pipeline<'a, const S: usize, const C: usize> {
-    pub(crate) compiler: &'a PipelineCompiler<'a>,
-    pub(crate) inner: Mutex<Inner>,
+    pub(crate) inner: Arc<PipelineInner<'a, S, C>>,
+}
+
+pub struct PipelineInner<'a, const S: usize, const C: usize> {
+    pub(crate) compiler: Arc<PipelineCompilerInner>,
+    pub(crate) modify: Mutex<PipelineModify>,
     pub(crate) bind_point: PipelineBindPoint,
     pub(crate) spec: Spec<'a, S, C>,
 }
 
 #[derive(Clone, Copy)]
-pub(crate) struct Inner {
+pub(crate) struct PipelineModify {
     pub(crate) pipeline: vk::Pipeline,
     pub(crate) layout: vk::PipelineLayout,
 }
