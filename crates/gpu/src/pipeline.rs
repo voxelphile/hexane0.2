@@ -123,12 +123,15 @@ impl ShaderCompiler {
                 let mut temporary_path = options.input_path.to_path_buf();
 
                 temporary_path.pop();
-                temporary_path.push("temp");
+                temporary_path.push(&format!(
+                    "{}",
+                    options.input_path.file_stem().unwrap().to_string_lossy()
+                ));
 
                 fs::remove_file(temporary_path.clone());
 
                 let modified_code =
-                    source_code.replacen("\n", &format!("\n #define {}\r\n", options.ty), 1);
+                    source_code.replacen("\n", &format!("\n#define {}\r\n", options.ty), 1);
 
                 fs::write(temporary_path.clone(), modified_code);
 
@@ -136,6 +139,7 @@ impl ShaderCompiler {
                     .current_dir(glslc_path)
                     .arg("-g")
                     .arg(format!("-fshader-stage={}", options.ty))
+                    .arg("--target-env=vulkan1.3")
                     .arg("-c")
                     .arg(&temporary_path)
                     .arg("-o")

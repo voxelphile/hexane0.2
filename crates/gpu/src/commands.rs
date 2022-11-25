@@ -180,6 +180,14 @@ pub struct BufferCopy {
     pub size: usize,
 }
 
+pub struct ImageCopy {
+    pub from: usize,
+    pub to: usize,
+    pub src: usize,
+    pub dst: (usize, usize, usize),
+    pub size: (usize, usize, usize),
+}
+
 pub struct Draw {
     pub vertex_count: usize,
 }
@@ -457,6 +465,92 @@ impl Commands<'_> {
 
         unsafe {
             logical_device.cmd_copy_buffer(**command_buffer, *from_buffer, *to_buffer, &regions);
+        }
+
+        Ok(())
+    }
+
+    pub fn copy_buffer_to_image(&mut self, copy: ImageCopy) -> Result<()> {
+        let Commands {
+            device,
+            qualifiers,
+            command_buffer,
+            ..
+        } = self;
+
+        let DeviceInner {
+            logical_device,
+            resources,
+            ..
+        } = &*device;
+
+        let ImageCopy {
+            from,
+            to,
+            src,
+            dst,
+            size,
+        } = copy;
+
+        let resources = resources.lock().unwrap();
+
+        let Qualifier::Buffer(from_buffer_handle, _) = qualifiers.get(from).ok_or(Error::InvalidResource)? else {
+            Err(Error::InvalidResource)?
+        };
+
+        let InternalBuffer {
+            buffer: from_buffer,
+            ..
+        } = resources
+            .buffers
+            .get(*from_buffer_handle)
+            .ok_or(Error::ResourceNotFound)?;
+
+        let Qualifier::Image(to_image_handle, to_image_access) = qualifiers.get(to).ok_or(Error::InvalidResource)? else {
+            Err(Error::InvalidResource)?
+        };
+
+        let to_image = resources
+            .images
+            .get(*to_image_handle)
+            .ok_or(Error::ResourceNotFound)?
+            .get_image();
+
+        let to_image_format = resources
+            .images
+            .get(*to_image_handle)
+            .ok_or(Error::ResourceNotFound)?
+            .get_format();
+
+        let regions = [vk::BufferImageCopy {
+            buffer_offset: src as _,
+            image_offset: vk::Offset3D {
+                x: dst.0 as _,
+                y: dst.1 as _,
+                z: dst.2 as _,
+            },
+            image_extent: vk::Extent3D {
+                width: size.0 as _,
+                height: size.1 as _,
+                depth: size.2 as _,
+            },
+            image_subresource: vk::ImageSubresourceLayers {
+                aspect_mask: to_image_format.into(),
+                mip_level: 0,
+                base_array_layer: 0,
+                layer_count: 1,
+            },
+            ..default()
+        }];
+
+        unsafe {
+            logical_device.cmd_copy_buffer_to_image(
+                **command_buffer,
+                *from_buffer,
+                to_image,
+                ImageLayout::from(*to_image_access).into(),
+                &regions,
+            );
         }
 
         Ok(())

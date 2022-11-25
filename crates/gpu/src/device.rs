@@ -787,7 +787,11 @@ impl Device {
             ),
         };
 
-        let usage = usage.into();
+        let mut usage = vk::ImageUsageFlags::from(usage);
+
+        if (usage & vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT) == vk::ImageUsageFlags::empty() {
+            usage |= vk::ImageUsageFlags::STORAGE;
+        }
 
         let image_create_info = vk::ImageCreateInfo {
             image_type,

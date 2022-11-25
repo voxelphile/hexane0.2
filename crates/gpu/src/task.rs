@@ -1,4 +1,6 @@
-use crate::context::{DEVICE_ADDRESS_BUFFER_BINDING, SPECIAL_BUFFER_BINDING};
+use crate::context::{
+    DEVICE_ADDRESS_BUFFER_BINDING, SPECIAL_BUFFER_BINDING, SPECIAL_IMAGE_BINDING,
+};
 use crate::device::{DeviceInner, MAX_FRAMES_IN_FLIGHT};
 use crate::prelude::*;
 
@@ -234,6 +236,7 @@ impl ops::FnMut<()> for Executable<'_> {
             let mut addresses = [0u64; DESCRIPTOR_COUNT as usize];
 
             let mut descriptor_buffer_infos = vec![];
+            let mut descriptor_image_infos = vec![];
 
             for i in 0..DESCRIPTOR_COUNT as usize {
                 if let Some(internal_buffer) = resources.buffers.get((i as u32).into()) {
@@ -251,6 +254,31 @@ impl ops::FnMut<()> for Executable<'_> {
                         offset: 0,
                         range: internal_buffer.size as _,
                     })
+                } else {
+                    descriptor_buffer_infos.push(vk::DescriptorBufferInfo {
+                        buffer: vk::Buffer::null(),
+                        offset: 0,
+                        range: vk::WHOLE_SIZE,
+                        ..default()
+                    });
+                }
+
+                if let Some(internal_image) = resources.images.get((i as u32).into()) {
+                    if internal_image.get_format() == Format::D32Sfloat {
+                        descriptor_image_infos.push(vk::DescriptorImageInfo { ..default() });
+                        continue;
+                    }
+                    if let InternalImage::Swapchain { .. } = internal_image {
+                        descriptor_image_infos.push(vk::DescriptorImageInfo { ..default() });
+                        continue;
+                    }
+                    descriptor_image_infos.push(vk::DescriptorImageInfo {
+                        image_view: internal_image.get_image_view(),
+                        image_layout: vk::ImageLayout::GENERAL,
+                        ..default()
+                    });
+                } else {
+                    descriptor_image_infos.push(vk::DescriptorImageInfo { ..default() });
                 }
             }
 
@@ -296,7 +324,9 @@ impl ops::FnMut<()> for Executable<'_> {
                 range: address_buffer_size as _,
             };
 
-            let write_descriptor_set1 = {
+            let mut write_descriptor_sets = vec![];
+
+            write_descriptor_sets.push({
                 let p_buffer_info = &descriptor_buffer_info;
 
                 vk::WriteDescriptorSet {
@@ -307,24 +337,39 @@ impl ops::FnMut<()> for Executable<'_> {
                     p_buffer_info,
                     ..default()
                 }
-            };
+            });
 
-            let write_descriptor_set2 = {
-                let p_buffer_info = descriptor_buffer_infos.as_ptr();
+            if descriptor_buffer_infos.len() != 0 {
+                write_descriptor_sets.push({
+                    let p_buffer_info = descriptor_buffer_infos.as_ptr();
 
-                vk::WriteDescriptorSet {
-                    dst_set: *descriptor_set,
-                    dst_binding: SPECIAL_BUFFER_BINDING, //MAGIC NUMBER SEE context.rs or hexane.glsl
-                    descriptor_count: descriptor_buffer_infos.len() as _,
-                    descriptor_type: vk::DescriptorType::STORAGE_BUFFER,
-                    p_buffer_info,
-                    ..default()
-                }
-            };
+                    vk::WriteDescriptorSet {
+                        dst_set: *descriptor_set,
+                        dst_binding: SPECIAL_BUFFER_BINDING, //MAGIC NUMBER SEE context.rs or hexane.glsl
+                        descriptor_count: descriptor_buffer_infos.len() as _,
+                        descriptor_type: vk::DescriptorType::STORAGE_BUFFER,
+                        p_buffer_info,
+                        ..default()
+                    }
+                });
+            }
 
+            if descriptor_image_infos.len() != 0 {
+                write_descriptor_sets.push({
+                    let p_image_info = descriptor_image_infos.as_ptr();
+
+                    vk::WriteDescriptorSet {
+                        dst_set: *descriptor_set,
+                        dst_binding: SPECIAL_IMAGE_BINDING, //MAGIC NUMBER SEE context.rs or hexane.glsl
+                        descriptor_count: descriptor_image_infos.len() as _,
+                        descriptor_type: vk::DescriptorType::STORAGE_IMAGE,
+                        p_image_info,
+                        ..default()
+                    }
+                });
+            }
             unsafe {
-                logical_device
-                    .update_descriptor_sets(&[write_descriptor_set1, write_descriptor_set2], &[]);
+                logical_device.update_descriptor_sets(&write_descriptor_sets, &[]);
             }
         }
 

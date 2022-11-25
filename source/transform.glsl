@@ -9,8 +9,8 @@ struct Transform {
 		vec3 last_normal;
 };
 
-DECL_BUFFER_STRUCT(
-	TransformBuffer,
+decl_buffer(
+	Transforms,
 	{
 		Transform transform;
 	}

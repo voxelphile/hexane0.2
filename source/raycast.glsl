@@ -2,7 +2,7 @@
 #define SIZE 10
 
 struct Ray {
-	BufferId bitset_buffer_id;
+	BufferId bitset_id;
 	vec3 origin;
 	vec3 direction;
 	f32 max_distance;
@@ -50,7 +50,7 @@ bool ray_cast(inout Ray ray, out RayHit hit) {
 		}
 
 		OctreeBitsetQuery query;
-		query.bitset_buffer_id = ray.bitset_buffer_id;
+		query.bitset_id = ray.bitset_id;
 		query.size = 10;
 		query.position = p;
 

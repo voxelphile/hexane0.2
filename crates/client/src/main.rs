@@ -34,7 +34,7 @@ const SMALL_SIZE: usize = 512;
 const REALLY_LARGE_SIZE: usize = 750_000_000;
 const SUPER_LARGE_SIZE: usize = 4_000_000_000;
 
-const WORLD_SIZE: usize = 512;
+const WORLD_SIZE: usize = 128;
 
 pub type Vertex = (f32, f32, f32);
 pub type Color = [f32; 4];
@@ -141,17 +141,17 @@ fn main() {
     octree.optimize();
 
     println!("Finished world generation.");
-/*
-    let mesh: Mesh = octree.convert(Conversion {
-        regions: [Region {
-            start: Vector::new([0, 0, 0]),
-            end: Vector::new([WORLD_SIZE, 128, WORLD_SIZE]),
-        }],
-        lod: 1,
-    });
+    /*
+        let mesh: Mesh = octree.convert(Conversion {
+            regions: [Region {
+                start: Vector::new([0, 0, 0]),
+                end: Vector::new([WORLD_SIZE, 128, WORLD_SIZE]),
+            }],
+            lod: 1,
+        });
 
-    println!("Finished mesh generation.");
-*/
+        println!("Finished mesh generation.");
+    */
     let bitset: Bitset = octree.convert(Conversion {
         regions: [Region {
             start: Vector::new([0, 0, 0]),
@@ -228,10 +228,24 @@ fn main() {
             ..default()
         })
         .expect("failed to create pipeline");
-    
+
     let vertex_pipeline = pipeline_compiler
         .create_compute_pipeline(ComputePipelineInfo {
             shader: Shader(Compute, "build_mesh", &[]),
+            ..default()
+        })
+        .expect("failed to create pipeline");
+    
+    let noise_pipeline = pipeline_compiler
+        .create_compute_pipeline(ComputePipelineInfo {
+            shader: Shader(Compute, "build_noise", &[]),
+            ..default()
+        })
+        .expect("failed to create pipeline");
+    
+    let perlin_pipeline = pipeline_compiler
+        .create_compute_pipeline(ComputePipelineInfo {
+            shader: Shader(Compute, "build_perlin", &[]),
             ..default()
         })
         .expect("failed to create pipeline");
@@ -240,7 +254,7 @@ fn main() {
         device
             .create_image(ImageInfo {
                 extent: ImageExtent::TwoDim(width as _, height as _),
-                usage: ImageUsage::DEPTH_STENCIL,
+                usage: ImageUsage::DEPTH,
                 format: Format::D32Sfloat,
                 ..default()
             })
@@ -251,8 +265,30 @@ fn main() {
         device
             .create_image(ImageInfo {
                 extent: ImageExtent::TwoDim(width as _, height as _),
-                usage: ImageUsage::DEPTH_STENCIL,
+                usage: ImageUsage::DEPTH,
                 format: Format::D32Sfloat,
+                ..default()
+            })
+            .expect("failed to create depth image"),
+    );
+
+    let mut noise_img = Cell::new(
+        device
+            .create_image(ImageInfo {
+                extent: ImageExtent::ThreeDim(128, 128, 128),
+                usage: ImageUsage::TRANSFER_DST,
+                format: Format::R32Uint,
+                ..default()
+            })
+            .expect("failed to create depth image"),
+    );
+    
+    let mut perlin_img = Cell::new(
+            device
+            .create_image(ImageInfo {
+                extent: ImageExtent::ThreeDim(512, 512, 512),
+                usage: ImageUsage::TRANSFER_DST,
+                format: Format::R32Uint,
                 ..default()
             })
             .expect("failed to create depth image"),
@@ -275,7 +311,7 @@ fn main() {
             ..default()
         })
         .expect("failed to create buffer");
-    
+
     let octree_staging_buffer = device
         .create_buffer(BufferInfo {
             size: 2 * REALLY_LARGE_SIZE,
@@ -284,8 +320,17 @@ fn main() {
             ..default()
         })
         .expect("failed to create buffer");
-    
+
     let bitset_staging_buffer = device
+        .create_buffer(BufferInfo {
+            size: REALLY_LARGE_SIZE,
+            memory: Memory::HOST_ACCESS,
+            debug_name: "Staging Buffer",
+            ..default()
+        })
+        .expect("failed to create buffer");
+
+    let noise_staging_buffer = device
         .create_buffer(BufferInfo {
             size: REALLY_LARGE_SIZE,
             memory: Memory::HOST_ACCESS,
@@ -301,7 +346,7 @@ fn main() {
             ..default()
         })
         .expect("failed to create buffer");
-    
+
     let octree_buffer = device
         .create_buffer(BufferInfo {
             size: 2 * REALLY_LARGE_SIZE,
@@ -309,6 +354,14 @@ fn main() {
             ..default()
         })
         .expect("failed to create buffer");
+
+    let mersenne_buffer = device
+    .create_buffer(BufferInfo {
+        size: REALLY_LARGE_SIZE,
+        debug_name: "General Buffer",
+        ..default()
+    })
+    .expect("failed to create buffer");
 
     let transform_buffer = device
         .create_buffer(BufferInfo {
@@ -400,6 +453,7 @@ fn main() {
 
     let vertex_buffer = || vertex_buffer;
     let octree_buffer = || octree_buffer;
+    let mersenne_buffer = || mersenne_buffer;
     let transform_buffer = || transform_buffer;
     let bitset_buffer = || bitset_buffer;
     let info_buffer = || info_buffer;
@@ -408,9 +462,10 @@ fn main() {
     let vertex_staging_buffer = || vertex_staging_buffer;
     let octree_staging_buffer = || octree_staging_buffer;
     let bitset_staging_buffer = || bitset_staging_buffer;
+    let noise_staging_buffer = || noise_staging_buffer;
     let depth_image = || depth_img.get();
-    let light_camera_buffer = || light_camera_buffer;
-    let light_depth_image = || light_depth_img.get();
+    let noise_image = || noise_img.get();
+    let perlin_image = || perlin_img.get();
     let present_image = || {
         device
             .acquire_next_image(Acquire {
@@ -555,7 +610,7 @@ fn main() {
 
                     info.set(Info {
                         entity_input: EntityInput {
-                            look: info.get().entity_input.look + Vector::new([x_diff as _, y_diff as _, 0.0, 0.0]),
+                            look: Vector::new([x_diff as _, y_diff as _, 0.0, 0.0]),
                             ..info.get().entity_input
                         },
                         ..info.get()
@@ -627,6 +682,12 @@ fn main() {
                         pipeline_compiler
                             .refresh_compute_pipeline(&vertex_pipeline)
                             .unwrap();
+                        pipeline_compiler
+                            .refresh_compute_pipeline(&noise_pipeline)
+                            .unwrap();
+                        pipeline_compiler
+                            .refresh_compute_pipeline(&perlin_pipeline)
+                            .unwrap();
                     }
                     Escape => {
                         cursor_captured = false;
@@ -672,7 +733,7 @@ fn main() {
                     device
                         .create_image(ImageInfo {
                             extent: ImageExtent::TwoDim(width as _, height as _),
-                            usage: ImageUsage::DEPTH_STENCIL,
+                            usage: ImageUsage::DEPTH,
                             format: Format::D32Sfloat,
                             ..default()
                         })
@@ -704,9 +765,12 @@ fn main() {
                     .expect("failed to create executor");
 
                 use Resource::*;
-   
+
                 executor.add(Task {
-                    resources: [Buffer(&general_staging_buffer, BufferAccess::HostTransferWrite)],
+                    resources: [Buffer(
+                        &general_staging_buffer,
+                        BufferAccess::HostTransferWrite,
+                    )],
                     task: |commands| {
                         commands.write_buffer(BufferWrite {
                             buffer: 0,
@@ -732,9 +796,12 @@ fn main() {
                         Ok(())
                     },
                 });
-       
+
                 executor.add(Task {
-                    resources: [Buffer(&general_staging_buffer, BufferAccess::HostTransferWrite)],
+                    resources: [Buffer(
+                        &general_staging_buffer,
+                        BufferAccess::HostTransferWrite,
+                    )],
                     task: |commands| {
                         if update.get() {
                             commands.write_buffer(BufferWrite {
@@ -766,9 +833,12 @@ fn main() {
                         Ok(())
                     },
                 });
-                
+
                 executor.add(Task {
-                    resources: [Buffer(&octree_staging_buffer, BufferAccess::HostTransferWrite)],
+                    resources: [Buffer(
+                        &octree_staging_buffer,
+                        BufferAccess::HostTransferWrite,
+                    )],
                     task: |commands| {
                         if update.get() {
                             commands.write_buffer(BufferWrite {
@@ -776,7 +846,7 @@ fn main() {
                                 offset: 0,
                                 src: &[octree.size() as u32],
                             })?;
-                            
+
                             commands.write_buffer(BufferWrite {
                                 buffer: 0,
                                 offset: mem::size_of::<u32>(),
@@ -814,7 +884,10 @@ fn main() {
                 });
 
                 executor.add(Task {
-                    resources: [Buffer(&bitset_staging_buffer, BufferAccess::HostTransferWrite)],
+                    resources: [Buffer(
+                        &bitset_staging_buffer,
+                        BufferAccess::HostTransferWrite,
+                    )],
                     task: |commands| {
                         if update.get() {
                             commands.write_buffer(BufferWrite {
@@ -848,37 +921,155 @@ fn main() {
                                 dst: 0,
                                 size: REALLY_LARGE_SIZE,
                             })?;
-
                         }
                         Ok(())
                     },
                 });
-               
+
+                executor.add(Task {
+                    resources: [Buffer(
+                        &noise_staging_buffer,
+                        BufferAccess::HostTransferWrite,
+                    )],
+                    task: |commands| {
+                        if update.get() {
+                            const W: u32 = 32;
+                            const N: u32 = 642;
+
+                            const F: u32 = 1812433253; 
+
+                            let index = N;
+                            let mut mt = vec![];
+
+                            mt.push(42069);
+
+                            for i in 1..N as usize {
+                                mt.push(F * (mt[i - 1] ^ (mt[i - 1] >> (W - 2))) + i as u32);
+                            }
+                            commands.write_buffer(BufferWrite {
+                                buffer: 0,
+                                offset: 0,
+                                src: &[index], 
+                            })?;
+
+                            commands.write_buffer(BufferWrite {
+                                buffer: 0,
+                                offset: mem::size_of::<u32>(),
+                                src: &mt,
+                            })?;
+                        }
+
+                        Ok(())
+                    },
+                });
+
+                executor.add(Task {
+                    resources: [
+                        Buffer(&noise_staging_buffer, BufferAccess::TransferRead),
+                        Buffer(&mersenne_buffer, BufferAccess::TransferWrite),
+                    ],
+                    task: |commands| {
+                        if update.get() {
+                            commands.copy_buffer_to_buffer(BufferCopy {
+                                from: 0,
+                                to: 1,
+                                src: 0,
+                                dst: 0,
+                                size: REALLY_LARGE_SIZE,
+                            })?;
+                        }
+                        Ok(())
+                    },
+                });
+                
+                executor.add(Task {
+                    resources: [
+                        Buffer(&mersenne_buffer, BufferAccess::ComputeShaderReadWrite),
+                        Image(&noise_image, ImageAccess::ComputeShaderReadWrite),
+                    ],
+                    task: |commands| {
+                        if update.get() {
+                            commands.set_pipeline(&noise_pipeline)?;
+
+                            commands.push_constant(PushConstant {
+                                data: BuildNoisePush {
+                                    mersenne_buffer: (mersenne_buffer)(),
+                                    noise_image: (noise_image)(),
+                                },
+                                pipeline: &noise_pipeline,
+                            })?;
+
+                            let size = 128;
+
+                            const WORK_GROUP_SIZE: usize = 8;
+
+                            let dispatch_size =
+                                (size as f64 / WORK_GROUP_SIZE as f64).ceil() as usize;
+
+                            commands.dispatch(dispatch_size, dispatch_size, dispatch_size)?;
+                        }
+                        Ok(())
+                    },
+                });
+                
+                executor.add(Task {
+                    resources: [
+                        Image(&noise_image, ImageAccess::ComputeShaderReadWrite),
+                        Image(&perlin_image, ImageAccess::ComputeShaderReadWrite),
+                    ],
+                    task: |commands| {
+                        if update.get() {
+                            commands.set_pipeline(&perlin_pipeline)?;
+
+                            commands.push_constant(PushConstant {
+                                data: BuildPerlinPush {
+                                    noise_image: (noise_image)(),
+                                    perlin_image: (perlin_image)(),
+                                },
+                                pipeline: &perlin_pipeline,
+                            })?;
+
+                            let size = WORLD_SIZE;
+
+                            const WORK_GROUP_SIZE: usize = 8;
+
+                            let dispatch_size =
+                                (size as f64 / WORK_GROUP_SIZE as f64).ceil() as usize;
+
+                            commands.dispatch(dispatch_size, dispatch_size, dispatch_size)?;
+                        }
+                        Ok(())
+                    },
+                });
+
                 executor.add(Task {
                     resources: [
                         Buffer(&octree_buffer, BufferAccess::ComputeShaderReadOnly),
                         Buffer(&vertex_buffer, BufferAccess::ComputeShaderReadWrite),
+                        Image(&perlin_image, ImageAccess::ComputeShaderReadWrite),
                     ],
                     task: |commands| {
                         if update.get() {
-                        commands.set_pipeline(&vertex_pipeline)?;
+                            commands.set_pipeline(&vertex_pipeline)?;
 
-                        commands.push_constant(PushConstant {
-                            data: BuildMeshPush {
-                                vertex_buffer: (vertex_buffer)(),
-                                octree_buffer: (octree_buffer)(),
-                            },
-                            pipeline: &vertex_pipeline,
-                        })?;
+                            commands.push_constant(PushConstant {
+                                data: BuildMeshPush {
+                                    vertex_buffer: (vertex_buffer)(),
+                                    octree_buffer: (octree_buffer)(),
+                                    perlin_image: (perlin_image)(),
+                                },
+                                pipeline: &vertex_pipeline,
+                            })?;
 
-                        let size = 2usize.pow(octree.size() as u32) as usize;
+                            let size = 2usize.pow(octree.size() as u32) as usize;
 
-                        const WORK_GROUP_SIZE: usize = 8;
+                            const WORK_GROUP_SIZE: usize = 8;
 
-                        let dispatch_size = (1024 as f64 / WORK_GROUP_SIZE as f64).ceil() as usize;
+                            let dispatch_size =
+                                (1024 as f64 / WORK_GROUP_SIZE as f64).ceil() as usize;
 
-                        commands.dispatch(dispatch_size, dispatch_size, dispatch_size)?;
-                        update.set(false);
+                            commands.dispatch(dispatch_size, dispatch_size, dispatch_size)?;
+                            update.set(false);
                         }
                         Ok(())
                     },
@@ -952,7 +1143,7 @@ fn main() {
                         const VERTICES_PER_CUBE: usize = 6;
 
                         commands.draw(gpu::prelude::Draw {
-                            vertex_count: 400000 * VERTICES_PER_CUBE,
+                            vertex_count: 2000000 * VERTICES_PER_CUBE,
                         })?;
 
                         commands.end_rendering()
@@ -1029,4 +1220,17 @@ pub struct InputPush {
 pub struct BuildMeshPush {
     pub octree_buffer: Buffer,
     pub vertex_buffer: Buffer,
+    pub perlin_image: Image,
+}
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct BuildNoisePush {
+    pub mersenne_buffer: Buffer,
+    pub noise_image: Image,
+}
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct BuildPerlinPush {
+    pub noise_image: Image,
+    pub perlin_image: Image,
 }

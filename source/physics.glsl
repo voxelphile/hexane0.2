@@ -5,11 +5,11 @@
 #include "transform.glsl"
 
 struct PhysicsPush {
-	BufferId transform_buffer_id;
-	BufferId rigidbody_buffer_id;
+	BufferId transform_id;
+	BufferId rigidbody_id;
 };
 
-USE_PUSH_CONSTANT(PhysicsPush)
+decl_push_constant(PhysicsPush)
 
 #ifdef compute
 

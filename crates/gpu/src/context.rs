@@ -20,6 +20,7 @@ use raw_window_handle::{
 
 const API_VERSION: u32 = vk::make_api_version(0, 1, 3, 0);
 
+pub(crate) const SPECIAL_IMAGE_BINDING: u32 = 2;
 pub(crate) const SPECIAL_BUFFER_BINDING: u32 = 3;
 pub(crate) const DEVICE_ADDRESS_BUFFER_BINDING: u32 = 4;
 
@@ -283,9 +284,29 @@ impl Context {
 
         let extensions = [khr::Swapchain::name()];
 
-        let mut synchronization2_features = vk::PhysicalDeviceSynchronization2Features {
-            synchronization2: true as _,
+        let mut maintenance4_features = vk::PhysicalDeviceMaintenance4Features {
+            maintenance4: true as _,
             ..default()
+        };
+
+        let mut robustness2_features = {
+            let p_next = &mut maintenance4_features as *mut _ as *mut _;
+
+            vk::PhysicalDeviceRobustness2FeaturesEXT {
+                p_next,
+                null_descriptor: true as _,
+            ..default()
+            }
+        };
+
+        let mut synchronization2_features = {
+            let p_next = &mut robustness2_features as *mut _ as *mut _;
+
+            vk::PhysicalDeviceSynchronization2Features {
+                p_next,
+                synchronization2: true as _,
+                ..default()
+            }
         };
 
         let mut scalar_block_layout_features = {
@@ -313,6 +334,8 @@ impl Context {
 
             vk::PhysicalDeviceDescriptorIndexingFeatures {
                 p_next,
+                runtime_descriptor_array: true as _,
+
                 descriptor_binding_partially_bound: true as _,
                 descriptor_binding_update_unused_while_pending: true as _,
                 descriptor_binding_storage_buffer_update_after_bind: true as _,
@@ -458,7 +481,7 @@ impl Context {
                 ..default()
             },
             vk::DescriptorSetLayoutBinding {
-                binding: 2,
+                binding: SPECIAL_IMAGE_BINDING,
                 descriptor_type: vk::DescriptorType::STORAGE_IMAGE,
                 descriptor_count: DESCRIPTOR_COUNT,
                 stage_flags: vk::ShaderStageFlags::VERTEX

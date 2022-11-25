@@ -5,14 +5,14 @@
 #include "transform.glsl"
 
 struct InputPush {
-	BufferId info_buffer_id;
-	BufferId transform_buffer_id;
+	BufferId info_id;
+	BufferId transform_id;
 };
 
-USE_PUSH_CONSTANT(InputPush)
+decl_push_constant(InputPush)
 
-DECL_BUFFER_STRUCT(
-	CameraBuffer,
+decl_buffer(
+	Camera,
 	{
 		mat4 projection;
 	}
@@ -28,8 +28,8 @@ struct EntityInput {
 	vec4 look;
 };
 
-DECL_BUFFER_STRUCT(
-	InfoBuffer,
+decl_buffer(
+	Info,
 	{
 		f32 time;
 		f32 delta_time;
@@ -59,25 +59,28 @@ void main() {
 		return;
 	}
 
-	BufferRef(TransformBuffer) transform_buffer = buffer_id_to_ref(TransformBuffer, BufferRef, push_constant.transform_buffer_id);
-	BufferRef(InfoBuffer) info_buffer = buffer_id_to_ref(InfoBuffer, BufferRef, push_constant.info_buffer_id);
+	Buffer(Transforms) transforms = get_buffer(Transforms, push_constant.transform_id);
+	Buffer(Info) info = get_buffer(Info, push_constant.info_id);
 
-	f32 delta_time = info_buffer.delta_time;
+	f32 delta_time = info.delta_time;
 
-	Transform transform = transform_buffer.transform;
-	EntityInput entity_input = info_buffer.entity_input;
+	Transform transform = transforms.transform;
+	EntityInput entity_input = info.entity_input;
 
-	if(!transform.first || (entity_input.down && entity_input.up)){
+	if(!transform.first){
 		transform.position.xyz = vec3(32, 128, 32);
 		transform.velocity.xyz = vec3(0);
 		transform.rotation.xyz = vec3(-3.14 / 2.0 + 0.1, 0, 0);
 		transform.jumping = false;
 		transform.first = true;
 	}
+	if(entity_input.down && entity_input.up){
+		transform.velocity.xyz = vec3(0);
+	}
 	
-	f32 sens = 0.075;
+	f32 sens = 3.14 / 4;
 
-	transform.rotation.xy -= (entity_input.look.yx * delta_time) / sens;
+	transform.rotation.xy -= (entity_input.look.yx * delta_time) * sens;
 
 	transform.rotation.x = clamp(transform.rotation.x, -3.14 / 2.0 + 0.1, 3.14 / 2.0 - 0.1);
 
@@ -119,14 +122,14 @@ void main() {
 	direction.xz = lateral_direction;
 	direction.y = f32(input_axis.y);
 
-	transform.velocity.xyz += direction;
+	transform.velocity.xyz += direction * 0.25;
 	transform.position.xyz += transform.velocity.xyz * delta_time;
 	
-	transform_buffer.transform = transform;
+	transforms.transform = transform;
 	/*
 	{
 		Rigidbody rigidbody = rigidbody_buffer.info[entity_input.entity_id];
-
+patreon.com/user?u=82729947
 		if(rigidbody.id != 0) {
 			apply_force(rigidbody, vec3(0), 10);
 		}

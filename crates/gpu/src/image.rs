@@ -116,12 +116,8 @@ bitflags! {
     pub struct ImageUsage: u32 {
         const TRANSFER_SRC = 0x00000001;
         const TRANSFER_DST = 0x00000002;
-        const SAMPLED = 0x00000004;
-        const STORAGE = 0x00000008;
         const COLOR = 0x00000010;
-        const DEPTH_STENCIL = 0x00000020;
-        const TRANSIENT = 0x00000040;
-        const INPUT = 0x00000080;
+        const DEPTH = 0x00000020;
     }
 }
 
@@ -137,28 +133,12 @@ impl From<ImageUsage> for vk::ImageUsageFlags {
             result |= vk::ImageUsageFlags::TRANSFER_DST;
         }
 
-        if usage.contains(ImageUsage::SAMPLED) {
-            result |= vk::ImageUsageFlags::SAMPLED;
-        }
-
-        if usage.contains(ImageUsage::STORAGE) {
-            result |= vk::ImageUsageFlags::STORAGE;
-        }
-
         if usage.contains(ImageUsage::COLOR) {
             result |= vk::ImageUsageFlags::COLOR_ATTACHMENT;
         }
 
-        if usage.contains(ImageUsage::DEPTH_STENCIL) {
+        if usage.contains(ImageUsage::DEPTH) {
             result |= vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT;
-        }
-
-        if usage.contains(ImageUsage::TRANSIENT) {
-            result |= vk::ImageUsageFlags::TRANSIENT_ATTACHMENT;
-        }
-
-        if usage.contains(ImageUsage::INPUT) {
-            result |= vk::ImageUsageFlags::INPUT_ATTACHMENT;
         }
 
         result

@@ -1,6 +1,11 @@
 #extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 #extension GL_EXT_buffer_reference : require
+#extension GL_EXT_buffer_reference2 : require
+#extension GL_EXT_shader_image_load_formatted : require
+#extension GL_EXT_shader_image_int64 : require
+#extension GL_EXT_nonuniform_qualifier : require
+#extension GL_KHR_shader_subgroup_basic : require
 
 #define EPSILON 1e-2
 
@@ -38,9 +43,14 @@
 
 #define DEVICE_ADDRESS_BUFFER_BINDING 4
 #define SPECIAL_BUFFER_BINDING 3
+#define SPECIAL_IMAGE_BINDING 2
 
 struct BufferId {
 	u32 buffer_id_value;
+};
+
+struct ImageId {
+	u32 image_id_value;
 };
 
 layout(scalar, binding = DEVICE_ADDRESS_BUFFER_BINDING, set = 0) readonly buffer BufferDeviceAddressBuffer
@@ -48,39 +58,58 @@ layout(scalar, binding = DEVICE_ADDRESS_BUFFER_BINDING, set = 0) readonly buffer
     u64 addresses[];
 } buffer_device_address_buffer;
 
-#define DECL_BUFFER_STRUCT(NAME, BODY) 											\
-	struct NAME BODY; 												\
-	layout(scalar, binding = SPECIAL_BUFFER_BINDING, set = 0) buffer BufferTableObject##NAME { 			\
-		NAME value;												\
-	}														\
-	BufferTable##NAME [];												\
-	layout(scalar, binding = SPECIAL_BUFFER_BINDING, set = 0) buffer CoherentBufferTableBlock##NAME {		\
-		NAME value;												\
-	}														\
-	CoherentBufferTable##NAME []; 											\
-	layout(scalar, buffer_reference, buffer_reference_align = 4) buffer NAME##BufferRef BODY;			\
-	layout(scalar, buffer_reference, buffer_reference_align = 4) coherent buffer NAME##CoherentBufferRef BODY;	\
-	layout(scalar, buffer_reference, buffer_reference_align = 4) buffer NAME##WrappedBufferRef			\
-    	{														\
-        	NAME value; 												\
-    	};														\
-    	layout(scalar, buffer_reference, buffer_reference_align = 4) coherent buffer NAME##WrappedCoherentBufferRef	\
-    	{														\
-        	NAME value;												\
-    	};
+#define _buffer_reference_layout layout(buffer_reference, scalar, buffer_reference_align = 4)
+#define _storage_image_layout layout(binding = SPECIAL_IMAGE_BINDING, set = 0)
 
-#define USE_PUSH_CONSTANT(NAME)												\
-	layout(scalar, push_constant) uniform _PUSH_CONSTANT								\
-	{														\
-		NAME push_constant;											\
+#define decl_buffer(name, BODY) 																	\
+	_buffer_reference_layout buffer name##Buffer BODY;								
+
+#define _decl_image_kind(name, kind, type) 																\
+	_storage_image_layout uniform name ImageTable##kind##type[];														\
+	struct Image##kind##type																	\
+	{																				\
+		ImageId id;																	\
+	};														
+
+#define _decl_image_type(kind)																		\
+	_decl_image_kind(image##kind, kind, f32)															\
+	_decl_image_kind(uimage##kind, kind, u32)															\
+	_decl_image_kind(iimage##kind, kind, i32)															\
+
+_decl_image_type(1D)
+_decl_image_type(2D)
+_decl_image_type(3D)
+
+#define decl_push_constant(name)																	\
+	layout(scalar, push_constant) uniform _PUSH_CONSTANT														\
+	{																				\
+		name push_constant;																	\
 	};
 
-#define BufferRef(STRUCT_TYPE) STRUCT_TYPE##BufferRef
-#define WrappedBufferRef(STRUCT_TYPE) STRUCT_TYPE##WrappedBufferRef
-#define CoherentBufferRef(STRUCT_TYPE) STRUCT_TYPE##CoherentBufferRef
-#define WrappedCoherentBufferRef(STRUCT_TYPE) STRUCT_TYPE##WrappedCoherentBufferRef
+#define Buffer(name) name##Buffer
+#define Image(kind, type) Image##kind##type
 
-#define buffer_ref_to_address(buffer_reference) u64(buffer_reference)
-#define buffer_id_to_address(id) buffer_device_address_buffer.addresses[id.buffer_id_value]
-#define buffer_address_to_ref(STRUCT_TYPE, REFERENCE_TYPE, address) STRUCT_TYPE##REFERENCE_TYPE(address)
-#define buffer_id_to_ref(STRUCT_TYPE, REFERENCE_TYPE, id) buffer_address_to_ref(STRUCT_TYPE, REFERENCE_TYPE, buffer_id_to_address(id))
+#define get_buffer(name, id) name##Buffer(buffer_device_address_buffer.addresses[id.buffer_id_value])
+#define get_image(kind, type, id) Image##kind##type(id);
+
+#define _register_image_kind(kind, dim, type)                                                     						\
+    type##vec4 imageLoad(Image##kind##type image, i32vec##dim index)             				\
+    {                                                                                                                                                              	\
+        return imageLoad(ImageTable##kind##type[image.id.image_id_value], index);                                             				\
+    }                                                                                                                                                              	\
+    void imageStore(Image##kind##type image, i32vec##dim index, type##vec4 data) 				\
+    {                                                                                                                                                              	\
+        imageStore(ImageTable##kind##type[image.id.image_id_value], index, data);                                             				\
+    }                                                                                                                                                              	\
+    i32vec##dim imageSize(Image##kind##type image)                                                                             				\
+    {                                                                                                                                                             	\
+        return imageSize(ImageTable##kind##type[image.id.image_id_value]);                                                                          			\
+    }
+
+#define _register_image_types(kind, dim)                     \
+    _register_image_kind(kind, dim, f32)  \
+    _register_image_kind(kind, dim, i32) \
+    _register_image_kind(kind, dim, u32)
+
+_register_image_types(2D, 2)
+_register_image_types(3D, 3)

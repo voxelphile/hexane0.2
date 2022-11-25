@@ -1,44 +1,34 @@
 #define BUILD_BITSET_OCTREE_REGION_COUNT_MAX 8	
 #define U32_bits 32
 
-struct Bitset {
-	u32 len;
-	u32 data[100000000];
-};
-
-DECL_BUFFER_STRUCT(
-	BitsetBuffer,
+decl_buffer(
+	Bitset,
 	{
-		Bitset bitset;
+		u32 len;
+		u32 data[100000000];
 	}
 )
 
 struct BitsetQuery {
-	BufferId bitset_buffer_id;
+	BufferId bitset_id;
 	u32 size;
 	u32 bit_index;		
 };
 
 struct OctreeBitsetQuery {
-	BufferId bitset_buffer_id;
+	BufferId bitset_id;
 	u32 size;
 	f32vec3 position;
 };
 
-struct SetOctreeBit {
-	Octree src;
-	Bitset dst;
-	u32vec3 position;
-};
-
 bool query_bitset(inout BitsetQuery query) {
-	BufferRef(BitsetBuffer) bitset_buffer = buffer_id_to_ref(BitsetBuffer, BufferRef, query.bitset_buffer_id);
+	Buffer(Bitset) bitset = get_buffer(Bitset, query.bitset_id);
 	
-	if(bitset_buffer.bitset.len <= query.bit_index) {
+	if(bitset.len <= query.bit_index) {
 		return false;
 	}
 
-	return (bitset_buffer.bitset.data[query.bit_index / U32_bits] & (1 << query.bit_index % U32_bits)) != 0;
+	return (bitset.data[query.bit_index / U32_bits] & (1 << query.bit_index % U32_bits)) != 0;
 }
 
 bool query_octree_bitset(inout OctreeBitsetQuery query) {
@@ -48,7 +38,6 @@ bool query_octree_bitset(inout OctreeBitsetQuery query) {
 	u32vec3 position_cursor = u32vec3(floor(query.position));
 	
 	u32 bit_index = 0; 
-
 
 	for(u32 depth = 0; depth < query.size; depth++) {
 		size_cursor /= 2;
@@ -64,11 +53,12 @@ bool query_octree_bitset(inout OctreeBitsetQuery query) {
 
 	BitsetQuery subquery;
 
-	subquery.bitset_buffer_id = query.bitset_buffer_id;
+	subquery.bitset_id = query.bitset_id;
 	subquery.bit_index = bit_index;
 
 	return query_bitset(subquery);
 }
+
 /*
 bool set_octree_bit(in SetOctreeBit params) {
 	if(params.region_count > BUILD_BITSET_OCTREE_REGION_COUNT_MAX) {
