@@ -1,13 +1,11 @@
 #version 450
 
 #include "hexane.glsl"
-#include "octree.glsl"
+#include "world.glsl"
 #include "vertex.glsl"
 #include "transform.glsl"
 #include "bits.glsl"
 #include "raycast.glsl"
-
-#define CHUNK_SIZE 8
 
 #define VERTICES_PER_CUBE 6
 

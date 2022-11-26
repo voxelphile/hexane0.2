@@ -18,7 +18,7 @@ layout (local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 vec3 random_gradient(u32vec3 position) {
 	Image3Du32 noise_img = get_image(3D, u32, push_constant.noise_id);
 
-	u32vec2 random_numbers = u32vec2(imageLoad(noise_img, i32vec3(position)).r, imageLoad(noise_img, imageSize(noise_img) - i32vec3(position)).r);
+	u32vec2 random_numbers = u32vec2(imageLoad(noise_img, i32vec3(position)).rg);
 	
 	f32 alpha = f32(random_numbers.x) / f32(U32_MAX) * 3.14159265;
 	f32 beta = f32(random_numbers.y) / f32(U32_MAX) * 3.14159265;

@@ -20,13 +20,19 @@ void main() {
 
 	VoxelChange change;
 	change.world_id = push_constant.world_id;
-	change.id = u16(2);
+	change.id = u16(0);
 	change.position = f32vec3(gl_GlobalInvocationID);
 	
 	f32 noise_factor = f32(imageLoad(perlin_image, i32vec3(gl_GlobalInvocationID.x, 32, gl_GlobalInvocationID.z)).r) / f32(~0u);
 
-	if(gl_GlobalInvocationID.y > noise_factor * 32 + 64) {
-		change.id = u16(0);
+	f32 height = noise_factor * 32 + 64;
+
+	//dunno why this is bugged.. if this statement isnt made like this
+	//then grass spawns on chunk corners
+	if(gl_GlobalInvocationID.y > height - 1 && gl_GlobalInvocationID.y < height + 1 ) {
+		change.id = u16(2);
+	} else if(gl_GlobalInvocationID.y < height) {
+		change.id = u16(4);
 	}
 
 	voxel_change(change);

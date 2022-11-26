@@ -49,12 +49,11 @@ bool ray_cast(inout Ray ray, out RayHit hit) {
 			break;
 		}
 
-		OctreeBitsetQuery query;
+		HierarchyBitsetQuery query;
 		query.bitset_id = ray.bitset_id;
-		query.size = 10;
 		query.position = p;
 
-		bool voxel_found = query_octree_bitset(query);
+		bool voxel_found = query_hierarchical_bitset(query);
 
 		int lod = int(SIZE) - int(node_depth) - 1;
 

@@ -34,8 +34,8 @@ use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 const SMALL_SIZE: usize = 512;
 const REALLY_LARGE_SIZE: usize = 500_000_000;
 
-const CHUNK_SIZE: usize = 64;
-const AXIS_MAX_CHUNKS: usize = 8;
+const CHUNK_SIZE: usize = 128;
+const AXIS_MAX_CHUNKS: usize = 4;
 
 pub type Vertex = (f32, f32, f32);
 pub type Color = [f32; 4];
@@ -236,6 +236,13 @@ fn main() {
             ..default()
         })
         .expect("failed to create pipeline");
+    
+    let bitset_pipeline = pipeline_compiler
+        .create_compute_pipeline(ComputePipelineInfo {
+            shader: Shader(Compute, "build_bitset", &[]),
+            ..default()
+        })
+        .expect("failed to create pipeline");
 
     let vertex_pipeline = pipeline_compiler
         .create_compute_pipeline(ComputePipelineInfo {
@@ -285,7 +292,7 @@ fn main() {
             .create_image(ImageInfo {
                 extent: ImageExtent::ThreeDim(16, 16, 16),
                 usage: ImageUsage::TRANSFER_DST,
-                format: Format::R32Uint,
+                format: Format::Rg32Uint,
                 ..default()
             })
             .expect("failed to create depth image"),
@@ -706,6 +713,9 @@ fn main() {
                         pipeline_compiler
                             .refresh_compute_pipeline(&world_pipeline)
                             .unwrap();
+                        pipeline_compiler
+                            .refresh_compute_pipeline(&bitset_pipeline)
+                            .unwrap();
                     }
                     Escape => {
                         cursor_captured = false;
@@ -1032,6 +1042,35 @@ fn main() {
                         Ok(())
                     },
                 });
+               
+
+                executor.add(Task {
+                    resources: [
+                        Buffer(&chunk_buffer, BufferAccess::ComputeShaderReadOnly),
+                        Buffer(&bitset_buffer, BufferAccess::ComputeShaderReadWrite),
+                    ],
+                    task: |commands| {
+                        if update.get() {
+                            commands.set_pipeline(&bitset_pipeline)?;
+
+                            commands.push_constant(PushConstant {
+                                data: BuildBitsetPush {
+                                    chunk_buffer: (chunk_buffer)(),
+                                    bitset_buffer: (bitset_buffer)(),
+                                },
+                                pipeline: &bitset_pipeline,
+                            })?;
+
+                            const WORK_GROUP_SIZE: usize = 8;
+
+                            let size = (AXIS_MAX_CHUNKS * CHUNK_SIZE) / WORK_GROUP_SIZE;
+
+                            commands.dispatch(size, size, size)?;
+                            dbg!("yo132123");
+                        }
+                        Ok(())
+                    },
+                });
 
                 executor.add(Task {
                     resources: [
@@ -1204,6 +1243,12 @@ pub struct DrawPush {
 pub struct InputPush {
     pub info_buffer: Buffer,
     pub transform_buffer: Buffer,
+}
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct BuildBitsetPush {
+    pub chunk_buffer: Buffer,
+    pub bitset_buffer: Buffer,
 }
 #[derive(Clone, Copy)]
 #[repr(C)]
