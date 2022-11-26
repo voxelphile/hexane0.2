@@ -233,12 +233,12 @@ impl ops::FnMut<()> for Executable<'_> {
 
             let resources = resources.lock().unwrap();
 
-            let mut addresses = [0u64; DESCRIPTOR_COUNT as usize];
+            let mut addresses = vec![0u64; DESCRIPTOR_COUNT as usize];
 
             let mut descriptor_buffer_infos = vec![];
             let mut descriptor_image_infos = vec![];
 
-            for i in 0..DESCRIPTOR_COUNT as usize {
+            for i in 0..resources.buffers.count() as usize {
                 if let Some(internal_buffer) = resources.buffers.get((i as u32).into()) {
                     let buffer_device_address_info = vk::BufferDeviceAddressInfo {
                         buffer: internal_buffer.buffer,
@@ -262,7 +262,9 @@ impl ops::FnMut<()> for Executable<'_> {
                         ..default()
                     });
                 }
-
+            }
+           
+            for i in 0..resources.images.count() as usize {
                 if let Some(internal_image) = resources.images.get((i as u32).into()) {
                     if internal_image.get_format() == Format::D32Sfloat {
                         descriptor_image_infos.push(vk::DescriptorImageInfo { ..default() });
@@ -272,6 +274,7 @@ impl ops::FnMut<()> for Executable<'_> {
                         descriptor_image_infos.push(vk::DescriptorImageInfo { ..default() });
                         continue;
                     }
+
                     descriptor_image_infos.push(vk::DescriptorImageInfo {
                         image_view: internal_image.get_image_view(),
                         image_layout: vk::ImageLayout::GENERAL,
@@ -443,7 +446,7 @@ impl ops::FnMut<()> for Executable<'_> {
             };
 
             for barrier in barriers {
-                commands.pipeline_barrier(barrier);
+                commands.pipeline_barrier(barrier).unwrap();
             }
 
             (node.task)(&mut commands).unwrap();

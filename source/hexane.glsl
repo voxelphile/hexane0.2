@@ -3,6 +3,8 @@
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_buffer_reference2 : require
 #extension GL_EXT_shader_image_load_formatted : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int16 : require
+#extension GL_EXT_shader_16bit_storage : require
 #extension GL_EXT_shader_image_int64 : require
 #extension GL_EXT_nonuniform_qualifier : require
 #extension GL_KHR_shader_subgroup_basic : require
@@ -13,6 +15,8 @@
 #define i32 int
 #define u32 uint
 #define f32 float
+#define u16 uint16_t
+#define i16 int16_t
 
 #define b32vec2 bvec2
 #define b32vec3 bvec3
@@ -75,6 +79,8 @@ layout(scalar, binding = DEVICE_ADDRESS_BUFFER_BINDING, set = 0) readonly buffer
 	_decl_image_kind(image##kind, kind, f32)															\
 	_decl_image_kind(uimage##kind, kind, u32)															\
 	_decl_image_kind(iimage##kind, kind, i32)															\
+	_decl_image_kind(uimage##kind, kind, u16)															\
+	_decl_image_kind(iimage##kind, kind, i16)
 
 _decl_image_type(1D)
 _decl_image_type(2D)
@@ -106,10 +112,26 @@ _decl_image_type(3D)
         return imageSize(ImageTable##kind##type[image.id.image_id_value]);                                                                          			\
     }
 
+#define _register_image_kind2(kind, dim, type1, type2)                                                     						\
+    type1##vec4 imageLoad(Image##kind##type2 image, i32vec##dim index)             				\
+    {                                                                                                                                                              	\
+        return imageLoad(ImageTable##kind##type2[image.id.image_id_value], index);                                             				\
+    }                                                                                                                                                              	\
+    void imageStore(Image##kind##type2 image, i32vec##dim index, type1##vec4 data) 				\
+    {                                                                                                                                                              	\
+        imageStore(ImageTable##kind##type2[image.id.image_id_value], index, data);                                             				\
+    }                                                                                                                                                              	\
+    i32vec##dim imageSize(Image##kind##type2 image)                                                                             				\
+    {                                                                                                                                                             	\
+        return imageSize(ImageTable##kind##type2[image.id.image_id_value]);                                                                          			\
+    }
+
 #define _register_image_types(kind, dim)                     \
     _register_image_kind(kind, dim, f32)  \
     _register_image_kind(kind, dim, i32) \
-    _register_image_kind(kind, dim, u32)
+    _register_image_kind(kind, dim, u32) \
+    _register_image_kind2(kind, dim, i32, i16) \
+    _register_image_kind2(kind, dim, u32, u16)
 
 _register_image_types(2D, 2)
 _register_image_types(3D, 3)

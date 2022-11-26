@@ -41,7 +41,7 @@ void main() {
 	Image3Du32 perlin_img = get_image(3D, u32, push_constant.perlin_id);
 	Image3Du32 noise_img = get_image(3D, u32, push_constant.noise_id);
 
-	if(any(greaterThan(gl_GlobalInvocationID, imageSize(perlin_img)))) {
+	if(any(greaterThanEqual(gl_GlobalInvocationID, imageSize(perlin_img)))) {
 		return;	
 	}
 

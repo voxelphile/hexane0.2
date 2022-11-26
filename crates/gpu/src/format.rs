@@ -7,6 +7,7 @@ pub enum Format {
     #[default]
     Undefined,
     R32Uint,
+    R16Uint,
     Rgba8Uint,
     Rgb32Uint,
     Rgba8Unorm,
@@ -34,6 +35,7 @@ impl TryFrom<vk::Format> for Format {
         Ok(match format {
             vk::Format::UNDEFINED => Undefined,
             vk::Format::R32_UINT => R32Uint,
+            vk::Format::R16_UINT => R32Uint,
             vk::Format::R8G8B8A8_UINT => Rgba8Uint,
             vk::Format::R32G32B32_UINT => Rgb32Uint,
             vk::Format::R8G8B8A8_UNORM => Rgba8Unorm,
@@ -53,6 +55,7 @@ impl From<Format> for vk::Format {
         match format {
             Undefined => Self::UNDEFINED,
             R32Uint => Self::R32_UINT,
+            R16Uint => Self::R16_UINT,
             Rgb32Uint => Self::R32G32B32_UINT,
             Rgba8Uint => Self::R8G8B8A8_UINT,
             Rgba8Unorm => Self::R8G8B8A8_UNORM,

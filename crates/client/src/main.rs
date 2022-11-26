@@ -14,6 +14,7 @@ use gpu::prelude::*;
 use math::prelude::*;
 
 use std::cell::Cell;
+use std::cmp;
 use std::default::default;
 use std::env;
 use std::mem;
@@ -31,10 +32,10 @@ use winit::{
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 
 const SMALL_SIZE: usize = 512;
-const REALLY_LARGE_SIZE: usize = 750_000_000;
-const SUPER_LARGE_SIZE: usize = 4_000_000_000;
+const REALLY_LARGE_SIZE: usize = 500_000_000;
 
-const WORLD_SIZE: usize = 128;
+const CHUNK_SIZE: usize = 64;
+const AXIS_MAX_CHUNKS: usize = 8;
 
 pub type Vertex = (f32, f32, f32);
 pub type Color = [f32; 4];
@@ -71,7 +72,7 @@ fn root_path() -> Option<path::PathBuf> {
 fn main() {
     println!("Hello, world!");
 
-    tracy_client::Client::start();
+    //tracy_client::Client::start();
     profiling::register_thread!("main");
 
     let mut event_loop = EventLoop::new();
@@ -88,61 +89,71 @@ fn main() {
     let mut resolution = Cell::new(window.inner_size().into());
 
     let (width, height) = resolution.get();
+    /*
+        use common::mesh::*;
+        use common::octree::*;
+        use common::voxel::*;
+        use math::prelude::*;
 
-    use common::mesh::*;
-    use common::octree::*;
-    use common::voxel::*;
-    use math::prelude::*;
+        use noise::{NoiseFn, Perlin, Seedable};
 
-    use noise::{NoiseFn, Perlin, Seedable};
+        use rand::Rng;
 
-    use rand::Rng;
+        let mut rng = rand::thread_rng();
 
-    let mut rng = rand::thread_rng();
+        let perlin = Perlin::new(420);
 
-    let perlin = Perlin::new(420);
+        let mut octree = SparseOctree::<Voxel>::new();
 
-    let mut octree = SparseOctree::<Voxel>::new();
+        for x in 0..WORLD_SIZE {
+            for z in 0..WORLD_SIZE {
+                const BASE_HEIGHT: usize = 64;
+                const VARIATION_HEIGHT: usize = 10;
 
-    for x in 0..WORLD_SIZE {
-        for z in 0..WORLD_SIZE {
-            const BASE_HEIGHT: usize = 64;
-            const VARIATION_HEIGHT: usize = 10;
+                let mut height = BASE_HEIGHT as isize;
 
-            let mut height = BASE_HEIGHT as isize;
+                const OCTAVES: usize = 4;
+                const SAMPLE_BASIS: f64 = 128.0;
 
-            const OCTAVES: usize = 4;
-            const SAMPLE_BASIS: f64 = 128.0;
+                for i in 1..=OCTAVES {
+                    let sample_x = x as f64 / (SAMPLE_BASIS / i as f64);
+                    let sample_z = z as f64 / (SAMPLE_BASIS / i as f64);
 
-            for i in 1..=OCTAVES {
-                let sample_x = x as f64 / (SAMPLE_BASIS / i as f64);
-                let sample_z = z as f64 / (SAMPLE_BASIS / i as f64);
+                    let diff = (perlin.get([sample_x, 0.0, sample_z])
+                        * (VARIATION_HEIGHT as f64 / i as f64)) as isize;
 
-                let diff = (perlin.get([sample_x, 0.0, sample_z])
-                    * (VARIATION_HEIGHT as f64 / i as f64)) as isize;
+                    height += diff;
+                }
 
-                height += diff;
-            }
+                let height = height as usize;
 
-            let height = height as usize;
-
-            for y in 0..height {
-                if y == height - 1 {
-                    octree.place(Vector::new([x, y, z]), Voxel { id: Id::Grass });
-                } else {
-                    octree.place(Vector::new([x, y, z]), Voxel { id: Id::Dirt });
+                for y in 0..height {
+                    if y == height - 1 {
+                        octree.place(Vector::new([x, y, z]), Voxel { id: Id::Grass });
+                    } else {
+                        octree.place(Vector::new([x, y, z]), Voxel { id: Id::Dirt });
+                    }
                 }
             }
+            if x % 100 == 0 {
+                octree.optimize();
+            }
         }
-        if x % 100 == 0 {
-            octree.optimize();
-        }
-    }
-    octree.optimize();
+        octree.optimize();
 
-    println!("Finished world generation.");
-    /*
-        let mesh: Mesh = octree.convert(Conversion {
+        println!("Finished world generation.");
+        /*
+            let mesh: Mesh = octree.convert(Conversion {
+                regions: [Region {
+                    start: Vector::new([0, 0, 0]),
+                    end: Vector::new([WORLD_SIZE, 128, WORLD_SIZE]),
+                }],
+                lod: 1,
+            });
+
+            println!("Finished mesh generation.");
+        */
+        let bitset: Bitset = octree.convert(Conversion {
             regions: [Region {
                 start: Vector::new([0, 0, 0]),
                 end: Vector::new([WORLD_SIZE, 128, WORLD_SIZE]),
@@ -150,20 +161,10 @@ fn main() {
             lod: 1,
         });
 
-        println!("Finished mesh generation.");
+        dbg!(bitset.data().len() * mem::size_of::<u32>());
+
+        println!("Finished bitset generation.");
     */
-    let bitset: Bitset = octree.convert(Conversion {
-        regions: [Region {
-            start: Vector::new([0, 0, 0]),
-            end: Vector::new([WORLD_SIZE, 128, WORLD_SIZE]),
-        }],
-        lod: 1,
-    });
-
-    dbg!(bitset.data().len() * mem::size_of::<u32>());
-
-    println!("Finished bitset generation.");
-
     let root_path = root_path().expect("failed to get root path");
 
     let source_path = root_path.join("source");
@@ -208,7 +209,7 @@ fn main() {
 
     let draw_pipeline = pipeline_compiler
         .create_graphics_pipeline(GraphicsPipelineInfo {
-            shaders: [Shader(Vertex, "voxel", &[]), Shader(Fragment, "voxel", &[])],
+            shaders: [Shader(Vertex, "render_voxel", &[]), Shader(Fragment, "render_voxel", &[])],
             color: [gpu::prelude::Color {
                 format: device.presentation_format(swapchain.get()).unwrap(),
                 ..default()
@@ -229,20 +230,27 @@ fn main() {
         })
         .expect("failed to create pipeline");
 
+    let world_pipeline = pipeline_compiler
+        .create_compute_pipeline(ComputePipelineInfo {
+            shader: Shader(Compute, "build_world", &[]),
+            ..default()
+        })
+        .expect("failed to create pipeline");
+
     let vertex_pipeline = pipeline_compiler
         .create_compute_pipeline(ComputePipelineInfo {
             shader: Shader(Compute, "build_mesh", &[]),
             ..default()
         })
         .expect("failed to create pipeline");
-    
+
     let noise_pipeline = pipeline_compiler
         .create_compute_pipeline(ComputePipelineInfo {
             shader: Shader(Compute, "build_noise", &[]),
             ..default()
         })
         .expect("failed to create pipeline");
-    
+
     let perlin_pipeline = pipeline_compiler
         .create_compute_pipeline(ComputePipelineInfo {
             shader: Shader(Compute, "build_perlin", &[]),
@@ -275,16 +283,16 @@ fn main() {
     let mut noise_img = Cell::new(
         device
             .create_image(ImageInfo {
-                extent: ImageExtent::ThreeDim(128, 128, 128),
+                extent: ImageExtent::ThreeDim(16, 16, 16),
                 usage: ImageUsage::TRANSFER_DST,
                 format: Format::R32Uint,
                 ..default()
             })
             .expect("failed to create depth image"),
     );
-    
+
     let mut perlin_img = Cell::new(
-            device
+        device
             .create_image(ImageInfo {
                 extent: ImageExtent::ThreeDim(512, 512, 512),
                 usage: ImageUsage::TRANSFER_DST,
@@ -293,7 +301,24 @@ fn main() {
             })
             .expect("failed to create depth image"),
     );
-    
+
+    let mut chunk_images = vec![];
+
+    let chunk_len = AXIS_MAX_CHUNKS.pow(3);
+
+    for _ in 0..chunk_len {
+    chunk_images.push(
+        device
+            .create_image(ImageInfo {
+                extent: ImageExtent::ThreeDim(CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE),
+                usage: ImageUsage::TRANSFER_DST,
+                format: Format::R16Uint,
+                ..default()
+            })
+            .expect("failed to create depth image")
+    );
+    }
+
     let general_staging_buffer = device
         .create_buffer(BufferInfo {
             size: REALLY_LARGE_SIZE,
@@ -312,27 +337,27 @@ fn main() {
         })
         .expect("failed to create buffer");
 
-    let octree_staging_buffer = device
-        .create_buffer(BufferInfo {
-            size: 2 * REALLY_LARGE_SIZE,
-            memory: Memory::HOST_ACCESS,
-            debug_name: "Staging Buffer",
-            ..default()
-        })
-        .expect("failed to create buffer");
-
-    let bitset_staging_buffer = device
+    let chunk_staging_buffer = device
         .create_buffer(BufferInfo {
             size: REALLY_LARGE_SIZE,
             memory: Memory::HOST_ACCESS,
-            debug_name: "Staging Buffer",
+            debug_name: "General Buffer",
             ..default()
         })
         .expect("failed to create buffer");
-
+    /*
+        let bitset_staging_buffer = device
+            .create_buffer(BufferInfo {
+                size: REALLY_LARGE_SIZE,
+                memory: Memory::HOST_ACCESS,
+                debug_name: "Staging Buffer",
+                ..default()
+            })
+            .expect("failed to create buffer");
+    */
     let noise_staging_buffer = device
         .create_buffer(BufferInfo {
-            size: REALLY_LARGE_SIZE,
+            size: 100000,
             memory: Memory::HOST_ACCESS,
             debug_name: "Staging Buffer",
             ..default()
@@ -346,22 +371,22 @@ fn main() {
             ..default()
         })
         .expect("failed to create buffer");
-
-    let octree_buffer = device
+    
+    let chunk_buffer = device
         .create_buffer(BufferInfo {
-            size: 2 * REALLY_LARGE_SIZE,
+            size: REALLY_LARGE_SIZE,
             debug_name: "General Buffer",
             ..default()
         })
         .expect("failed to create buffer");
 
     let mersenne_buffer = device
-    .create_buffer(BufferInfo {
-        size: REALLY_LARGE_SIZE,
-        debug_name: "General Buffer",
-        ..default()
-    })
-    .expect("failed to create buffer");
+        .create_buffer(BufferInfo {
+            size: 100000,
+            debug_name: "General Buffer",
+            ..default()
+        })
+        .expect("failed to create buffer");
 
     let transform_buffer = device
         .create_buffer(BufferInfo {
@@ -427,17 +452,7 @@ fn main() {
         fov: 90.0 * std::f32::consts::PI / 360.0,
         clip: (0.001, 500.0),
         aspect_ratio: width as f32 / height as f32,
-        position: Vector::new([WORLD_SIZE as f32 / 2.0, 100.0, (WORLD_SIZE as f32) / 2.0]),
-        rotation: default(),
-    });
-
-    let mut light_camera = Cell::new(Camera::Orthographic {
-        left: -50.0,
-        right: 50.0,
-        top: 50.0,
-        bottom: -50.0,
-        clip: (0.1, 1000.0),
-        position: Vector::new([WORLD_SIZE as f32 / 2.0, 100.0, (WORLD_SIZE as f32) / 2.0]),
+        position: Vector::new([(AXIS_MAX_CHUNKS * CHUNK_SIZE) as f32 / 2.0, 100.0, ((AXIS_MAX_CHUNKS * CHUNK_SIZE) as f32) / 2.0]),
         rotation: default(),
     });
 
@@ -450,18 +465,18 @@ fn main() {
     let info = Cell::new(Info::default());
 
     let update = Cell::new(true);
+    let build = Cell::new(true);
 
     let vertex_buffer = || vertex_buffer;
-    let octree_buffer = || octree_buffer;
     let mersenne_buffer = || mersenne_buffer;
     let transform_buffer = || transform_buffer;
     let bitset_buffer = || bitset_buffer;
     let info_buffer = || info_buffer;
     let camera_buffer = || camera_buffer;
+    let chunk_buffer = || chunk_buffer;
     let general_staging_buffer = || general_staging_buffer;
     let vertex_staging_buffer = || vertex_staging_buffer;
-    let octree_staging_buffer = || octree_staging_buffer;
-    let bitset_staging_buffer = || bitset_staging_buffer;
+    let chunk_staging_buffer = || chunk_staging_buffer;
     let noise_staging_buffer = || noise_staging_buffer;
     let depth_image = || depth_img.get();
     let noise_image = || noise_img.get();
@@ -688,6 +703,9 @@ fn main() {
                         pipeline_compiler
                             .refresh_compute_pipeline(&perlin_pipeline)
                             .unwrap();
+                        pipeline_compiler
+                            .refresh_compute_pipeline(&world_pipeline)
+                            .unwrap();
                     }
                     Escape => {
                         cursor_captured = false;
@@ -833,10 +851,10 @@ fn main() {
                         Ok(())
                     },
                 });
-
+                
                 executor.add(Task {
                     resources: [Buffer(
-                        &octree_staging_buffer,
+                        &chunk_staging_buffer,
                         BufferAccess::HostTransferWrite,
                     )],
                     task: |commands| {
@@ -844,19 +862,7 @@ fn main() {
                             commands.write_buffer(BufferWrite {
                                 buffer: 0,
                                 offset: 0,
-                                src: &[octree.size() as u32],
-                            })?;
-
-                            commands.write_buffer(BufferWrite {
-                                buffer: 0,
-                                offset: mem::size_of::<u32>(),
-                                src: &[octree.nodes().len() as u32],
-                            })?;
-
-                            commands.write_buffer(BufferWrite {
-                                buffer: 0,
-                                offset: 2 * mem::size_of::<u32>(),
-                                src: &octree.nodes(),
+                                src: &chunk_images,
                             })?;
                         }
 
@@ -866,51 +872,8 @@ fn main() {
 
                 executor.add(Task {
                     resources: [
-                        Buffer(&octree_staging_buffer, BufferAccess::TransferRead),
-                        Buffer(&octree_buffer, BufferAccess::TransferWrite),
-                    ],
-                    task: |commands| {
-                        if update.get() {
-                            commands.copy_buffer_to_buffer(BufferCopy {
-                                from: 0,
-                                to: 1,
-                                src: 0,
-                                dst: 0,
-                                size: REALLY_LARGE_SIZE * 2,
-                            })?;
-                        }
-                        Ok(())
-                    },
-                });
-
-                executor.add(Task {
-                    resources: [Buffer(
-                        &bitset_staging_buffer,
-                        BufferAccess::HostTransferWrite,
-                    )],
-                    task: |commands| {
-                        if update.get() {
-                            commands.write_buffer(BufferWrite {
-                                buffer: 0,
-                                offset: 0,
-                                src: &[bitset.len() as u32],
-                            })?;
-
-                            commands.write_buffer(BufferWrite {
-                                buffer: 0,
-                                offset: mem::size_of::<u32>(),
-                                src: &bitset.data(),
-                            })?;
-                        }
-
-                        Ok(())
-                    },
-                });
-
-                executor.add(Task {
-                    resources: [
-                        Buffer(&bitset_staging_buffer, BufferAccess::TransferRead),
-                        Buffer(&bitset_buffer, BufferAccess::TransferWrite),
+                        Buffer(&chunk_staging_buffer, BufferAccess::TransferRead),
+                        Buffer(&chunk_buffer, BufferAccess::TransferWrite),
                     ],
                     task: |commands| {
                         if update.get() {
@@ -936,7 +899,7 @@ fn main() {
                             const W: u32 = 32;
                             const N: u32 = 642;
 
-                            const F: u32 = 1812433253; 
+                            const F: u32 = 1812433253;
 
                             let index = N;
                             let mut mt = vec![];
@@ -949,7 +912,7 @@ fn main() {
                             commands.write_buffer(BufferWrite {
                                 buffer: 0,
                                 offset: 0,
-                                src: &[index], 
+                                src: &[index],
                             })?;
 
                             commands.write_buffer(BufferWrite {
@@ -957,6 +920,7 @@ fn main() {
                                 offset: mem::size_of::<u32>(),
                                 src: &mt,
                             })?;
+                            dbg!(mt.len());
                         }
 
                         Ok(())
@@ -975,13 +939,13 @@ fn main() {
                                 to: 1,
                                 src: 0,
                                 dst: 0,
-                                size: REALLY_LARGE_SIZE,
+                                size: 100000,
                             })?;
                         }
                         Ok(())
                     },
                 });
-                
+
                 executor.add(Task {
                     resources: [
                         Buffer(&mersenne_buffer, BufferAccess::ComputeShaderReadWrite),
@@ -1011,7 +975,7 @@ fn main() {
                         Ok(())
                     },
                 });
-                
+
                 executor.add(Task {
                     resources: [
                         Image(&noise_image, ImageAccess::ComputeShaderReadWrite),
@@ -1029,12 +993,12 @@ fn main() {
                                 pipeline: &perlin_pipeline,
                             })?;
 
-                            let size = WORLD_SIZE;
+                            let size = AXIS_MAX_CHUNKS * CHUNK_SIZE;
 
                             const WORK_GROUP_SIZE: usize = 8;
 
                             let dispatch_size =
-                                (size as f64 / WORK_GROUP_SIZE as f64).ceil() as usize;
+                                (2048 as f64 / WORK_GROUP_SIZE as f64).ceil() as usize;
 
                             commands.dispatch(dispatch_size, dispatch_size, dispatch_size)?;
                         }
@@ -1044,7 +1008,34 @@ fn main() {
 
                 executor.add(Task {
                     resources: [
-                        Buffer(&octree_buffer, BufferAccess::ComputeShaderReadOnly),
+                        Buffer(&chunk_buffer, BufferAccess::ComputeShaderReadWrite),
+                        Image(&perlin_image, ImageAccess::ComputeShaderReadWrite)
+                    ],
+                    task: |commands| {
+                        if update.get() {
+                            commands.set_pipeline(&world_pipeline)?;
+
+                            commands.push_constant(PushConstant {
+                                data: BuildWorldPush {
+                                    perlin_image: (perlin_image)(),
+                                    chunk_buffer: (chunk_buffer)(),
+                                },
+                                pipeline: &world_pipeline,
+                            })?;
+
+                            const WORK_GROUP_SIZE: usize = 8;
+
+                            let size = (AXIS_MAX_CHUNKS * CHUNK_SIZE) / WORK_GROUP_SIZE;
+
+                            commands.dispatch(size, size, size)?;
+                        }
+                        Ok(())
+                    },
+                });
+
+                executor.add(Task {
+                    resources: [
+                        Buffer(&chunk_buffer, BufferAccess::ComputeShaderReadOnly),
                         Buffer(&vertex_buffer, BufferAccess::ComputeShaderReadWrite),
                         Image(&perlin_image, ImageAccess::ComputeShaderReadWrite),
                     ],
@@ -1054,14 +1045,12 @@ fn main() {
 
                             commands.push_constant(PushConstant {
                                 data: BuildMeshPush {
+                                    chunk_buffer: (chunk_buffer)(),
                                     vertex_buffer: (vertex_buffer)(),
-                                    octree_buffer: (octree_buffer)(),
                                     perlin_image: (perlin_image)(),
                                 },
                                 pipeline: &vertex_pipeline,
                             })?;
-
-                            let size = 2usize.pow(octree.size() as u32) as usize;
 
                             const WORK_GROUP_SIZE: usize = 8;
 
@@ -1070,6 +1059,7 @@ fn main() {
 
                             commands.dispatch(dispatch_size, dispatch_size, dispatch_size)?;
                             update.set(false);
+                            build.set(false);
                         }
                         Ok(())
                     },
@@ -1217,8 +1207,14 @@ pub struct InputPush {
 }
 #[derive(Clone, Copy)]
 #[repr(C)]
+pub struct BuildWorldPush {
+    pub chunk_buffer: Buffer,
+    pub perlin_image: Image,
+}
+#[derive(Clone, Copy)]
+#[repr(C)]
 pub struct BuildMeshPush {
-    pub octree_buffer: Buffer,
+    pub chunk_buffer: Buffer,
     pub vertex_buffer: Buffer,
     pub perlin_image: Image,
 }

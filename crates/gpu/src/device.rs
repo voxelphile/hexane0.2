@@ -76,6 +76,10 @@ impl<T, U: Into<u32> + From<u32> + Copy> DeviceResource<T, U> {
         .into()
     }
 
+    pub fn count(&self) -> usize {
+        self.reprs.len()
+    }
+
     pub fn get(&self, handle: U) -> Option<&'_ T> {
         if let Some(repr) = self.reprs.get(handle.into() as usize) {
             return repr.as_ref();

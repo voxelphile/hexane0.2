@@ -16,10 +16,14 @@ layout (local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 
 void main() {
 	Image3Du32 noise_img = get_image(3D, u32, push_constant.noise_id);
+	
+	if(any(greaterThanEqual(gl_GlobalInvocationID, imageSize(noise_img)))) {
+		return;	
+	}
 
 	u32 value = random(push_constant.mersenne_id);
 
-	imageStore(noise_img, i32vec3(gl_GlobalInvocationID), u32vec4(value, 0, 0, 0));
+	imageStore(noise_img, i32vec3(gl_GlobalInvocationID), u32vec4(value));
 }
 
 #endif

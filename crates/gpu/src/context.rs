@@ -24,7 +24,7 @@ pub(crate) const SPECIAL_IMAGE_BINDING: u32 = 2;
 pub(crate) const SPECIAL_BUFFER_BINDING: u32 = 3;
 pub(crate) const DEVICE_ADDRESS_BUFFER_BINDING: u32 = 4;
 
-pub(crate) const DESCRIPTOR_COUNT: u32 = 64;
+pub(crate) const DESCRIPTOR_COUNT: u32 = 1_000_000;
 
 unsafe extern "system" fn debug_callback(
     message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
@@ -295,7 +295,7 @@ impl Context {
             vk::PhysicalDeviceRobustness2FeaturesEXT {
                 p_next,
                 null_descriptor: true as _,
-            ..default()
+                ..default()
             }
         };
 
@@ -361,6 +361,7 @@ impl Context {
             vk::PhysicalDeviceFeatures2 {
                 p_next,
                 features: vk::PhysicalDeviceFeatures {
+                    shader_int16: true as _,
                     shader_int64: true as _,
                     ..info.features.into()
                 },

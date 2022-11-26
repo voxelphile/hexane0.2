@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [profile.release]
-debug = 1
+debug = true
 
 [dependencies]
 gpu = { path = "../gpu" }
@@ -12,8 +12,8 @@ math = { path = "../math" }
 common = { path = "../common" }
 
 rand = "*"
-profiling = { version = "*", features = ["profile-with-tracy"] }
-tracy-client = "*"
+profiling = { version = "*" }
+#tracy-client = "*"
 noise = "*"
 winit = "*"
 raw-window-handle = "0.5.0"
