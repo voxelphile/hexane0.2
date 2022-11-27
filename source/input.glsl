@@ -68,7 +68,7 @@ void main() {
 	EntityInput entity_input = info.entity_input;
 
 	if(!transform.first){
-		transform.position.xyz = vec3(32, 200, 32);
+		transform.position.xyz = vec3(512, 160, 512);
 		transform.velocity.xyz = vec3(0);
 		transform.rotation.xyz = vec3(-3.14 / 2.0 + 0.1, 0, 0);
 		transform.jumping = false;
@@ -78,7 +78,7 @@ void main() {
 		transform.velocity.xyz = vec3(0);
 	}
 	
-	f32 sens = 3.14 / 4;
+	f32 sens = 3.14 / 2;
 
 	transform.rotation.xy -= (entity_input.look.yx * delta_time) * sens;
 

@@ -5,6 +5,7 @@
 #include "vertex.glsl"
 #include "transform.glsl"
 #include "bits.glsl"
+#include "voxel.glsl"
 #include "raycast.glsl"
 
 #define VERTICES_PER_CUBE 6
@@ -14,7 +15,7 @@ struct DrawPush {
 	BufferId camera_id;
 	BufferId vertex_id;
 	BufferId transform_id;
-	BufferId bitset_id;
+	BufferId world_id;
 };
 
 decl_push_constant(DrawPush)
@@ -40,10 +41,11 @@ decl_buffer(
 )
 
 layout(location = 0) out vec4 position;
-layout(location = 1) flat out i32vec4 normal;
-layout(location = 2) flat out vec4 color;
-layout(location = 3) flat out vec4 ambient;
-layout(location = 4) out vec4 uv;
+layout(location = 1) out vec4 eye_position;
+layout(location = 2) flat out i32vec4 normal;
+layout(location = 3) flat out vec4 color;
+layout(location = 4) flat out vec4 ambient;
+layout(location = 5) out vec4 uv;
 
 void main() {
 	Buffer(Camera) camera = get_buffer(Camera, push_constant.camera_id);
@@ -112,7 +114,8 @@ void main() {
 	
 	Transform transform = transforms.transform;
 			
-	gl_Position = camera.projection * inverse(compute_transform_matrix(transform)) * position;
+	eye_position = inverse(compute_transform_matrix(transform)) * position;
+	gl_Position =  camera.projection * eye_position;
 }
 
 #elif defined fragment
@@ -121,19 +124,24 @@ void main() {
 #define SHOW_RGB_STRIATION false
 #define SHOW_NORMALS false
 #define SHOW_AO true
+#define SHOW_FOG true
+#define SHOW_DOF true
 
 layout(location = 0) in vec4 position;
-layout(location = 1) flat in i32vec4 normal;
-layout(location = 2) flat in vec4 color;
-layout(location = 3) flat in vec4 ambient;
-layout(location = 4) in vec4 uv;
+layout(location = 1) in vec4 eye_position;
+layout(location = 2) flat in i32vec4 normal;
+layout(location = 3) flat in vec4 color;
+layout(location = 4) flat in vec4 ambient;
+layout(location = 5) in vec4 uv;
 
 layout(location = 0) out vec4 result;
 
 void main() {
-    	result = color;
-	
-	Buffer(Bitset) bitset = get_buffer(Bitset, push_constant.bitset_id);
+	Buffer(Transforms) transforms = get_buffer(Transforms, push_constant.transform_id);
+    	
+	result = color;
+		
+	float dist = abs(eye_position.z / eye_position.w);
 	
 	float ao = 0;
 
@@ -142,10 +150,10 @@ void main() {
 	vec3 sun_position = vec3(1000, 2000, 100);
 	
 	Ray ray;
-	ray.bitset_id = push_constant.bitset_id;
-	ray.origin = position.xyz + normal.xyz * EPSILON * EPSILON;
+	ray.world_id = push_constant.world_id;
+	ray.origin = position.xyz + normal.xyz * 1e-3;
 	ray.direction = normalize(sun_position - ray.origin);
-	ray.max_distance = 5;
+	ray.max_distance = 2;
 
 	RayHit ray_hit;
 
@@ -174,6 +182,18 @@ void main() {
 
 	if(success) {
 		result.xyz *= 0.5;
+	}
+
+	if(SHOW_FOG) {
+		vec4 fog_color = vec4(0.1, 0.4, 0.8, 1.0); 
+		
+		float fog_density = 0.005;
+
+		float fog_factor = exp(-pow(fog_density * dist, 4.0));
+
+		fog_factor = 1.0 - clamp(fog_factor, 0.0, 1.0);
+
+		result = mix(result, fog_color, fog_factor);
 	}
 }
 

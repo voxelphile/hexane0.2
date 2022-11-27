@@ -361,6 +361,7 @@ impl Context {
             vk::PhysicalDeviceFeatures2 {
                 p_next,
                 features: vk::PhysicalDeviceFeatures {
+                    fragment_stores_and_atomics: true as _,
                     shader_int16: true as _,
                     shader_int64: true as _,
                     ..info.features.into()

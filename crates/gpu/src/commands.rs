@@ -578,9 +578,9 @@ impl Commands<'_> {
 
         let resources = resources.lock().unwrap();
 
-        let mut color_rendering_attachment_infos = vec![];
+        let mut color_rendering_attachment_infos =  [default(); N];
 
-        for color in color {
+        for (i, color) in color.iter().enumerate() {
             let Qualifier::Image(color_handle, _) = qualifiers.get(color.image).ok_or(Error::InvalidResource)? else {
                 Err(Error::InvalidResource)?
             };
@@ -601,14 +601,14 @@ impl Commands<'_> {
                 },
             };
 
-            color_rendering_attachment_infos.push(vk::RenderingAttachmentInfoKHR {
+            color_rendering_attachment_infos[i] = vk::RenderingAttachmentInfoKHR {
                 image_view,
                 image_layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
                 load_op: color.load_op.into(),
                 store_op: vk::AttachmentStoreOp::STORE,
                 clear_value,
                 ..default()
-            });
+            };
         }
 
         let depth_rendering_attachment_info = if let Some(depth) = depth {
@@ -662,7 +662,7 @@ impl Commands<'_> {
 
             let color_attachment_count = color_rendering_attachment_infos.len() as _;
 
-            let p_color_attachments = color_rendering_attachment_infos.as_ptr() as *const _;
+            let p_color_attachments = color_rendering_attachment_infos.as_ptr();
 
             let p_depth_attachment = depth_rendering_attachment_info
                 .as_ref()

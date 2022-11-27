@@ -22,11 +22,11 @@ void main() {
 	query.position = f32vec3(gl_GlobalInvocationID);
 
 	if(voxel_query(query)) {
-		SetHierarchyBit set;
+		BitsetSet set;
 		set.bitset_id = push_constant.bitset_id;
 		set.position = query.position;
 
-		set_hierarchy_bit(set);
+		bitset_set(set);
 	}
 }
 

@@ -1,8 +1,7 @@
 #define MAX_STEP_COUNT 512
-#define SIZE 10
 
 struct Ray {
-	BufferId bitset_id;
+	BufferId world_id;
 	vec3 origin;
 	vec3 direction;
 	f32 max_distance;
@@ -26,7 +25,7 @@ bool ray_cast(inout Ray ray, out RayHit hit) {
 	
 	bvec3 mask;
 
-	uint size = uint(pow(2, SIZE));
+	uint size = uint(AXIS_MAX_CHUNKS * CHUNK_SIZE);
 
 	float pre_dist = 0;
 	vec3 post;
@@ -49,13 +48,13 @@ bool ray_cast(inout Ray ray, out RayHit hit) {
 			break;
 		}
 
-		HierarchyBitsetQuery query;
-		query.bitset_id = ray.bitset_id;
+		VoxelQuery query;
+		query.world_id = ray.world_id;
 		query.position = p;
 
-		bool voxel_found = query_hierarchical_bitset(query);
+		bool voxel_found = voxel_query(query);
 
-		int lod = int(SIZE) - int(node_depth) - 1;
+		int lod = int(log2(f32(AXIS_MAX_CHUNKS * CHUNK_SIZE))) - int(node_depth) - 1;
 
 		if (voxel_found) {
 			vec3 destination = ray.origin + ray.direction * (dist - 1e-4);
@@ -77,7 +76,7 @@ bool ray_cast(inout Ray ray, out RayHit hit) {
 		float c_dist = min(min(t_max.x, t_max.y), t_max.z);
 		p += c_dist * ray.direction;
 		dist += c_dist;
-	
+
 		if(dist > ray.max_distance) {
 			break;
 		}

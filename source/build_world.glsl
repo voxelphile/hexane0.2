@@ -23,9 +23,9 @@ void main() {
 	change.id = u16(0);
 	change.position = f32vec3(gl_GlobalInvocationID);
 	
-	f32 noise_factor = f32(imageLoad(perlin_image, i32vec3(gl_GlobalInvocationID.x, 32, gl_GlobalInvocationID.z)).r) / f32(~0u);
+	f32 noise_factor = f32(imageLoad(perlin_image, i32vec3(gl_GlobalInvocationID.x, 32, gl_GlobalInvocationID.z) % i32vec3(imageSize(perlin_image))).r) / f32(~0u);
 
-	f32 height = noise_factor * 32 + 64;
+	f32 height = noise_factor * 32 + 128;
 
 	//dunno why this is bugged.. if this statement isnt made like this
 	//then grass spawns on chunk corners

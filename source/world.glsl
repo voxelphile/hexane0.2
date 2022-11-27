@@ -1,4 +1,4 @@
-#define AXIS_MAX_CHUNKS 8
+#define AXIS_MAX_CHUNKS 6
 #define CHUNK_SIZE 128
 
 decl_buffer(

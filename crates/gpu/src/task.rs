@@ -263,7 +263,7 @@ impl ops::FnMut<()> for Executable<'_> {
                     });
                 }
             }
-           
+
             for i in 0..resources.images.count() as usize {
                 if let Some(internal_image) = resources.images.get((i as u32).into()) {
                     if internal_image.get_format() == Format::D32Sfloat {

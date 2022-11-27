@@ -338,21 +338,30 @@ impl PipelineCompiler {
             ..info.depth.unwrap_or_default().into()
         };
 
-        let attachments = info
+        let color_attachments = info
             .color
             .iter()
             .map(|color| vk::PipelineColorBlendAttachmentState {
-                blend_enable: color.blend.is_some() as _,
+                blend_enable: false as _,
                 ..color.blend.unwrap_or_default().into()
             })
             .collect::<Vec<_>>();
+        
+        let color_attachment_formats = info
+            .color
+            .iter()
+            .map(|color| color.format.into())
+            .collect::<Vec<_>>();
+
+        let color_attachment_count = color_attachments.len() as _;
 
         let color_blend_state = {
-            let attachment_count = attachments.len() as u32;
+            let attachment_count = color_attachments.len() as u32;
 
-            let p_attachments = attachments.as_ptr();
+            let p_attachments = color_attachments.as_ptr();
 
             vk::PipelineColorBlendStateCreateInfo {
+                logic_op_enable: false as _,
                 attachment_count,
                 p_attachments,
                 ..default()
@@ -423,10 +432,18 @@ impl PipelineCompiler {
 
         let layout = unsafe { logical_device.create_pipeline_layout(&layout_create_info, None) }
             .map_err(|_| Error::Creation)?;
+            
+        let depth_attachment_format = vk::Format::D32_SFLOAT;
 
-        let mut pipeline_rendering_create_info = vk::PipelineRenderingCreateInfo {
-            depth_attachment_format: vk::Format::D32_SFLOAT,
-            ..default()
+        let mut pipeline_rendering_create_info = {
+            let p_color_attachment_formats = color_attachment_formats.as_ptr();
+
+            vk::PipelineRenderingCreateInfo {
+                color_attachment_count,
+                p_color_attachment_formats,
+                depth_attachment_format,
+                ..default()
+            }
         };
 
         let graphics_pipeline_create_info = {
@@ -464,7 +481,7 @@ impl PipelineCompiler {
                 p_viewport_state,
                 p_dynamic_state,
                 render_pass,
-                layout,
+                layout, 
                 ..default()
             }
         };
@@ -893,7 +910,7 @@ impl Default for Blend {
 impl From<Blend> for vk::PipelineColorBlendAttachmentState {
     fn from(blend: Blend) -> Self {
         Self {
-            blend_enable: true as _,
+            blend_enable: false as _,
             src_color_blend_factor: blend.src_color.into(),
             dst_color_blend_factor: blend.dst_color.into(),
             color_blend_op: blend.color_blend.into(),
@@ -905,10 +922,19 @@ impl From<Blend> for vk::PipelineColorBlendAttachmentState {
     }
 }
 
-#[derive(Default, Clone, Copy)]
+#[derive(Clone, Copy)]
 pub struct Color {
     pub format: Format,
     pub blend: Option<Blend>,
+}
+
+impl Default for Color {
+    fn default() -> Self {
+        Self {
+            format: default(),
+            blend: Some(default()),
+        }
+    }
 }
 
 #[derive(Default, Clone, Copy)]

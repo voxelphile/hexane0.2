@@ -35,7 +35,7 @@ const SMALL_SIZE: usize = 512;
 const REALLY_LARGE_SIZE: usize = 500_000_000;
 
 const CHUNK_SIZE: usize = 128;
-const AXIS_MAX_CHUNKS: usize = 4;
+const AXIS_MAX_CHUNKS: usize = 6;
 
 pub type Vertex = (f32, f32, f32);
 pub type Color = [f32; 4];
@@ -209,11 +209,15 @@ fn main() {
 
     let draw_pipeline = pipeline_compiler
         .create_graphics_pipeline(GraphicsPipelineInfo {
-            shaders: [Shader(Vertex, "render_voxel", &[]), Shader(Fragment, "render_voxel", &[])],
-            color: [gpu::prelude::Color {
-                format: device.presentation_format(swapchain.get()).unwrap(),
-                ..default()
-            }],
+            shaders: [
+                Shader(Vertex, "render_voxel", &[]),
+                Shader(Fragment, "render_voxel", &[]),
+            ],
+            color: [
+                gpu::prelude::Color {
+                    format: device.presentation_format(swapchain.get()).unwrap(),
+                    ..default()
+                }],
             depth: Some(default()),
             raster: Raster {
                 face_cull: FaceCull::BACK,
@@ -236,7 +240,7 @@ fn main() {
             ..default()
         })
         .expect("failed to create pipeline");
-    
+
     let bitset_pipeline = pipeline_compiler
         .create_compute_pipeline(ComputePipelineInfo {
             shader: Shader(Compute, "build_bitset", &[]),
@@ -314,16 +318,16 @@ fn main() {
     let chunk_len = AXIS_MAX_CHUNKS.pow(3);
 
     for _ in 0..chunk_len {
-    chunk_images.push(
-        device
-            .create_image(ImageInfo {
-                extent: ImageExtent::ThreeDim(CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE),
-                usage: ImageUsage::TRANSFER_DST,
-                format: Format::R16Uint,
-                ..default()
-            })
-            .expect("failed to create depth image")
-    );
+        chunk_images.push(
+            device
+                .create_image(ImageInfo {
+                    extent: ImageExtent::ThreeDim(CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE),
+                    usage: ImageUsage::TRANSFER_DST,
+                    format: Format::R16Uint,
+                    ..default()
+                })
+                .expect("failed to create depth image"),
+        );
     }
 
     let general_staging_buffer = device
@@ -352,16 +356,7 @@ fn main() {
             ..default()
         })
         .expect("failed to create buffer");
-    /*
-        let bitset_staging_buffer = device
-            .create_buffer(BufferInfo {
-                size: REALLY_LARGE_SIZE,
-                memory: Memory::HOST_ACCESS,
-                debug_name: "Staging Buffer",
-                ..default()
-            })
-            .expect("failed to create buffer");
-    */
+
     let noise_staging_buffer = device
         .create_buffer(BufferInfo {
             size: 100000,
@@ -378,8 +373,8 @@ fn main() {
             ..default()
         })
         .expect("failed to create buffer");
-    
-    let chunk_buffer = device
+
+    let world_buffer = device
         .create_buffer(BufferInfo {
             size: REALLY_LARGE_SIZE,
             debug_name: "General Buffer",
@@ -398,14 +393,6 @@ fn main() {
     let transform_buffer = device
         .create_buffer(BufferInfo {
             size: SMALL_SIZE,
-            debug_name: "General Buffer",
-            ..default()
-        })
-        .expect("failed to create buffer");
-
-    let bitset_buffer = device
-        .create_buffer(BufferInfo {
-            size: REALLY_LARGE_SIZE,
             debug_name: "General Buffer",
             ..default()
         })
@@ -459,7 +446,11 @@ fn main() {
         fov: 90.0 * std::f32::consts::PI / 360.0,
         clip: (0.001, 500.0),
         aspect_ratio: width as f32 / height as f32,
-        position: Vector::new([(AXIS_MAX_CHUNKS * CHUNK_SIZE) as f32 / 2.0, 100.0, ((AXIS_MAX_CHUNKS * CHUNK_SIZE) as f32) / 2.0]),
+        position: Vector::new([
+            (AXIS_MAX_CHUNKS * CHUNK_SIZE) as f32 / 2.0,
+            100.0,
+            ((AXIS_MAX_CHUNKS * CHUNK_SIZE) as f32) / 2.0,
+        ]),
         rotation: default(),
     });
 
@@ -477,10 +468,9 @@ fn main() {
     let vertex_buffer = || vertex_buffer;
     let mersenne_buffer = || mersenne_buffer;
     let transform_buffer = || transform_buffer;
-    let bitset_buffer = || bitset_buffer;
     let info_buffer = || info_buffer;
     let camera_buffer = || camera_buffer;
-    let chunk_buffer = || chunk_buffer;
+    let world_buffer = || world_buffer;
     let general_staging_buffer = || general_staging_buffer;
     let vertex_staging_buffer = || vertex_staging_buffer;
     let chunk_staging_buffer = || chunk_staging_buffer;
@@ -632,7 +622,7 @@ fn main() {
 
                     info.set(Info {
                         entity_input: EntityInput {
-                            look: Vector::new([x_diff as _, y_diff as _, 0.0, 0.0]),
+                            look: info.get().entity_input.look + Vector::new([x_diff as _, y_diff as _, 0.0, 0.0]),
                             ..info.get().entity_input
                         },
                         ..info.get()
@@ -756,7 +746,7 @@ fn main() {
                 camera_info.set(CameraInfo {
                     projection: camera.get().projection(),
                 });
-
+                        
                 depth_img.set(
                     device
                         .create_image(ImageInfo {
@@ -861,7 +851,7 @@ fn main() {
                         Ok(())
                     },
                 });
-                
+
                 executor.add(Task {
                     resources: [Buffer(
                         &chunk_staging_buffer,
@@ -883,7 +873,7 @@ fn main() {
                 executor.add(Task {
                     resources: [
                         Buffer(&chunk_staging_buffer, BufferAccess::TransferRead),
-                        Buffer(&chunk_buffer, BufferAccess::TransferWrite),
+                        Buffer(&world_buffer, BufferAccess::TransferWrite),
                     ],
                     task: |commands| {
                         if update.get() {
@@ -930,7 +920,6 @@ fn main() {
                                 offset: mem::size_of::<u32>(),
                                 src: &mt,
                             })?;
-                            dbg!(mt.len());
                         }
 
                         Ok(())
@@ -1018,8 +1007,8 @@ fn main() {
 
                 executor.add(Task {
                     resources: [
-                        Buffer(&chunk_buffer, BufferAccess::ComputeShaderReadWrite),
-                        Image(&perlin_image, ImageAccess::ComputeShaderReadWrite)
+                        Buffer(&world_buffer, BufferAccess::ComputeShaderReadWrite),
+                        Image(&perlin_image, ImageAccess::ComputeShaderReadWrite),
                     ],
                     task: |commands| {
                         if update.get() {
@@ -1028,7 +1017,7 @@ fn main() {
                             commands.push_constant(PushConstant {
                                 data: BuildWorldPush {
                                     perlin_image: (perlin_image)(),
-                                    chunk_buffer: (chunk_buffer)(),
+                                    world_buffer: (world_buffer)(),
                                 },
                                 pipeline: &world_pipeline,
                             })?;
@@ -1042,39 +1031,10 @@ fn main() {
                         Ok(())
                     },
                 });
-               
 
                 executor.add(Task {
                     resources: [
-                        Buffer(&chunk_buffer, BufferAccess::ComputeShaderReadOnly),
-                        Buffer(&bitset_buffer, BufferAccess::ComputeShaderReadWrite),
-                    ],
-                    task: |commands| {
-                        if update.get() {
-                            commands.set_pipeline(&bitset_pipeline)?;
-
-                            commands.push_constant(PushConstant {
-                                data: BuildBitsetPush {
-                                    chunk_buffer: (chunk_buffer)(),
-                                    bitset_buffer: (bitset_buffer)(),
-                                },
-                                pipeline: &bitset_pipeline,
-                            })?;
-
-                            const WORK_GROUP_SIZE: usize = 8;
-
-                            let size = (AXIS_MAX_CHUNKS * CHUNK_SIZE) / WORK_GROUP_SIZE;
-
-                            commands.dispatch(size, size, size)?;
-                            dbg!("yo132123");
-                        }
-                        Ok(())
-                    },
-                });
-
-                executor.add(Task {
-                    resources: [
-                        Buffer(&chunk_buffer, BufferAccess::ComputeShaderReadOnly),
+                        Buffer(&world_buffer, BufferAccess::ComputeShaderReadOnly),
                         Buffer(&vertex_buffer, BufferAccess::ComputeShaderReadWrite),
                         Image(&perlin_image, ImageAccess::ComputeShaderReadWrite),
                     ],
@@ -1084,7 +1044,7 @@ fn main() {
 
                             commands.push_constant(PushConstant {
                                 data: BuildMeshPush {
-                                    chunk_buffer: (chunk_buffer)(),
+                                    world_buffer: (world_buffer)(),
                                     vertex_buffer: (vertex_buffer)(),
                                     perlin_image: (perlin_image)(),
                                 },
@@ -1131,19 +1091,22 @@ fn main() {
                         Buffer(&camera_buffer, BufferAccess::VertexShaderReadOnly),
                         Buffer(&vertex_buffer, BufferAccess::VertexShaderReadOnly),
                         Buffer(&transform_buffer, BufferAccess::VertexShaderReadOnly),
-                        Buffer(&bitset_buffer, BufferAccess::FragmentShaderReadOnly),
+                        Buffer(&world_buffer, BufferAccess::FragmentShaderReadOnly),
                     ],
                     task: |commands| {
                         let (width, height) = resolution.get();
 
                         commands.set_resolution(resolution.get())?;
 
+                        commands.set_pipeline(&draw_pipeline)?;
+
                         commands.start_rendering(Render {
-                            color: [Attachment {
-                                image: 0,
-                                load_op: LoadOp::Clear,
-                                clear: Clear::Color(0.1, 0.4, 0.8, 1.0),
-                            }],
+                            color: [
+                                Attachment {
+                                    image: 0,
+                                    load_op: LoadOp::Clear,
+                                    clear: Clear::Color(0.1, 0.4, 0.8, 1.0),
+                                }],
                             depth: Some(Attachment {
                                 image: 1,
                                 load_op: LoadOp::Clear,
@@ -1156,15 +1119,13 @@ fn main() {
                             },
                         })?;
 
-                        commands.set_pipeline(&draw_pipeline)?;
-
                         commands.push_constant(PushConstant {
                             data: DrawPush {
                                 info_buffer: (info_buffer)(),
                                 camera_buffer: (camera_buffer)(),
                                 vertex_buffer: (vertex_buffer)(),
                                 transform_buffer: (transform_buffer)(),
-                                bitset_buffer: (bitset_buffer)(),
+                                world_buffer: (world_buffer)(),
                             },
                             pipeline: &draw_pipeline,
                         })?;
@@ -1236,8 +1197,9 @@ pub struct DrawPush {
     pub camera_buffer: Buffer,
     pub vertex_buffer: Buffer,
     pub transform_buffer: Buffer,
-    pub bitset_buffer: Buffer,
+    pub world_buffer: Buffer,
 }
+
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub struct InputPush {
@@ -1247,19 +1209,19 @@ pub struct InputPush {
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub struct BuildBitsetPush {
-    pub chunk_buffer: Buffer,
+    pub world_buffer: Buffer,
     pub bitset_buffer: Buffer,
 }
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub struct BuildWorldPush {
-    pub chunk_buffer: Buffer,
+    pub world_buffer: Buffer,
     pub perlin_image: Image,
 }
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub struct BuildMeshPush {
-    pub chunk_buffer: Buffer,
+    pub world_buffer: Buffer,
     pub vertex_buffer: Buffer,
     pub perlin_image: Image,
 }

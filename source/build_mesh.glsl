@@ -160,7 +160,7 @@ void main() {
 
 	vec3 color = vec3(1);
 
-	f32 noise_factor = f32(imageLoad(perlin_img, i32vec3(gl_GlobalInvocationID.xyz)).r) / f32(~0u);
+	f32 noise_factor = f32(imageLoad(perlin_img, i32vec3(gl_GlobalInvocationID.xyz) % i32vec3(imageSize(perlin_img))).r) / f32(~0u);
 
 	if(query.id == 0) {
 		color = vec3(1, 0, 1);

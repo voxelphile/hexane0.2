@@ -39,9 +39,9 @@ pub mod prelude {
     pub(crate) use crate::memory::InternalMemory;
     pub use crate::memory::Memory;
     pub use crate::pipeline::{
-        Color, CompareOp, ComputePipelineInfo, Depth, FaceCull, GraphicsPipelineInfo, Pipeline,
-        PipelineCompiler, PipelineCompilerInfo, PipelineStage, Raster, Shader, ShaderCompiler,
-        ShaderType,
+        Blend, Color, ColorComponent, CompareOp, ComputePipelineInfo, Depth, FaceCull,
+        GraphicsPipelineInfo, Pipeline, PipelineCompiler, PipelineCompilerInfo, PipelineStage,
+        Raster, Shader, ShaderCompiler, ShaderType,
     };
     pub use crate::semaphore::{
         BinarySemaphore, BinarySemaphoreInfo, TimelineSemaphore, TimelineSemaphoreInfo,
