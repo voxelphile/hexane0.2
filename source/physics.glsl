@@ -57,8 +57,8 @@ bool swept_aabb(Box a, Box b, inout CollisionResponse response) {
 	entry = j_eq * -10000 + j_neq * (inv_entry / a.velocity); 
 	exit = j_eq * 10000 + j_neq * (inv_exit / a.velocity); 
 
-	response.entry_time = clamp(0, max(entry.x, max(entry.y, entry.z)), 1);
-	response.exit_time = clamp(0, min(exit.x, min(exit.y, exit.z)), 1);
+	response.entry_time = clamp(max(entry.x, max(entry.y, entry.z)), 0, 1);
+	response.exit_time = clamp(min(exit.x, min(exit.y, exit.z)),0, 1);
 
 	if(response.entry_time > response.exit_time || all(lessThan(entry, vec3(0))) || any(greaterThan(entry, vec3(delta_time)))) {
 		response.normal = vec3(0);
@@ -67,17 +67,26 @@ bool swept_aabb(Box a, Box b, inout CollisionResponse response) {
 		return false;
 	}
 
-	if(entry.x > entry.y) {
-		if(entry.x > entry.z) {
-			response.normal = vec3(-sign(a.velocity.x), 0, 0);
+	if(entry.x == response.entry_time) {
+		if(inv_entry.x < 0) {
+			response.normal = vec3(1, 0, 0);
 		} else {
-			response.normal = vec3(0, 0, -sign(a.velocity.z));
+			response.normal = vec3(-1, 0, 0);
 		}
-	} else {
-		if(entry.y > entry.z) {
-			response.normal = vec3(0, -sign(a.velocity.y), 0);
+
+	}
+	if(entry.y == response.entry_time) {
+		if(inv_entry.y < 0) {
+			response.normal = vec3(0, 1, 0);
 		} else {
-			response.normal = vec3(0, 0, -sign(a.velocity.z));
+			response.normal = vec3(0, -1, 0);
+		}
+	}
+	if(entry.z == response.entry_time) {
+		if(inv_entry.z < 0) {
+			response.normal = vec3(0, 0, 1);
+		} else {
+			response.normal = vec3(0, 0, -1);
 		}
 	}
 	return true;
@@ -95,12 +104,29 @@ bool aabb_check(Box a, Box b) {
 
 Box get_swept_broadphase_box(Box a) {
 	Box b;
-	b.position.x = a.velocity.x > 0 ? a.position.x : a.position.x + a.velocity.x;
-	b.position.y = a.velocity.y > 0 ? a.position.y : a.position.y + a.velocity.y;
-	b.position.z = a.velocity.z > 0 ? a.position.z : a.position.z + a.velocity.z;
-	b.velocity.x = a.velocity.x > 0 ? a.velocity.x + a.dimensions.x : a.dimensions.x - a.velocity.x; 
-	b.velocity.y = a.velocity.y > 0 ? a.velocity.y + a.dimensions.y : a.dimensions.y - a.velocity.y; 
-	b.velocity.z = a.velocity.z > 0 ? a.velocity.z + a.dimensions.z : a.dimensions.z - a.velocity.z; 
+	b.position.x = a.velocity.x > 0 ? 
+		a.position.x 
+		: a.position.x + a.velocity.x;
+
+	b.position.y = a.velocity.y > 0 ? 
+		a.position.y 
+		: a.position.y + a.velocity.y;
+
+	b.position.z = a.velocity.z > 0 ? 
+		a.position.z 
+		: a.position.z + a.velocity.z;
+
+	b.velocity.x = a.velocity.x > 0 ? 
+		a.velocity.x + a.dimensions.x 
+		: a.dimensions.x - a.velocity.x; 
+
+	b.velocity.y = a.velocity.y > 0 ? 
+		a.velocity.y + a.dimensions.y 
+		: a.dimensions.y - a.velocity.y; 
+
+	b.velocity.z = a.velocity.z > 0 ? 
+		a.velocity.z + a.dimensions.z 
+		: a.dimensions.z - a.velocity.z; 
 	return b;
 }
 
@@ -120,7 +146,8 @@ void main() {
 	i32 h_mag = 5;
 
 	bool collided_y = false;
-
+	vec3 normals = vec3(0);
+	f32 entry_time = 10000;
 	for(i32 x = -h_mag; x < h_mag; x++) {
 	for(i32 y = -h_mag; y < h_mag; y++) {
 	for(i32 z = -h_mag; z < h_mag; z++) {
@@ -150,18 +177,27 @@ void main() {
 
 		CollisionResponse response;
 		if(swept_aabb(player, block, response)) {
-			collided_y = true;
 			transforms.transform.position.xyz += player.velocity.xyz * delta_time * response.entry_time;
-			float remaining_time = delta_time - response.entry_time;
 
-			f32 dot_prod = dot(transforms.transform.velocity.xyz, response.normal.xyz) * remaining_time;
-			transforms.transform.velocity.xyz = dot_prod * response.normal.xyz;
-
+			normals += response.normal.xyz;
 		}
 		}
 	}
 	}
 	}
+		f32vec3 factor = clamp(normals, -1, 1);
+
+		f32vec3 factor_x = vec3(factor.x, 0, 0);
+		f32vec3 factor_y = vec3(0, factor.y, 0);
+		f32vec3 factor_z = vec3(0, 0, factor.z);
+
+		f32 dot_prod_x = dot(transforms.transform.velocity.xyz, factor_x);
+		f32 dot_prod_y = dot(transforms.transform.velocity.xyz, factor_y);
+		f32 dot_prod_z = dot(transforms.transform.velocity.xyz, factor_z);
+
+		vec3 undesired_velocity = factor_x * dot_prod_x + factor_y * dot_prod_y + factor_z * dot_prod_z;
+
+		transforms.transform.velocity.xyz -= undesired_velocity;
 
 		transforms.transform.position.xyz += transforms.transform.velocity.xyz * delta_time;
 }
