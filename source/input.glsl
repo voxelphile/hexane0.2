@@ -2,6 +2,7 @@
 
 #include "hexane.glsl"
 #include "rigidbody.glsl"
+#include "info.glsl"
 #include "transform.glsl"
 
 struct InputPush {
@@ -15,25 +16,6 @@ decl_buffer(
 	Camera,
 	{
 		mat4 projection;
-	}
-)
-
-struct EntityInput {
-	bool up;
-	bool down;
-	bool left;
-	bool right;
-	bool forward;
-	bool backward;
-	vec4 look;
-};
-
-decl_buffer(
-	Info,
-	{
-		f32 time;
-		f32 delta_time;
-		EntityInput entity_input;
 	}
 )
 	
@@ -68,7 +50,7 @@ void main() {
 	EntityInput entity_input = info.entity_input;
 
 	if(!transform.first){
-		transform.position.xyz = vec3(512, 160, 512);
+		transform.position.xyz = vec3(512, 180, 512);
 		transform.velocity.xyz = vec3(0);
 		transform.rotation.xyz = vec3(-3.14 / 2.0 + 0.1, 0, 0);
 		transform.jumping = false;
@@ -123,7 +105,6 @@ void main() {
 	direction.y = f32(input_axis.y);
 
 	transform.velocity.xyz += direction * 0.25;
-	transform.position.xyz += transform.velocity.xyz * delta_time;
 	
 	transforms.transform = transform;
 	/*

@@ -268,6 +268,13 @@ fn main() {
             ..default()
         })
         .expect("failed to create pipeline");
+    
+    let physics_pipeline = pipeline_compiler
+        .create_compute_pipeline(ComputePipelineInfo {
+            shader: Shader(Compute, "physics", &[]),
+            ..default()
+        })
+        .expect("failed to create pipeline");
 
     let mut light_depth_img = Cell::new(
         device
@@ -706,6 +713,9 @@ fn main() {
                         pipeline_compiler
                             .refresh_compute_pipeline(&bitset_pipeline)
                             .unwrap();
+                        pipeline_compiler
+                            .refresh_compute_pipeline(&physics_pipeline)
+                            .unwrap();
                     }
                     Escape => {
                         cursor_captured = false;
@@ -1083,6 +1093,28 @@ fn main() {
                         commands.dispatch(1, 1, 1)
                     },
                 });
+                
+                executor.add(Task {
+                    resources: [
+                        Buffer(&info_buffer, BufferAccess::ComputeShaderReadOnly),
+                        Buffer(&transform_buffer, BufferAccess::ComputeShaderReadWrite),
+                        Buffer(&world_buffer, BufferAccess::ComputeShaderReadWrite),
+                    ],
+                    task: |commands| {
+                        commands.set_pipeline(&physics_pipeline)?;
+
+                        commands.push_constant(PushConstant {
+                            data: PhysicsPush {
+                                info_buffer: (info_buffer)(),
+                                transform_buffer: (transform_buffer)(),
+                                world_buffer: (world_buffer)(),
+                            },
+                            pipeline: &physics_pipeline,
+                        })?;
+
+                        commands.dispatch(1, 1, 1)
+                    },
+                });
 
                 executor.add(Task {
                     resources: [
@@ -1205,6 +1237,13 @@ pub struct DrawPush {
 pub struct InputPush {
     pub info_buffer: Buffer,
     pub transform_buffer: Buffer,
+}
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct PhysicsPush {
+    pub info_buffer: Buffer,
+    pub transform_buffer: Buffer,
+    pub world_buffer: Buffer,
 }
 #[derive(Clone, Copy)]
 #[repr(C)]
