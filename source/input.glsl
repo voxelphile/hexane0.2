@@ -52,7 +52,7 @@ void main() {
 	if(!transform.first){
 		transform.position.xyz = vec3(512, 180, 512);
 		transform.velocity.xyz = vec3(0);
-		transform.rotation.xyz = vec3(-3.14 / 2.0 + 0.1, 0, 0);
+		transform.target_rotation.xyz = vec3(-3.14 / 2.0 + 0.1, 0, 0);
 		transform.jumping = false;
 		transform.first = true;
 	}
@@ -60,11 +60,17 @@ void main() {
 		transform.velocity.xyz = vec3(0);
 	}
 	
-	f32 sens = 3.14 / 2;
+	f32 sens = 3.14 / 10;
+	f32 move = 40;
 
-	transform.rotation.xy -= (entity_input.look.yx * delta_time) * sens;
+	transform.target_rotation.xy -= (entity_input.look.yx * delta_time) * sens;
 
-	transform.rotation.x = clamp(transform.rotation.x, -3.14 / 2.0 + 0.1, 3.14 / 2.0 - 0.1);
+	transform.target_rotation.x = clamp(transform.target_rotation.x, -3.14 / 2.0 + 0.1, 3.14 / 2.0 - 0.1);
+	if(entity_input.look.xy == vec2(0)) {
+		transform.target_rotation_time = 0;
+	}
+	transform.target_rotation_time += info.delta_time;
+	transform.rotation = mix(transform.rotation, transform.target_rotation, clamp(transform.target_rotation_time * move, 0, 1));
 
 	vec3 direction = vec3(0);
 

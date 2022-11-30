@@ -1,6 +1,8 @@
 struct Transform {
 		vec4 position;
 		vec4 rotation;
+		vec4 target_rotation;
+		f32 target_rotation_time;
 		vec4 velocity;
 		bool first;
 		bool jumping;
