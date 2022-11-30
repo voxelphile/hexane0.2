@@ -6,7 +6,7 @@ struct Transform {
 		bool jumping;
 		bool on_ground;
 		bool colliding;
-		vec3 last_normal;
+		vec3 last_normals;
 };
 
 decl_buffer(

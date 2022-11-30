@@ -8,6 +8,8 @@ struct VoxelQuery {
 
 bool voxel_query(inout VoxelQuery query) {
 	Buffer(World) world = get_buffer(World, query.world_id);
+
+	query.position = floor(query.position);
 	
 	i32vec3 chunk_position = i32vec3(query.position) / CHUNK_SIZE;
 	i32vec3 internal_position = i32vec3(query.position) % CHUNK_SIZE;
@@ -46,6 +48,8 @@ struct VoxelChange {
 
 void voxel_change(inout VoxelChange change) {
 	Buffer(World) world = get_buffer(World, change.world_id);
+	
+	change.position = floor(change.position);
 	
 	i32vec3 chunk_position = i32vec3(change.position) / CHUNK_SIZE;
 	i32vec3 internal_position = i32vec3(change.position) % CHUNK_SIZE;

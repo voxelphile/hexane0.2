@@ -104,7 +104,12 @@ void main() {
 	direction.xz = lateral_direction;
 	direction.y = f32(input_axis.y);
 
-	transform.velocity.xyz += direction * 0.25;
+	transform.velocity.xz = direction.xz * 50;
+
+	if(input_axis.y == 1 && transform.on_ground && !transform.jumping) {
+		transform.velocity.y += 60;	
+		transform.jumping = true;
+	}
 	
 	transforms.transform = transform;
 	/*

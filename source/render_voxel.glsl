@@ -114,6 +114,8 @@ void main() {
 	
 	Transform transform = transforms.transform;
 			
+	transform.position.xyz += vec3(0.4, 1.8, 0.4);
+
 	eye_position = inverse(compute_transform_matrix(transform)) * position;
 	gl_Position =  camera.projection * eye_position;
 }

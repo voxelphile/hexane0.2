@@ -8,6 +8,7 @@
 #include "voxel.glsl"
 
 struct PhysicsPush {
+	f32 fixed_time;
 	BufferId info_id;
 	BufferId transform_id;
 	BufferId world_id;
@@ -34,7 +35,7 @@ struct CollisionResponse {
 bool swept_aabb(Box a, Box b, inout CollisionResponse response) {
 	Buffer(Info) info = get_buffer(Info, push_constant.info_id);
 
-	f32 delta_time = info.delta_time;
+	f32 fixed_time = push_constant.fixed_time;
 
 	vec3 inv_entry, inv_exit;
 
@@ -57,10 +58,12 @@ bool swept_aabb(Box a, Box b, inout CollisionResponse response) {
 	entry = j_eq * -10000 + j_neq * (inv_entry / a.velocity); 
 	exit = j_eq * 10000 + j_neq * (inv_exit / a.velocity); 
 
-	response.entry_time = clamp(max(entry.x, max(entry.y, entry.z)), 0, 1);
-	response.exit_time = clamp(min(exit.x, min(exit.y, exit.z)),0, 1);
+	response.entry_time = max(entry.x, max(entry.y, entry.z));
+	response.exit_time = min(exit.x, min(exit.y, exit.z));
 
-	if(response.entry_time > response.exit_time || all(lessThan(entry, vec3(0))) || any(greaterThan(entry, vec3(delta_time)))) {
+	if(response.entry_time > response.exit_time 
+			|| all(lessThan(entry, vec3(0))) 
+			|| any(greaterThan(entry, vec3(1)))) {
 		response.normal = vec3(0);
 		response.entry_time = 1.0;
 		response.exit_time = 0.0;
@@ -116,20 +119,33 @@ Box get_swept_broadphase_box(Box a) {
 		a.position.z 
 		: a.position.z + a.velocity.z;
 
-	b.velocity.x = a.velocity.x > 0 ? 
+	b.dimensions.x = a.velocity.x > 0 ? 
 		a.velocity.x + a.dimensions.x 
 		: a.dimensions.x - a.velocity.x; 
 
-	b.velocity.y = a.velocity.y > 0 ? 
+	b.dimensions.y = a.velocity.y > 0 ? 
 		a.velocity.y + a.dimensions.y 
 		: a.dimensions.y - a.velocity.y; 
 
-	b.velocity.z = a.velocity.z > 0 ? 
+	b.dimensions.z = a.velocity.z > 0 ? 
 		a.velocity.z + a.dimensions.z 
 		: a.dimensions.z - a.velocity.z; 
 	return b;
 }
 
+struct AxisData {
+	vec3 normals;
+	f32 entry_time;
+	bool colliding;
+	vec3 velocity;
+	Box block;
+};
+
+void swap(inout i32 a, inout i32 b) {
+	i32 temp = a;
+	a = b;
+	b = temp;
+}
 
 void main() {
 	if(gl_GlobalInvocationID.x != 0) {
@@ -137,34 +153,46 @@ void main() {
 	}
 
 	Buffer(Transforms) transforms = get_buffer(Transforms, push_constant.transform_id);
-	Buffer(Info) info = get_buffer(Info, push_constant.info_id);
 
-	f32 delta_time = info.delta_time;
+	transforms.transform.on_ground = false;
+
+	f32 fixed_time = push_constant.fixed_time;
 	
 	f32 mag = ceil(length(transforms.transform.velocity.xyz));
 
 	i32 h_mag = 5;
+	
+	AxisData d;
+	d.normals = vec3(0);
+	d.entry_time = 0;
+	d.colliding = false;
+	d.velocity = vec3(0);
 
-	bool collided_y = false;
-	vec3 normals = vec3(0);
-	f32 entry_time = 10000;
+	AxisData data[] = AxisData[](d, d, d);
+	data[0].velocity = vec3(transforms.transform.velocity.x, 0, 0);
+	data[1].velocity = vec3(0, transforms.transform.velocity.y, 0);
+	data[2].velocity = vec3(0, 0, transforms.transform.velocity.z);
+
+	i32 order[] = i32[](0, 1, 2);
+		
+	Box player;
+	player.dimensions = vec3(0.8, 2, 0.8);
+	player.position = transforms.transform.position.xyz;
+
+	for(i32 i = 0; i < 3; i++) {
 	for(i32 x = -h_mag; x < h_mag; x++) {
 	for(i32 y = -h_mag; y < h_mag; y++) {
 	for(i32 z = -h_mag; z < h_mag; z++) {
+		
 		Box block;
 		block.position = floor(transforms.transform.position.xyz) + vec3(x, y, z);
 		block.dimensions = vec3(1);
-		block.velocity = vec3(0);
-
-		Box player;
-		player.dimensions = vec3(1, 2, 1);
-		player.position = transforms.transform.position.xyz - vec3(0.5, 1.8, 0.5);
-		player.velocity = transforms.transform.velocity.xyz;
+		player.velocity = data[i].velocity;
 
 		Box broadphase = get_swept_broadphase_box(player);	
 
 		if(aabb_check(broadphase, block)) {
-
+		
 		VoxelQuery query;
 		query.world_id = push_constant.world_id;
 		query.position = block.position;
@@ -173,33 +201,71 @@ void main() {
 			continue;
 		}
 
-		
-
 		CollisionResponse response;
 		if(swept_aabb(player, block, response)) {
-			transforms.transform.position.xyz += player.velocity.xyz * delta_time * response.entry_time;
+			query.position += response.normal;
+			if(voxel_query(query)) {
+				continue;
+			}
+			if(response.entry_time > fixed_time) {
+				continue;
+			}
 
-			normals += response.normal.xyz;
+			if(response.entry_time >= data[i].entry_time) {
+			data[i].colliding = true;
+			
+			data[i].normals = response.normal.xyz;
+
+			data[i].entry_time = max(data[i].entry_time, response.entry_time);
+
+			data[i].block = block;
+			}	
 		}
 		}
 	}
 	}
 	}
-		f32vec3 factor = clamp(normals, -1, 1);
+	}
+	
+	player.velocity = vec3(0);
 
-		f32vec3 factor_x = vec3(factor.x, 0, 0);
-		f32vec3 factor_y = vec3(0, factor.y, 0);
-		f32vec3 factor_z = vec3(0, 0, factor.z);
+	if(data[0].entry_time > data[1].entry_time) swap(order[0], order[1]);
+	if(data[1].entry_time > data[2].entry_time) swap(order[1], order[2]);
+	if(data[0].entry_time > data[1].entry_time) swap(order[0], order[1]);
 
-		f32 dot_prod_x = dot(transforms.transform.velocity.xyz, factor_x);
-		f32 dot_prod_y = dot(transforms.transform.velocity.xyz, factor_y);
-		f32 dot_prod_z = dot(transforms.transform.velocity.xyz, factor_z);
+	for(i32 i = 2; i >= 0; i--) {
+		i32 o = order[i];
 
-		vec3 undesired_velocity = factor_x * dot_prod_x + factor_y * dot_prod_y + factor_z * dot_prod_z;
+		if(data[o].colliding) {
+			transforms.transform.position.xyz += data[o].velocity * data[o].entry_time;
+			while(aabb_check(player, data[o].block)) {
+				transforms.transform.position.xyz += data[o].normals * 1e-4;
+				player.position = transforms.transform.position.xyz;
+			}
+			transforms.transform.position.xyz += data[o].normals * 1e-4;
 
+		}
+		
+		data[o].normals = clamp(data[o].normals, -1, 1);
+	
+		f32 dot_prod = dot(transforms.transform.velocity.xyz, data[o].normals);
+
+		vec3 undesired_velocity = data[o].normals * dot_prod;
+	
 		transforms.transform.velocity.xyz -= undesired_velocity;
 
-		transforms.transform.position.xyz += transforms.transform.velocity.xyz * delta_time;
+		data[o].velocity -= undesired_velocity;
+
+		transforms.transform.position.xyz += data[o].velocity * fixed_time;
+
+		if(data[o].normals == vec3(0,1,0)) {
+			transforms.transform.on_ground = true;
+			transforms.transform.jumping = false;
+		}
+
+	}
+
+	transforms.transform.velocity.y -= 9 * 100 * fixed_time;
 }
 
 #endif

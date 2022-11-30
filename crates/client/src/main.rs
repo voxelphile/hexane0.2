@@ -213,11 +213,10 @@ fn main() {
                 Shader(Vertex, "render_voxel", &[]),
                 Shader(Fragment, "render_voxel", &[]),
             ],
-            color: [
-                gpu::prelude::Color {
-                    format: device.presentation_format(swapchain.get()).unwrap(),
-                    ..default()
-                }],
+            color: [gpu::prelude::Color {
+                format: device.presentation_format(swapchain.get()).unwrap(),
+                ..default()
+            }],
             depth: Some(default()),
             raster: Raster {
                 face_cull: FaceCull::BACK,
@@ -268,7 +267,7 @@ fn main() {
             ..default()
         })
         .expect("failed to create pipeline");
-    
+
     let physics_pipeline = pipeline_compiler
         .create_compute_pipeline(ComputePipelineInfo {
             shader: Shader(Compute, "physics", &[]),
@@ -472,6 +471,8 @@ fn main() {
     let update = Cell::new(true);
     let build = Cell::new(true);
 
+    let physics_time_accum = Cell::new(0.0);
+
     let vertex_buffer = || vertex_buffer;
     let mersenne_buffer = || mersenne_buffer;
     let transform_buffer = || transform_buffer;
@@ -629,7 +630,8 @@ fn main() {
 
                     info.set(Info {
                         entity_input: EntityInput {
-                            look: info.get().entity_input.look + Vector::new([x_diff as _, y_diff as _, 0.0, 0.0]),
+                            look: info.get().entity_input.look
+                                + Vector::new([x_diff as _, y_diff as _, 0.0, 0.0]),
                             ..info.get().entity_input
                         },
                         ..info.get()
@@ -756,7 +758,7 @@ fn main() {
                 camera_info.set(CameraInfo {
                     projection: camera.get().projection(),
                 });
-                        
+
                 depth_img.set(
                     device
                         .create_image(ImageInfo {
@@ -1093,7 +1095,10 @@ fn main() {
                         commands.dispatch(1, 1, 1)
                     },
                 });
-                
+
+                const PHYSICS_FIXED_TIME: f32 = 0.001;
+                const PHYSICS_TIME_PRECISION: f32 = 1_000_000.0;
+
                 executor.add(Task {
                     resources: [
                         Buffer(&info_buffer, BufferAccess::ComputeShaderReadOnly),
@@ -1103,14 +1108,28 @@ fn main() {
                     task: |commands| {
                         commands.set_pipeline(&physics_pipeline)?;
 
-                        commands.push_constant(PushConstant {
-                            data: PhysicsPush {
-                                info_buffer: (info_buffer)(),
-                                transform_buffer: (transform_buffer)(),
-                                world_buffer: (world_buffer)(),
-                            },
-                            pipeline: &physics_pipeline,
-                        })?;
+                        physics_time_accum.set(physics_time_accum.get() + info.get().delta_time);
+
+                        let mut new_physics_time_accum = physics_time_accum.get();
+
+                        let max_time = (PHYSICS_TIME_PRECISION * physics_time_accum.get()) as usize;
+                        let step_time = (PHYSICS_TIME_PRECISION * PHYSICS_FIXED_TIME) as usize;
+
+                        for _ in (0..max_time).step_by(step_time) {
+                            commands.push_constant(PushConstant {
+                                data: PhysicsPush {
+                                    fixed_time: PHYSICS_FIXED_TIME,
+                                    info_buffer: (info_buffer)(),
+                                    transform_buffer: (transform_buffer)(),
+                                    world_buffer: (world_buffer)(),
+                                },
+                                pipeline: &physics_pipeline,
+                            })?;
+
+                            new_physics_time_accum -= PHYSICS_FIXED_TIME;
+                        }
+
+                        physics_time_accum.set(new_physics_time_accum);
 
                         commands.dispatch(1, 1, 1)
                     },
@@ -1133,12 +1152,11 @@ fn main() {
                         commands.set_pipeline(&draw_pipeline)?;
 
                         commands.start_rendering(Render {
-                            color: [
-                                Attachment {
-                                    image: 0,
-                                    load_op: LoadOp::Clear,
-                                    clear: Clear::Color(0.1, 0.4, 0.8, 1.0),
-                                }],
+                            color: [Attachment {
+                                image: 0,
+                                load_op: LoadOp::Clear,
+                                clear: Clear::Color(0.1, 0.4, 0.8, 1.0),
+                            }],
                             depth: Some(Attachment {
                                 image: 1,
                                 load_op: LoadOp::Clear,
@@ -1241,6 +1259,7 @@ pub struct InputPush {
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub struct PhysicsPush {
+    pub fixed_time: f32,
     pub info_buffer: Buffer,
     pub transform_buffer: Buffer,
     pub world_buffer: Buffer,

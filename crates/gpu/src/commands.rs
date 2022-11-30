@@ -578,7 +578,7 @@ impl Commands<'_> {
 
         let resources = resources.lock().unwrap();
 
-        let mut color_rendering_attachment_infos =  [default(); N];
+        let mut color_rendering_attachment_infos = [default(); N];
 
         for (i, color) in color.iter().enumerate() {
             let Qualifier::Image(color_handle, _) = qualifiers.get(color.image).ok_or(Error::InvalidResource)? else {

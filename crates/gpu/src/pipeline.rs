@@ -346,7 +346,7 @@ impl PipelineCompiler {
                 ..color.blend.unwrap_or_default().into()
             })
             .collect::<Vec<_>>();
-        
+
         let color_attachment_formats = info
             .color
             .iter()
@@ -432,7 +432,7 @@ impl PipelineCompiler {
 
         let layout = unsafe { logical_device.create_pipeline_layout(&layout_create_info, None) }
             .map_err(|_| Error::Creation)?;
-            
+
         let depth_attachment_format = vk::Format::D32_SFLOAT;
 
         let mut pipeline_rendering_create_info = {
@@ -481,7 +481,7 @@ impl PipelineCompiler {
                 p_viewport_state,
                 p_dynamic_state,
                 render_pass,
-                layout, 
+                layout,
                 ..default()
             }
         };
