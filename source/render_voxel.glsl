@@ -112,7 +112,7 @@ void main() {
 		uv.xy = uvs[j].yx;
 	}
 	
-	Transform transform = transforms.transform;
+	Transform transform = transforms.data[0];
 			
 	transform.position.xyz += vec3(0.4, 1.8, 0.4);
 
@@ -127,7 +127,6 @@ void main() {
 #define SHOW_NORMALS false
 #define SHOW_AO true
 #define SHOW_FOG true
-#define SHOW_DOF true
 
 layout(location = 0) in vec4 position;
 layout(location = 1) in vec4 eye_position;

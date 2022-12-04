@@ -68,6 +68,16 @@ pub enum Error {
     MemoryMapFailed,
     InvalidAttachment,
     FailedToAcquire,
+    CreateBuffer,
+    BindBufferMemory,
+    AllocateMemory,
+    AllocateDescriptorSets,
+    EnumeratePhysicalDevices,
+    CreateSurface,
+    CreateCommandPool,
+    CreateLogicalDevice,
+    CreateDescriptorPool,
+    CreateDescriptorSetLayout,
 }
 
 impl fmt::Display for Error {

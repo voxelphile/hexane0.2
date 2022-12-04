@@ -14,7 +14,7 @@ bool voxel_query(inout VoxelQuery query) {
 	i32vec3 chunk_position = i32vec3(query.position) / CHUNK_SIZE;
 	i32vec3 internal_position = i32vec3(query.position) % CHUNK_SIZE;
 
-	if(any(lessThanEqual(chunk_position, i32vec3(0)))) {
+	if(any(lessThan(chunk_position, i32vec3(0)))) {
 		return false;
 	}
 
@@ -54,7 +54,7 @@ void voxel_change(inout VoxelChange change) {
 	i32vec3 chunk_position = i32vec3(change.position) / CHUNK_SIZE;
 	i32vec3 internal_position = i32vec3(change.position) % CHUNK_SIZE;
 	
-	if(any(lessThanEqual(chunk_position, i32vec3(0)))) {
+	if(any(lessThan(chunk_position, i32vec3(0)))) {
 		return;
 	}
 	

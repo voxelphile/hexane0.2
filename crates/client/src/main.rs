@@ -35,7 +35,7 @@ const SMALL_SIZE: usize = 512;
 const REALLY_LARGE_SIZE: usize = 500_000_000;
 
 const CHUNK_SIZE: usize = 128;
-const AXIS_MAX_CHUNKS: usize = 6;
+const AXIS_MAX_CHUNKS: usize = 8;
 
 pub type Vertex = (f32, f32, f32);
 pub type Color = [f32; 4];
@@ -171,7 +171,7 @@ fn main() {
     let asset_path = root_path.join("assets");
 
     let context = Context::new(ContextInfo {
-        enable_validation: true,
+        enable_validation: false,
         application_name: "Hexane",
         engine_name: "Hexane",
         ..default()
@@ -199,6 +199,7 @@ fn main() {
 
     let mut pipeline_compiler = device.create_pipeline_compiler(PipelineCompilerInfo {
         //default language for shader compiler is glsl
+
         compiler: ShaderCompiler::glslc(default()),
         source_path: &source_path,
         asset_path: &asset_path,
@@ -403,6 +404,14 @@ fn main() {
             ..default()
         })
         .expect("failed to create buffer");
+    
+    let rigidbody_buffer = device
+        .create_buffer(BufferInfo {
+            size: SMALL_SIZE,
+            debug_name: "General Buffer",
+            ..default()
+        })
+        .expect("failed to create buffer");
 
     let info_buffer = device
         .create_buffer(BufferInfo {
@@ -420,7 +429,7 @@ fn main() {
         })
         .expect("failed to create buffer");
 
-    let light_camera_buffer = device
+    let input_buffer = device
         .create_buffer(BufferInfo {
             size: SMALL_SIZE,
             debug_name: "Color Buffer",
@@ -449,13 +458,13 @@ fn main() {
     ];
 
     let mut camera = Cell::new(Camera::Perspective {
-        fov: 90.0 * std::f32::consts::PI / 360.0,
+        fov: 120.0 * std::f32::consts::PI / 360.0,
         clip: (0.001, 500.0),
         aspect_ratio: width as f32 / height as f32,
         position: Vector::new([
-            (AXIS_MAX_CHUNKS * CHUNK_SIZE) as f32 / 2.0,
-            100.0,
-            ((AXIS_MAX_CHUNKS * CHUNK_SIZE) as f32) / 2.0,
+            16.0,
+            48.0,
+            16.0,
         ]),
         rotation: default(),
     });
@@ -474,8 +483,10 @@ fn main() {
     let physics_time_accum = Cell::new(0.0);
 
     let vertex_buffer = || vertex_buffer;
+    let input_buffer = || input_buffer;
     let mersenne_buffer = || mersenne_buffer;
     let transform_buffer = || transform_buffer;
+    let rigidbody_buffer = || rigidbody_buffer;
     let info_buffer = || info_buffer;
     let camera_buffer = || camera_buffer;
     let world_buffer = || world_buffer;
@@ -596,6 +607,8 @@ fn main() {
                         ..info.get()
                     });
                 }
+
+                physics_time_accum.set(physics_time_accum.get() + info.get().delta_time);
 
                 (executable.as_mut().unwrap())();
 
@@ -1066,7 +1079,7 @@ fn main() {
                             const WORK_GROUP_SIZE: usize = 8;
 
                             let dispatch_size =
-                                (1024 as f64 / WORK_GROUP_SIZE as f64).ceil() as usize;
+                                ((AXIS_MAX_CHUNKS * CHUNK_SIZE) as f64 / WORK_GROUP_SIZE as f64).ceil() as usize;
 
                             commands.dispatch(dispatch_size, dispatch_size, dispatch_size)?;
                             update.set(false);
@@ -1079,7 +1092,9 @@ fn main() {
                 executor.add(Task {
                     resources: [
                         Buffer(&info_buffer, BufferAccess::ComputeShaderReadOnly),
+                        Buffer(&input_buffer, BufferAccess::ComputeShaderReadOnly),
                         Buffer(&transform_buffer, BufferAccess::ComputeShaderReadWrite),
+                        Buffer(&rigidbody_buffer, BufferAccess::ComputeShaderReadWrite),
                     ],
                     task: |commands| {
                         commands.set_pipeline(&input_pipeline)?;
@@ -1088,6 +1103,8 @@ fn main() {
                             data: InputPush {
                                 info_buffer: (info_buffer)(),
                                 transform_buffer: (transform_buffer)(),
+                                rigidbody_buffer: (rigidbody_buffer)(),
+                                input_buffer: (input_buffer)(),
                             },
                             pipeline: &input_pipeline,
                         })?;
@@ -1096,42 +1113,41 @@ fn main() {
                     },
                 });
 
-                const PHYSICS_FIXED_TIME: f32 = 0.001;
+                const PHYSICS_FIXED_TIME: f32 = 0.01;
                 const PHYSICS_TIME_PRECISION: f32 = 1_000_000.0;
 
                 executor.add(Task {
                     resources: [
                         Buffer(&info_buffer, BufferAccess::ComputeShaderReadOnly),
                         Buffer(&transform_buffer, BufferAccess::ComputeShaderReadWrite),
+                        Buffer(&rigidbody_buffer, BufferAccess::ComputeShaderReadWrite),
                         Buffer(&world_buffer, BufferAccess::ComputeShaderReadWrite),
                     ],
                     task: |commands| {
                         commands.set_pipeline(&physics_pipeline)?;
 
-                        physics_time_accum.set(physics_time_accum.get() + info.get().delta_time);
-
                         let mut new_physics_time_accum = physics_time_accum.get();
 
-                        let max_time = (PHYSICS_TIME_PRECISION * physics_time_accum.get()) as usize;
-                        let step_time = (PHYSICS_TIME_PRECISION * PHYSICS_FIXED_TIME) as usize;
-
-                        for _ in (0..max_time).step_by(step_time) {
+                        while new_physics_time_accum >= PHYSICS_FIXED_TIME {
                             commands.push_constant(PushConstant {
                                 data: PhysicsPush {
                                     fixed_time: PHYSICS_FIXED_TIME,
                                     info_buffer: (info_buffer)(),
                                     transform_buffer: (transform_buffer)(),
+                                    rigidbody_buffer: (rigidbody_buffer)(),
                                     world_buffer: (world_buffer)(),
                                 },
                                 pipeline: &physics_pipeline,
                             })?;
 
+                            commands.dispatch(1, 1, 1)?;
+                            
                             new_physics_time_accum -= PHYSICS_FIXED_TIME;
                         }
 
                         physics_time_accum.set(new_physics_time_accum);
 
-                        commands.dispatch(1, 1, 1)
+                        Ok(())
                     },
                 });
 
@@ -1183,7 +1199,7 @@ fn main() {
                         const VERTICES_PER_CUBE: usize = 6;
 
                         commands.draw(gpu::prelude::Draw {
-                            vertex_count: 2000000 * VERTICES_PER_CUBE,
+                            vertex_count: 2500000 * VERTICES_PER_CUBE,
                         })?;
 
                         commands.end_rendering()
@@ -1255,6 +1271,8 @@ pub struct DrawPush {
 pub struct InputPush {
     pub info_buffer: Buffer,
     pub transform_buffer: Buffer,
+    pub rigidbody_buffer: Buffer,
+    pub input_buffer: Buffer,
 }
 #[derive(Clone, Copy)]
 #[repr(C)]
@@ -1262,6 +1280,7 @@ pub struct PhysicsPush {
     pub fixed_time: f32,
     pub info_buffer: Buffer,
     pub transform_buffer: Buffer,
+    pub rigidbody_buffer: Buffer,
     pub world_buffer: Buffer,
 }
 #[derive(Clone, Copy)]

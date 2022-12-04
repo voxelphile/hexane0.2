@@ -1,20 +1,12 @@
 struct Transform {
-		vec4 position;
-		vec4 rotation;
-		vec4 target_rotation;
-		f32 target_rotation_time;
-		vec4 velocity;
-		bool first;
-		bool jumping;
-		bool on_ground;
-		bool colliding;
-		vec3 last_normals;
+	vec4 position;
+	vec4 rotation;
 };
 
 decl_buffer(
 	Transforms,
 	{
-		Transform transform;
+		Transform data[1000];
 	}
 )
 

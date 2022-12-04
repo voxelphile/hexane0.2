@@ -11,6 +11,7 @@ struct PhysicsPush {
 	f32 fixed_time;
 	BufferId info_id;
 	BufferId transform_id;
+	BufferId rigidbody_id;
 	BufferId world_id;
 };
 
@@ -138,6 +139,7 @@ struct AxisData {
 	f32 entry_time;
 	bool colliding;
 	vec3 velocity;
+	vec3 acceleration;
 	Box block;
 };
 
@@ -153,12 +155,16 @@ void main() {
 	}
 
 	Buffer(Transforms) transforms = get_buffer(Transforms, push_constant.transform_id);
+	Buffer(Rigidbodies) rigidbodies = get_buffer(Rigidbodies, push_constant.rigidbody_id);
 
-	transforms.transform.on_ground = false;
+	Transform transform = transforms.data[0];
+	Rigidbody rigidbody = rigidbodies.data[0];
+
+	rigidbody.on_ground = false;
 
 	f32 fixed_time = push_constant.fixed_time;
 	
-	f32 mag = ceil(length(transforms.transform.velocity.xyz));
+	f32 mag = ceil(length(rigidbody.velocity.xyz));
 
 	i32 h_mag = 5;
 	
@@ -169,15 +175,20 @@ void main() {
 	d.velocity = vec3(0);
 
 	AxisData data[] = AxisData[](d, d, d);
-	data[0].velocity = vec3(transforms.transform.velocity.x, 0, 0);
-	data[1].velocity = vec3(0, transforms.transform.velocity.y, 0);
-	data[2].velocity = vec3(0, 0, transforms.transform.velocity.z);
+	
+	data[0].velocity = vec3(rigidbody.velocity.x, 0, 0);
+	data[1].velocity = vec3(0, rigidbody.velocity.y, 0);
+	data[2].velocity = vec3(0, 0, rigidbody.velocity.z);
+
+	data[0].acceleration = vec3(rigidbody.acceleration.x, 0, 0);
+	data[1].acceleration = vec3(0, rigidbody.acceleration.y, 0);
+	data[2].acceleration = vec3(0, 0, rigidbody.acceleration.z);
 
 	i32 order[] = i32[](0, 1, 2);
 		
 	Box player;
 	player.dimensions = vec3(0.8, 2, 0.8);
-	player.position = transforms.transform.position.xyz;
+	player.position = transform.position.xyz;
 
 	for(i32 i = 0; i < 3; i++) {
 	for(i32 x = -h_mag; x < h_mag; x++) {
@@ -185,9 +196,9 @@ void main() {
 	for(i32 z = -h_mag; z < h_mag; z++) {
 		
 		Box block;
-		block.position = floor(transforms.transform.position.xyz) + vec3(x, y, z);
+		block.position = floor(transform.position.xyz) + vec3(x, y, z);
 		block.dimensions = vec3(1);
-		player.velocity = data[i].velocity;
+		player.velocity = data[i].velocity + data[i].acceleration * fixed_time;
 
 		Box broadphase = get_swept_broadphase_box(player);	
 
@@ -237,35 +248,43 @@ void main() {
 		i32 o = order[i];
 
 		if(data[o].colliding) {
-			transforms.transform.position.xyz += data[o].velocity * data[o].entry_time;
+			transform.position.xyz += data[o].velocity * data[o].entry_time;
 			while(aabb_check(player, data[o].block)) {
-				transforms.transform.position.xyz += data[o].normals * 1e-4;
-				player.position = transforms.transform.position.xyz;
+				transform.position.xyz += data[o].normals * 1e-4;
+				player.position = transform.position.xyz;
 			}
-			transforms.transform.position.xyz += data[o].normals * 1e-4;
+			transform.position.xyz += data[o].normals * 1e-4;
 
 		}
 		
 		data[o].normals = clamp(data[o].normals, -1, 1);
 	
-		f32 dot_prod = dot(transforms.transform.velocity.xyz, data[o].normals);
-
-		vec3 undesired_velocity = data[o].normals * dot_prod;
+		vec3 undesired_velocity = data[o].normals * dot(rigidbody.velocity.xyz, data[o].normals);
 	
-		transforms.transform.velocity.xyz -= undesired_velocity;
+		rigidbody.velocity.xyz -= undesired_velocity;
 
 		data[o].velocity -= undesired_velocity;
+		
+		vec3 undesired_acceleration = data[o].normals * dot(rigidbody.acceleration.xyz, data[o].normals);
 
-		transforms.transform.position.xyz += data[o].velocity * fixed_time;
+		rigidbody.acceleration.xyz -= undesired_acceleration;
+
+		data[o].acceleration -= undesired_acceleration;
+
+		transform.position.xyz += data[o].velocity * fixed_time
+			+ 0.5 * data[o].acceleration * pow(fixed_time, 2);
+		rigidbody.velocity.xyz += data[o].acceleration * fixed_time;
 
 		if(data[o].normals == vec3(0,1,0)) {
-			transforms.transform.on_ground = true;
-			transforms.transform.jumping = false;
+			rigidbody.on_ground = true;
 		}
 
 	}
 
-	transforms.transform.velocity.y -= 9 * 100 * fixed_time;
+	rigidbody.acceleration.y -= 4;
+
+	transforms.data[0] = transform;
+	rigidbodies.data[0] = rigidbody;
 }
 
 #endif

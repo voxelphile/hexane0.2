@@ -8,6 +8,8 @@
 struct InputPush {
 	BufferId info_id;
 	BufferId transform_id;
+	BufferId rigidbody_id;
+	BufferId input_id;
 };
 
 decl_push_constant(InputPush)
@@ -16,6 +18,15 @@ decl_buffer(
 	Camera,
 	{
 		mat4 projection;
+	}
+)
+
+decl_buffer(
+	Input,
+	{
+		bool first;
+		vec4 target_rotation;
+		f32 target_rotation_time;
 	}
 )
 	
@@ -42,35 +53,34 @@ void main() {
 	}
 
 	Buffer(Transforms) transforms = get_buffer(Transforms, push_constant.transform_id);
+	Buffer(Rigidbodies) rigidbodies = get_buffer(Rigidbodies, push_constant.rigidbody_id);
 	Buffer(Info) info = get_buffer(Info, push_constant.info_id);
+	Buffer(Input) inp = get_buffer(Input, push_constant.input_id);
 
 	f32 delta_time = info.delta_time;
 
-	Transform transform = transforms.transform;
+	Transform transform = transforms.data[0];
+	Rigidbody rigidbody = rigidbodies.data[0];
 	EntityInput entity_input = info.entity_input;
 
-	if(!transform.first){
+	if(!inp.first){
 		transform.position.xyz = vec3(512, 180, 512);
-		transform.velocity.xyz = vec3(0);
-		transform.target_rotation.xyz = vec3(-3.14 / 2.0 + 0.1, 0, 0);
-		transform.jumping = false;
-		transform.first = true;
-	}
-	if(entity_input.down && entity_input.up){
-		transform.velocity.xyz = vec3(0);
+		rigidbody.velocity.xyz = vec3(0);
+		inp.target_rotation.xyz = vec3(-3.14 / 2.0 + 0.1, 0, 0);
+		inp.first = true;
 	}
 	
-	f32 sens = 3.14 / 10;
-	f32 move = 40;
+	f32 sens = 3.14 / 2;
+	f32 max_target_rotation_time = 0.1;
 
-	transform.target_rotation.xy -= (entity_input.look.yx * delta_time) * sens;
+	inp.target_rotation.xy -= (entity_input.look.yx * delta_time) * sens;
 
-	transform.target_rotation.x = clamp(transform.target_rotation.x, -3.14 / 2.0 + 0.1, 3.14 / 2.0 - 0.1);
-	if(entity_input.look.xy == vec2(0)) {
-		transform.target_rotation_time = 0;
+	inp.target_rotation.x = clamp(inp.target_rotation.x, -3.14 / 2.0 + 0.1, 3.14 / 2.0 - 0.1);
+	if(entity_input.look.xy != vec2(0)) {
+		inp.target_rotation_time = 0;
 	}
-	transform.target_rotation_time += info.delta_time;
-	transform.rotation = mix(transform.rotation, transform.target_rotation, clamp(transform.target_rotation_time * move, 0, 1));
+	inp.target_rotation_time += info.delta_time;
+	transform.rotation = mix(transform.rotation, inp.target_rotation, clamp(inp.target_rotation_time / max_target_rotation_time, 0, 1));
 
 	vec3 direction = vec3(0);
 
@@ -110,18 +120,18 @@ void main() {
 	direction.xz = lateral_direction;
 	direction.y = f32(input_axis.y);
 
-	transform.velocity.xz = direction.xz * 50;
+	rigidbody.velocity.xz = direction.xz * 10;
 
-	if(input_axis.y == 1 && transform.on_ground && !transform.jumping) {
-		transform.velocity.y += 60;	
-		transform.jumping = true;
+	if(input_axis.y == 1 && rigidbody.on_ground) {
+		rigidbody.velocity.y += 4;	
 	}
 	
-	transforms.transform = transform;
+	transforms.data[0] = transform;
+	rigidbodies.data[0] = rigidbody;
 	/*
 	{
 		Rigidbody rigidbody = rigidbody_buffer.info[entity_input.entity_id];
-patreon.com/user?u=82729947
+
 		if(rigidbody.id != 0) {
 			apply_force(rigidbody, vec3(0), 10);
 		}

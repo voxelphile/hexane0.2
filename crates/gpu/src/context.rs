@@ -24,7 +24,7 @@ pub(crate) const SPECIAL_IMAGE_BINDING: u32 = 2;
 pub(crate) const SPECIAL_BUFFER_BINDING: u32 = 3;
 pub(crate) const DEVICE_ADDRESS_BUFFER_BINDING: u32 = 4;
 
-pub(crate) const DESCRIPTOR_COUNT: u32 = 1_000_000;
+pub(crate) const DESCRIPTOR_COUNT: u32 = 1_000;
 
 unsafe extern "system" fn debug_callback(
     message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
@@ -216,11 +216,11 @@ impl Context {
         let surface_handle = unsafe {
             ash_window::create_surface(&entry, &instance, info.display, info.window, None)
         }
-        .map_err(|_| Error::Creation)?;
+        .map_err(|_| Error::CreateSurface)?;
 
         //SAFETY instance is initialized
         let mut physical_devices = unsafe { instance.enumerate_physical_devices() }
-            .map_err(|_| Error::Creation)?
+            .map_err(|_| Error::EnumeratePhysicalDevices)?
             .into_iter()
             .filter_map(|physical_device| {
                 unsafe { instance.get_physical_device_queue_family_properties(physical_device) }
@@ -416,7 +416,7 @@ impl Context {
                 .instance
                 .create_device(physical_device, &device_create_info, None)
         }
-        .map_err(|_| Error::Creation)?;
+        .map_err(|_| Error::CreateLogicalDevice)?;
 
         let descriptor_pool_sizes = [
             vk::DescriptorPoolSize {
@@ -461,7 +461,7 @@ impl Context {
 
         let descriptor_pool =
             unsafe { logical_device.create_descriptor_pool(&descriptor_pool_create_info, None) }
-                .map_err(|_| Error::Creation)?;
+                .map_err(|_| Error::CreateDescriptorPool)?;
 
         let descriptor_set_layout_bindings = [
             vk::DescriptorSetLayoutBinding {
@@ -548,7 +548,7 @@ impl Context {
         let descriptor_set_layout = unsafe {
             logical_device.create_descriptor_set_layout(&descriptor_set_layout_create_info, None)
         }
-        .map_err(|_| Error::Creation)?;
+        .map_err(|_| Error::CreateDescriptorSetLayout)?;
 
         let descriptor_set_allocate_info = {
             let descriptor_set_count = 1;
@@ -567,7 +567,7 @@ impl Context {
 
         let descriptor_set =
             unsafe { logical_device.allocate_descriptor_sets(&descriptor_set_allocate_info) }
-                .map_err(|_| Error::Creation)?[0];
+                .map_err(|_| Error::AllocateDescriptorSets)?[0];
 
         let allocation_size = (DESCRIPTOR_COUNT * mem::size_of::<u64>() as u32) as u64;
 
@@ -580,7 +580,7 @@ impl Context {
             };
 
             unsafe { logical_device.create_buffer(&buffer_create_info, None) }
-                .map_err(|_| Error::Creation)?
+                .map_err(|_| Error::CreateBuffer)?
         };
 
         let staging_address_memory = {
@@ -603,13 +603,13 @@ impl Context {
             };
 
             unsafe { logical_device.allocate_memory(&memory_allocate_info, None) }
-                .map_err(|_| Error::Creation)?
+                .map_err(|_| Error::AllocateMemory)?
         };
 
         unsafe {
             logical_device.bind_buffer_memory(staging_address_buffer, staging_address_memory, 0)
         }
-        .map_err(|_| Error::Creation)?;
+        .map_err(|_| Error::BindBufferMemory)?;
 
         let general_address_buffer = {
             let buffer_create_info = vk::BufferCreateInfo {
@@ -620,7 +620,7 @@ impl Context {
             };
 
             unsafe { logical_device.create_buffer(&buffer_create_info, None) }
-                .map_err(|_| Error::Creation)?
+                .map_err(|_| Error::CreateBuffer)?
         };
 
         let general_address_memory = {
@@ -643,13 +643,13 @@ impl Context {
             };
 
             unsafe { logical_device.allocate_memory(&memory_allocate_info, None) }
-                .map_err(|_| Error::Creation)?
+                .map_err(|_| Error::AllocateMemory)?
         };
 
         unsafe {
             logical_device.bind_buffer_memory(general_address_buffer, general_address_memory, 0)
         }
-        .map_err(|_| Error::Creation)?;
+        .map_err(|_| Error::BindBufferMemory)?;
 
         let command_pool_create_info = vk::CommandPoolCreateInfo {
             flags: vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER,
@@ -659,7 +659,7 @@ impl Context {
 
         let command_pool =
             unsafe { logical_device.create_command_pool(&command_pool_create_info, None) }
-                .map_err(|_| Error::Creation)?;
+                .map_err(|_| Error::CreateCommandPool)?;
 
         let resources = Mutex::new(DeviceResources::new());
 
