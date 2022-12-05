@@ -961,6 +961,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "server"
+version = "0.1.0"
+dependencies = [
+ "common",
+ "gpu",
+ "math",
+ "noise",
+ "profiling",
+ "rand",
+ "raw-window-handle 0.5.0",
+ "winit",
+]
+
+[[package]]
 name = "servo-fontconfig"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -72,6 +72,30 @@ fn root_path() -> Option<path::PathBuf> {
 fn main() {
     println!("Hello, world!");
 
+    use common::net::*;
+
+    let mut host = Host::connect("127.0.0.1:29757").unwrap();
+
+    loop {
+        if let Some(_) = host.drop() {
+            println!("server dropped");
+            break;
+        }
+        
+        dbg!("sent");
+        //It is crucial that we call receive because the first packet contains
+        //a special authorization token
+        let msgs = host.recv();
+
+        dbg!(msgs);
+
+        host.send(0, Delivery::Reliable, Message::HelloWorld);
+
+        std::thread::sleep(std::time::Duration::from_secs(2));
+    };
+
+    panic!("goodbye world");
+
     //tracy_client::Client::start();
     profiling::register_thread!("main");
 
@@ -199,7 +223,6 @@ fn main() {
 
     let mut pipeline_compiler = device.create_pipeline_compiler(PipelineCompilerInfo {
         //default language for shader compiler is glsl
-
         compiler: ShaderCompiler::glslc(default()),
         source_path: &source_path,
         asset_path: &asset_path,
@@ -404,7 +427,7 @@ fn main() {
             ..default()
         })
         .expect("failed to create buffer");
-    
+
     let rigidbody_buffer = device
         .create_buffer(BufferInfo {
             size: SMALL_SIZE,
@@ -461,11 +484,7 @@ fn main() {
         fov: 120.0 * std::f32::consts::PI / 360.0,
         clip: (0.001, 500.0),
         aspect_ratio: width as f32 / height as f32,
-        position: Vector::new([
-            16.0,
-            48.0,
-            16.0,
-        ]),
+        position: Vector::new([16.0, 48.0, 16.0]),
         rotation: default(),
     });
 
@@ -1078,8 +1097,9 @@ fn main() {
 
                             const WORK_GROUP_SIZE: usize = 8;
 
-                            let dispatch_size =
-                                ((AXIS_MAX_CHUNKS * CHUNK_SIZE) as f64 / WORK_GROUP_SIZE as f64).ceil() as usize;
+                            let dispatch_size = ((AXIS_MAX_CHUNKS * CHUNK_SIZE) as f64
+                                / WORK_GROUP_SIZE as f64)
+                                .ceil() as usize;
 
                             commands.dispatch(dispatch_size, dispatch_size, dispatch_size)?;
                             update.set(false);
@@ -1141,7 +1161,7 @@ fn main() {
                             })?;
 
                             commands.dispatch(1, 1, 1)?;
-                            
+
                             new_physics_time_accum -= PHYSICS_FIXED_TIME;
                         }
 
