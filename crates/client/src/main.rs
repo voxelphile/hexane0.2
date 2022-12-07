@@ -70,29 +70,37 @@ fn root_path() -> Option<path::PathBuf> {
 }
 
 fn main() {
-    println!("Hello, world!");
+    println!("Hello, client!");
 
     use common::net::*;
 
     let mut host = Host::connect("127.0.0.1:29757").unwrap();
 
+    let mut i = 0;
+
+    let mut instant = std::time::Instant::now();
+    
     loop {
         if let Some(_) = host.drop() {
             println!("server dropped");
             break;
         }
-        
-        dbg!("sent");
+
         //It is crucial that we call receive because the first packet contains
         //a special authorization token
         let msgs = host.recv();
 
-        dbg!(msgs);
+        if msgs.len() > 0 {
+            dbg!(msgs);
+        }
 
-        host.send(0, Delivery::Reliable, Message::HelloWorld);
-
-        std::thread::sleep(std::time::Duration::from_secs(2));
-    };
+        if std::time::Instant::now().duration_since(instant).as_secs_f32() > 1.0 {
+            dbg!("sent");
+            host.send(0, Delivery::Reliable, Message::HelloWorld(i));
+            i+= 1;
+            instant = std::time::Instant::now();
+        }
+    }
 
     panic!("goodbye world");
 
