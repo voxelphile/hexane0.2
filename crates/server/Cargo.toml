@@ -7,6 +7,7 @@ edition = "2021"
 
 [dependencies]
 gpu = { path = "../gpu" }
+net = { path = "../net" }
 math = { path = "../math" }
 common = { path = "../common" }
 

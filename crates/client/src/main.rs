@@ -17,6 +17,7 @@ use std::cell::Cell;
 use std::cmp;
 use std::default::default;
 use std::env;
+use std::num;
 use std::mem;
 use std::ops;
 use std::path;
@@ -71,38 +72,6 @@ fn root_path() -> Option<path::PathBuf> {
 
 fn main() {
     println!("Hello, client!");
-
-    use common::net::*;
-
-    let mut host = Host::connect("127.0.0.1:29757").unwrap();
-
-    let mut i = 0;
-
-    let mut instant = std::time::Instant::now();
-    
-    loop {
-        if let Some(_) = host.drop() {
-            println!("server dropped");
-            break;
-        }
-
-        //It is crucial that we call receive because the first packet contains
-        //a special authorization token
-        let msgs = host.recv();
-
-        if msgs.len() > 0 {
-            dbg!(msgs);
-        }
-
-        if std::time::Instant::now().duration_since(instant).as_secs_f32() > 1.0 {
-            dbg!("sent");
-            host.send(0, Delivery::Reliable, Message::HelloWorld(i));
-            i+= 1;
-            instant = std::time::Instant::now();
-        }
-    }
-
-    panic!("goodbye world");
 
     //tracy_client::Client::start();
     profiling::register_thread!("main");
@@ -959,7 +928,8 @@ fn main() {
                             mt.push(42069);
 
                             for i in 1..N as usize {
-                                mt.push(F * (mt[i - 1] ^ (mt[i - 1] >> (W - 2))) + i as u32);
+                                let num = num::Wrapping(F) * num::Wrapping((mt[i - 1] ^ (mt[i - 1] >> (W - 2))) + i as u32); 
+                                mt.push(num.0);
                             }
                             commands.write_buffer(BufferWrite {
                                 buffer: 0,
