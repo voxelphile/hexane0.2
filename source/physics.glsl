@@ -150,9 +150,7 @@ void swap(inout i32 a, inout i32 b) {
 }
 
 void main() {
-	if(gl_GlobalInvocationID.x != 0) {
 		return;
-	}
 
 	Buffer(Transforms) transforms = get_buffer(Transforms, push_constant.transform_id);
 	Buffer(Rigidbodies) rigidbodies = get_buffer(Rigidbodies, push_constant.rigidbody_id);
@@ -250,7 +248,7 @@ void main() {
 		if(data[o].colliding) {
 			transform.position.xyz += data[o].velocity * data[o].entry_time;
 			while(aabb_check(player, data[o].block)) {
-				transform.position.xyz += data[o].normals * 1e-4;
+				transform.position.xyz += data[o].normals * 1e-3;
 				player.position = transform.position.xyz;
 			}
 			transform.position.xyz += data[o].normals * 1e-4;

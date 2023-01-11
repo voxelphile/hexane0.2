@@ -123,7 +123,8 @@ void main() {
 	rigidbody.velocity.xz = direction.xz * 10;
 
 	if(input_axis.y == 1 && rigidbody.on_ground) {
-		rigidbody.velocity.y += 4;	
+		rigidbody.velocity.y += 10;
+		rigidbody.on_ground = false;
 	}
 	
 	transforms.data[0] = transform;

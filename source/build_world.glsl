@@ -29,7 +29,7 @@ void main() {
 
 	//dunno why this is bugged.. if this statement isnt made like this
 	//then grass spawns on chunk corners
-	if(gl_GlobalInvocationID.y > height - 1 && gl_GlobalInvocationID.y < height + 1 ) {
+	if(gl_GlobalInvocationID.y > height - 1 && gl_GlobalInvocationID.y < height + 1) {
 		change.id = u16(2);
 	} else if(gl_GlobalInvocationID.y < height) {
 		change.id = u16(4);

@@ -127,6 +127,7 @@ void main() {
 #define SHOW_NORMALS false
 #define SHOW_AO true
 #define SHOW_FOG true
+#define SHOW_SHADOWS false
 
 layout(location = 0) in vec4 position;
 layout(location = 1) in vec4 eye_position;
@@ -181,7 +182,7 @@ void main() {
 		result.xyz = result.xyz - vec3(1 - ao) * 0.25;
 	}
 
-	if(success) {
+	if(success && SHOW_SHADOWS) {
 		result.xyz *= 0.5;
 	}
 

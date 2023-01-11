@@ -1,4 +1,4 @@
-#define MAX_STEP_COUNT 512
+#define MAX_STEP_COUNT 128
 
 struct Ray {
 	BufferId world_id;
@@ -12,76 +12,41 @@ struct RayHit {
 	vec3 normal;
 	vec3 back_step;
 	vec3 destination;
+	bvec3 mask;
 };
 
 bool ray_cast(inout Ray ray, out RayHit hit) {
 	ray.direction = normalize(ray.direction);
 	ray.origin += ray.direction * pow(EPSILON, 3);
 
-	vec3 p = ray.origin;
-	vec3 s = sign(ray.direction);
-	vec3 s01 = max(s, 0.);
-	vec3 ird = 1.0 / ray.direction;
-	
+
+	ivec3 map_pos = ivec3(floor(ray.origin + 0.));
+	vec3 delta_dist = abs(vec3(length(ray.direction)) / ray.direction);
+	ivec3 ray_step = ivec3(sign(ray.direction));
+	vec3 side_dist = (sign(ray.direction) * (vec3(map_pos) - ray.origin) + (sign(ray.direction) * 0.5) + 0.5) * delta_dist;
 	bvec3 mask;
+	f32 dist;
 
-	uint size = uint(AXIS_MAX_CHUNKS * CHUNK_SIZE);
-
-	float pre_dist = 0;
-	vec3 post;
-
-	uint node_index;
-	uint node_depth;
-
-	float dist = 0;
-
-	
-	//vec3 chunk_min = vec3(in_chunk_position * CHUNK_SIZE);
-	//vec3 chunk_max = chunk_min + vec3(CHUNK_SIZE);
-
-	#pragma unroll 
-	for (int step_count = 0; step_count < MAX_STEP_COUNT; step_count++) {
-		bool in_object = all(greaterThanEqual(p, vec3(0))) && all(lessThan(p, vec3(size)));
-		bool rough_in_object = all(greaterThanEqual(p, vec3(-1))) && all(lessThan(p, vec3(size + 1)));
-
-		if (!rough_in_object) {
-			break;
-		}
-
+	for(int i = 0; i < MAX_STEP_COUNT; i++) {
 		VoxelQuery query;
 		query.world_id = ray.world_id;
-		query.position = p;
+		query.position = map_pos;
 
 		bool voxel_found = voxel_query(query);
 
-		int lod = int(log2(f32(AXIS_MAX_CHUNKS * CHUNK_SIZE))) - int(node_depth) - 1;
-
 		if (voxel_found) {
 			vec3 destination = ray.origin + ray.direction * (dist - 1e-4);
-			vec3 normal = vec3(mask) * sign(-ray.direction);
-			vec3 back_step = p - s * vec3(mask);
 
-			hit.dist = dist;
-			hit.back_step = back_step;	
-			hit.normal = normal;
 			hit.destination = destination;
+			hit.mask = mask;
 			return true;
 		}
 
-		float voxel = exp2(lod);
-		vec3 t_max = ird * (voxel * s01 - mod(p, voxel));
-
-		mask = lessThanEqual(t_max.xyz, min(t_max.yzx, t_max.zxy));
-
-		float c_dist = min(min(t_max.x, t_max.y), t_max.z);
-		p += c_dist * ray.direction;
-		dist += c_dist;
-
-		if(dist > ray.max_distance) {
-			break;
-		}
-
-		p += 4e-4 * s * vec3(mask);
+		mask = lessThanEqual(side_dist.xyz, min(side_dist.yzx, side_dist.zxy));
+			
+		side_dist += vec3(mask) * delta_dist;
+		map_pos += ivec3(vec3(mask)) * ray_step;
+		dist += length(vec3(mask) * ray_step);
 	}
 
 	return false;

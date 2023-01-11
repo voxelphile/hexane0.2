@@ -8,7 +8,7 @@ struct Vertex {
 decl_buffer(
 	Vertices,
 	{
-		Vertex data[15000000];
 		u32 count;
+		Vertex data[15000000];
 	}
 )

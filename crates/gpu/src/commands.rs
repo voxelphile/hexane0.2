@@ -172,6 +172,11 @@ pub struct BufferWrite<'a, T: Copy> {
     pub src: &'a [T],
 }
 
+pub struct BufferRead {
+    pub buffer: usize,
+    pub offset: usize,
+}
+
 pub struct BufferCopy {
     pub from: usize,
     pub to: usize,
@@ -369,6 +374,54 @@ impl Commands<'_> {
         }
 
         Ok(())
+    }
+    
+    pub fn read_buffer<T: Copy>(&mut self, read: BufferRead) -> Result<T> {
+        let Commands {
+            device,
+            qualifiers,
+            command_buffer,
+            ..
+        } = self;
+
+        let DeviceInner {
+            logical_device,
+            resources,
+            ..
+        } = &*device;
+
+        let BufferRead {
+            buffer,
+            offset,
+        } = read;
+
+        let resources = resources.lock().unwrap();
+
+        let Qualifier::Buffer(buffer_handle, _) = qualifiers.get(buffer).ok_or(Error::ResourceNotFound)? else {
+            Err(Error::InvalidResource)?
+        };
+
+        let InternalBuffer { memory, .. } = resources
+            .buffers
+            .get(*buffer_handle)
+            .ok_or(Error::ResourceNotFound)?;
+
+        let InternalMemory { memory, .. } = memory;
+
+        let size = mem::size_of::<T>();
+
+        let src = unsafe {
+            logical_device.map_memory(*memory, offset as _, size as _, vk::MemoryMapFlags::empty())
+        }
+        .map_err(|_| Error::MemoryMapFailed)?;
+
+        let dst = unsafe { ptr::read::<T>(src as *const T) };
+
+        unsafe {
+            logical_device.unmap_memory(*memory);
+        }
+
+        Ok(dst)
     }
 
     pub fn set_resolution(&mut self, resolution: (u32, u32)) -> Result<()> {

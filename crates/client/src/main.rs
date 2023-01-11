@@ -33,7 +33,7 @@ use winit::{
 use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 
 const SMALL_SIZE: usize = 512;
-const REALLY_LARGE_SIZE: usize = 500_000_000;
+const REALLY_LARGE_SIZE: usize = 200_000_000;
 
 const CHUNK_SIZE: usize = 128;
 const AXIS_MAX_CHUNKS: usize = 8;
@@ -45,7 +45,7 @@ pub type Index = u32;
 fn root_path() -> Option<path::PathBuf> {
     let current_dir = env::current_dir().ok()?;
 
-    let valid_parents = ["/target/debug", "/target/release", "/bin"];
+    let valid_parents = ["\\target\\debug", "\\target\\release", "\\bin"];
 
     for valid_parent in valid_parents {
         if !current_dir.ends_with(valid_parent) {
@@ -81,8 +81,8 @@ fn main() {
     let window = WindowBuilder::new()
         .with_title("Hexane | FPS 0")
         .with_inner_size(winit::dpi::PhysicalSize {
-            width: 1920,
-            height: 1080,
+            width: 1920 / 2,
+            height: 1080 / 2,
         })
         .build(&event_loop)
         .unwrap();
@@ -90,94 +90,21 @@ fn main() {
     let mut resolution = Cell::new(window.inner_size().into());
 
     let (width, height) = resolution.get();
-    /*
-        use common::mesh::*;
-        use common::octree::*;
-        use common::voxel::*;
-        use math::prelude::*;
 
-        use noise::{NoiseFn, Perlin, Seedable};
-
-        use rand::Rng;
-
-        let mut rng = rand::thread_rng();
-
-        let perlin = Perlin::new(420);
-
-        let mut octree = SparseOctree::<Voxel>::new();
-
-        for x in 0..WORLD_SIZE {
-            for z in 0..WORLD_SIZE {
-                const BASE_HEIGHT: usize = 64;
-                const VARIATION_HEIGHT: usize = 10;
-
-                let mut height = BASE_HEIGHT as isize;
-
-                const OCTAVES: usize = 4;
-                const SAMPLE_BASIS: f64 = 128.0;
-
-                for i in 1..=OCTAVES {
-                    let sample_x = x as f64 / (SAMPLE_BASIS / i as f64);
-                    let sample_z = z as f64 / (SAMPLE_BASIS / i as f64);
-
-                    let diff = (perlin.get([sample_x, 0.0, sample_z])
-                        * (VARIATION_HEIGHT as f64 / i as f64)) as isize;
-
-                    height += diff;
-                }
-
-                let height = height as usize;
-
-                for y in 0..height {
-                    if y == height - 1 {
-                        octree.place(Vector::new([x, y, z]), Voxel { id: Id::Grass });
-                    } else {
-                        octree.place(Vector::new([x, y, z]), Voxel { id: Id::Dirt });
-                    }
-                }
-            }
-            if x % 100 == 0 {
-                octree.optimize();
-            }
-        }
-        octree.optimize();
-
-        println!("Finished world generation.");
-        /*
-            let mesh: Mesh = octree.convert(Conversion {
-                regions: [Region {
-                    start: Vector::new([0, 0, 0]),
-                    end: Vector::new([WORLD_SIZE, 128, WORLD_SIZE]),
-                }],
-                lod: 1,
-            });
-
-            println!("Finished mesh generation.");
-        */
-        let bitset: Bitset = octree.convert(Conversion {
-            regions: [Region {
-                start: Vector::new([0, 0, 0]),
-                end: Vector::new([WORLD_SIZE, 128, WORLD_SIZE]),
-            }],
-            lod: 1,
-        });
-
-        dbg!(bitset.data().len() * mem::size_of::<u32>());
-
-        println!("Finished bitset generation.");
-    */
     let root_path = root_path().expect("failed to get root path");
 
     let source_path = root_path.join("source");
     let asset_path = root_path.join("assets");
+    
 
     let context = Context::new(ContextInfo {
-        enable_validation: false,
+        enable_validation: true,
         application_name: "Hexane",
         engine_name: "Hexane",
         ..default()
     })
     .expect("failed to create context");
+
 
     let mut device = context
         .create_device(DeviceInfo {
@@ -211,8 +138,8 @@ fn main() {
     let draw_pipeline = pipeline_compiler
         .create_graphics_pipeline(GraphicsPipelineInfo {
             shaders: [
-                Shader(Vertex, "render_voxel", &[]),
-                Shader(Fragment, "render_voxel", &[]),
+                Shader(Vertex, "rtx", &[]),
+                Shader(Fragment, "rtx", &[]),
             ],
             color: [gpu::prelude::Color {
                 format: device.presentation_format(swapchain.get()).unwrap(),
@@ -240,6 +167,27 @@ fn main() {
             ..default()
         })
         .expect("failed to create pipeline");
+    
+    let clear_cache_pipeline = pipeline_compiler
+        .create_compute_pipeline(ComputePipelineInfo {
+            shader: Shader(Compute, "clearcache", &[]),
+            ..default()
+        })
+        .expect("failed to create pipeline");
+    
+    let copy_cache_pipeline = pipeline_compiler
+        .create_compute_pipeline(ComputePipelineInfo {
+            shader: Shader(Compute, "copycache", &[]),
+            ..default()
+        })
+        .expect("failed to create pipeline");
+    
+    let cache_pipeline = pipeline_compiler
+        .create_compute_pipeline(ComputePipelineInfo {
+            shader: Shader(Compute, "reproj", &[]),
+            ..default()
+        })
+        .expect("failed to create pipeline");
 
     let bitset_pipeline = pipeline_compiler
         .create_compute_pipeline(ComputePipelineInfo {
@@ -248,13 +196,13 @@ fn main() {
         })
         .expect("failed to create pipeline");
 
-    let vertex_pipeline = pipeline_compiler
+    /*let vertex_pipeline = pipeline_compiler
         .create_compute_pipeline(ComputePipelineInfo {
             shader: Shader(Compute, "build_mesh", &[]),
             ..default()
         })
         .expect("failed to create pipeline");
-
+*/
     let noise_pipeline = pipeline_compiler
         .create_compute_pipeline(ComputePipelineInfo {
             shader: Shader(Compute, "build_noise", &[]),
@@ -276,17 +224,6 @@ fn main() {
         })
         .expect("failed to create pipeline");
 
-    let mut light_depth_img = Cell::new(
-        device
-            .create_image(ImageInfo {
-                extent: ImageExtent::TwoDim(width as _, height as _),
-                usage: ImageUsage::DEPTH,
-                format: Format::D32Sfloat,
-                ..default()
-            })
-            .expect("failed to create depth image"),
-    );
-
     let mut depth_img = Cell::new(
         device
             .create_image(ImageInfo {
@@ -297,6 +234,52 @@ fn main() {
             })
             .expect("failed to create depth image"),
     );
+    
+    let mut cache_pos_img = Cell::new(
+        device
+            .create_image(ImageInfo {
+                extent: ImageExtent::TwoDim(width as _, height as _),
+                usage: ImageUsage::COLOR,
+                format: Format::Rgba32Sfloat,
+                ..default()
+            })
+            .expect("failed to create cache image"),
+    );
+    
+    let mut cache_color_img = Cell::new(
+        device
+            .create_image(ImageInfo {
+                extent: ImageExtent::TwoDim(width as _, height as _),
+                usage: ImageUsage::COLOR,
+                format: Format::Rgba32Sfloat,
+                ..default()
+            })
+            .expect("failed to create cache image"),
+    );
+    
+    let mut cache_pos_img2 = Cell::new(
+        device
+            .create_image(ImageInfo {
+                extent: ImageExtent::TwoDim(width as _, height as _),
+                usage: ImageUsage::COLOR,
+                format: Format::Rgba32Sfloat,
+                ..default()
+            })
+            .expect("failed to create cache image"),
+    );
+    
+    let mut cache_color_img2 = Cell::new(
+        device
+            .create_image(ImageInfo {
+                extent: ImageExtent::TwoDim(width as _, height as _),
+                usage: ImageUsage::COLOR,
+                format: Format::Rgba32Sfloat,
+                ..default()
+            })
+            .expect("failed to create cache image"),
+    );
+
+    
 
     let mut noise_img = Cell::new(
         device
@@ -312,7 +295,7 @@ fn main() {
     let mut perlin_img = Cell::new(
         device
             .create_image(ImageInfo {
-                extent: ImageExtent::ThreeDim(512, 512, 512),
+                extent: ImageExtent::ThreeDim(256, 256, 256),
                 usage: ImageUsage::TRANSFER_DST,
                 format: Format::R32Uint,
                 ..default()
@@ -336,19 +319,27 @@ fn main() {
                 .expect("failed to create depth image"),
         );
     }
-
-    let general_staging_buffer = device
+    
+    let vertex_count_staging_buffer = device
         .create_buffer(BufferInfo {
-            size: REALLY_LARGE_SIZE,
+            size: mem::size_of::<u32>(),
             memory: Memory::HOST_ACCESS,
             debug_name: "Staging Buffer",
             ..default()
         })
         .expect("failed to create buffer");
-
-    let vertex_staging_buffer = device
+    
+    let cache_buffer = device
         .create_buffer(BufferInfo {
-            size: REALLY_LARGE_SIZE,
+            size: 1000,
+            debug_name: "Cache Buffer",
+            ..default()
+        })
+        .expect("failed to create buffer");
+
+    let general_staging_buffer = device
+        .create_buffer(BufferInfo {
+            size: 1000000,
             memory: Memory::HOST_ACCESS,
             debug_name: "Staging Buffer",
             ..default()
@@ -469,6 +460,7 @@ fn main() {
 
     camera_info.set(CameraInfo {
         projection: camera.get().projection(),
+        resolution: Vector::new([resolution.get().0 as f32, resolution.get().1 as f32]),
     });
 
     let info = Cell::new(Info::default());
@@ -478,6 +470,8 @@ fn main() {
 
     let physics_time_accum = Cell::new(0.0);
 
+    let vertex_count = Cell::new(0);
+
     let vertex_buffer = || vertex_buffer;
     let input_buffer = || input_buffer;
     let mersenne_buffer = || mersenne_buffer;
@@ -485,12 +479,17 @@ fn main() {
     let rigidbody_buffer = || rigidbody_buffer;
     let info_buffer = || info_buffer;
     let camera_buffer = || camera_buffer;
+    let cache_buffer = || cache_buffer;
     let world_buffer = || world_buffer;
     let general_staging_buffer = || general_staging_buffer;
-    let vertex_staging_buffer = || vertex_staging_buffer;
+    let vertex_count_staging_buffer = || vertex_count_staging_buffer;
     let chunk_staging_buffer = || chunk_staging_buffer;
     let noise_staging_buffer = || noise_staging_buffer;
     let depth_image = || depth_img.get();
+    let cache_pos_image = || cache_pos_img.get();
+    let cache_color_image = || cache_color_img.get();
+    let cache_pos_image2 = || cache_pos_img2.get();
+    let cache_color_image2 = || cache_color_img2.get();
     let noise_image = || noise_img.get();
     let perlin_image = || perlin_img.get();
     let present_image = || {
@@ -531,59 +530,6 @@ fn main() {
             delta_time: info.get().delta_time + delta_time as f32,
             ..info.get()
         });
-
-        if cursor_captured {
-            /* let mut camera = camera.get();
-
-            let mut position = camera.get_position();
-
-            let pitch = camera.pitch();
-            let roll = camera.roll();
-
-            let mut movement = Vector::default();
-
-            let mut diff = Matrix::identity();
-
-            let mut direction = Vector::<f32, 3>::default();
-
-            direction[0] += entity_input.right as u8 as f32;
-            direction[0] -= entity_input.left as u8 as f32;
-            direction[1] += entity_input.up as u8 as f32;
-            direction[1] -= entity_input.down as u8 as f32;
-            direction[2] += entity_input.forward as u8 as f32;
-            direction[2] -= entity_input.backward as u8 as f32;
-
-            diff[3][0] = direction[0];
-            diff[3][2] = direction[2];
-
-            movement[1] = direction[1];
-
-            let diff = diff * roll * pitch;
-
-            let mut oriented_direction = Vector::<f32, 4>::new(*diff[3]);
-
-            oriented_direction[1] = 0.0;
-            oriented_direction[3] = 0.0;
-
-            oriented_direction = if oriented_direction.magnitude() > 0.0 {
-                oriented_direction.normalize()
-            } else {
-                oriented_direction
-            };
-
-            movement[0] = oriented_direction[0];
-            movement[2] = oriented_direction[2];
-
-            movement *= speed;
-
-            info.set(Info {
-                input:EntityInput {
-                    movement,
-                    ..info.get().input
-                },
-                ..info.get()
-            });*/
-        }
 
         match event {
             Event::WindowEvent {
@@ -709,9 +655,10 @@ fn main() {
                         pipeline_compiler
                             .refresh_compute_pipeline(&input_pipeline)
                             .unwrap();
-                        pipeline_compiler
+                        /*pipeline_compiler
                             .refresh_compute_pipeline(&vertex_pipeline)
                             .unwrap();
+                        */
                         pipeline_compiler
                             .refresh_compute_pipeline(&noise_pipeline)
                             .unwrap();
@@ -764,9 +711,6 @@ fn main() {
                         .expect("failed to create swapchain"),
                 );
 
-                camera_info.set(CameraInfo {
-                    projection: camera.get().projection(),
-                });
 
                 depth_img.set(
                     device
@@ -795,6 +739,13 @@ fn main() {
                 };
 
                 camera.set(new_camera);
+                
+                camera_info.set(CameraInfo {
+                    projection: camera.get().projection(),
+                    resolution: Vector::new([width as f32, height as f32]),
+                });
+
+                update.set(true);
 
                 let mut executor = device
                     .create_executor(ExecutorInfo {
@@ -1050,10 +1001,11 @@ fn main() {
 
                             commands.dispatch(size, size, size)?;
                         }
+                        update.set(false);
                         Ok(())
                     },
                 });
-
+/*
                 executor.add(Task {
                     resources: [
                         Buffer(&world_buffer, BufferAccess::ComputeShaderReadOnly),
@@ -1086,7 +1038,7 @@ fn main() {
                         Ok(())
                     },
                 });
-
+*/
                 executor.add(Task {
                     resources: [
                         Buffer(&info_buffer, BufferAccess::ComputeShaderReadOnly),
@@ -1148,15 +1100,117 @@ fn main() {
                         Ok(())
                     },
                 });
+                
+                executor.add(Task {
+                    resources: [
+                        Buffer(&vertex_buffer, BufferAccess::TransferRead),
+                        Buffer(&vertex_count_staging_buffer, BufferAccess::TransferWrite),
+                    ],
+                    task: |commands| {
+                            commands.copy_buffer_to_buffer(BufferCopy {
+                                from: 0,
+                                to: 1,
+                                src: 0,
+                                dst: 0,
+                                size: mem::size_of::<u32>(),
+                            })?;
+                        Ok(())
+                    },
+                });
+                
+                executor.add(Task {
+                    resources: [
+                        Buffer(&vertex_count_staging_buffer, BufferAccess::HostTransferRead),
+                    ],
+                    task: |commands| {
+                        vertex_count.set(commands.read_buffer::<u32>(BufferRead {
+                            buffer: 0,
+                            offset: 0
+                        }).unwrap());
+                        Ok(())
+                    }
+                });
+                
+                executor.add(Task {
+                    resources: [
+                        Buffer(&camera_buffer, BufferAccess::ShaderReadOnly),
+                        Buffer(&transform_buffer, BufferAccess::ShaderReadOnly),
+                        Buffer(&cache_buffer, BufferAccess::ShaderReadWrite),
+                        Image(&cache_pos_image, ImageAccess::ShaderReadWrite),
+                        Image(&cache_color_image, ImageAccess::ShaderReadWrite),
+                    ],
+                    task: |commands| {
+                        let (width, height) = resolution.get();
+
+                        commands.set_pipeline(&cache_pipeline)?;
+
+                        let tiles = Vector::new([100.0, 100.0]);
+                        
+                        commands.push_constant(PushConstant {
+                            data: CachePush {
+                                camera_buffer: (camera_buffer)(),
+                                transform_buffer: (transform_buffer)(),
+                                cache_buffer: (cache_buffer)(),
+                                cache_pos_image: (cache_pos_image)(),
+                                cache_color_image: (cache_color_image)(),
+                                cache_pos_image2: (cache_pos_image2)(),
+                                cache_color_image2: (cache_color_image2)(),
+                            },
+                            pipeline: &cache_pipeline,
+                        })?;
+                            
+
+                        commands.dispatch((width as f32 / 8.0).ceil() as usize, (height as f32 / 8.0).ceil() as usize, 1)?;
+
+                        Ok(())
+                    },
+                });
+                
+                executor.add(Task {
+                    resources: [
+                        Image(&cache_pos_image, ImageAccess::ShaderReadWrite),
+                        Image(&cache_color_image, ImageAccess::ShaderReadWrite),
+                        Image(&cache_pos_image2, ImageAccess::ShaderReadWrite),
+                        Image(&cache_color_image2, ImageAccess::ShaderReadWrite),
+                    ],
+                    task: |commands| {
+                        let (width, height) = resolution.get();
+
+                        commands.set_pipeline(&copy_cache_pipeline)?;
+
+                        let tiles = Vector::new([100.0, 100.0]);
+                        
+                        commands.push_constant(PushConstant {
+                            data: CachePush {
+                                camera_buffer: (camera_buffer)(),
+                                transform_buffer: (transform_buffer)(),
+                                cache_buffer: (cache_buffer)(),
+                                cache_pos_image: (cache_pos_image)(),
+                                cache_color_image: (cache_color_image)(),
+                                cache_pos_image2: (cache_pos_image2)(),
+                                cache_color_image2: (cache_color_image2)(),
+                            },
+                            pipeline: &copy_cache_pipeline,
+                        })?;
+                            
+
+                        commands.dispatch((width as f32 / 8.0).ceil() as usize, (height as f32 / 8.0).ceil() as usize, 1)?;
+
+                        Ok(())
+                    },
+                });
 
                 executor.add(Task {
                     resources: [
                         Image(&present_image, ImageAccess::ColorAttachment),
                         Image(&depth_image, ImageAccess::DepthAttachment),
-                        Buffer(&camera_buffer, BufferAccess::VertexShaderReadOnly),
+                        Buffer(&camera_buffer, BufferAccess::FragmentShaderReadOnly),
                         Buffer(&vertex_buffer, BufferAccess::VertexShaderReadOnly),
                         Buffer(&transform_buffer, BufferAccess::VertexShaderReadOnly),
                         Buffer(&world_buffer, BufferAccess::FragmentShaderReadOnly),
+                        Buffer(&cache_buffer, BufferAccess::ShaderReadWrite),
+                        Image(&cache_pos_image, ImageAccess::ShaderReadWrite),
+                        Image(&cache_color_image, ImageAccess::ShaderReadWrite),
                     ],
                     task: |commands| {
                         let (width, height) = resolution.get();
@@ -1183,25 +1237,85 @@ fn main() {
                             },
                         })?;
 
+                        let tiles = Vector::new([100.0, 100.0]);
+                        
                         commands.push_constant(PushConstant {
                             data: DrawPush {
+                                resolution: Vector::new([width as f32, height as f32]),
+                                tiles,
                                 info_buffer: (info_buffer)(),
                                 camera_buffer: (camera_buffer)(),
                                 vertex_buffer: (vertex_buffer)(),
                                 transform_buffer: (transform_buffer)(),
                                 world_buffer: (world_buffer)(),
+                                cache_buffer: (cache_buffer)(),
+                                cache_pos_image: (cache_pos_image)(),
+                                cache_color_image: (cache_color_image)(),
                             },
                             pipeline: &draw_pipeline,
                         })?;
 
-                        const VERTICES_PER_CUBE: usize = 6;
+                        let vertex_count = (tiles[0] * tiles[1]) as usize * 6;
 
                         commands.draw(gpu::prelude::Draw {
-                            vertex_count: 2500000 * VERTICES_PER_CUBE,
+                            vertex_count,
                         })?;
 
                         commands.end_rendering()
                     },
+                });
+                
+                executor.add(Task {
+                    resources: [
+                        Buffer(&camera_buffer, BufferAccess::ShaderReadOnly),
+                        Buffer(&transform_buffer, BufferAccess::ShaderReadOnly),
+                        Buffer(&cache_buffer, BufferAccess::ShaderReadWrite),
+                        Image(&cache_pos_image, ImageAccess::ShaderReadWrite),
+                        Image(&cache_color_image, ImageAccess::ShaderReadWrite),
+                        Image(&cache_pos_image2, ImageAccess::ShaderReadWrite),
+                        Image(&cache_color_image2, ImageAccess::ShaderReadWrite),
+                    ],
+                    task: |commands| {
+                        let (width, height) = resolution.get();
+
+                        commands.set_pipeline(&clear_cache_pipeline)?;
+
+                        let tiles = Vector::new([100.0, 100.0]);
+                        
+                        commands.push_constant(PushConstant {
+                            data: CachePush {
+                                camera_buffer: (camera_buffer)(),
+                                transform_buffer: (transform_buffer)(),
+                                cache_buffer: (cache_buffer)(),
+                                cache_pos_image: (cache_pos_image)(),
+                                cache_color_image: (cache_color_image)(),
+                                cache_pos_image2: (cache_pos_image2)(),
+                                cache_color_image2: (cache_color_image2)(),
+                            },
+                            pipeline: &clear_cache_pipeline,
+                        })?;
+                            
+
+                        commands.dispatch((width as f32 / 8.0).ceil() as usize, (height as f32 / 8.0).ceil() as usize, 1)?;
+
+                        Ok(())
+                    },
+                });
+                
+
+                
+                executor.add(Task {
+                    resources: [Buffer(&transform_buffer, BufferAccess::TransferRead), Buffer(&cache_buffer, BufferAccess::TransferWrite)],
+                    task: |commands| {
+                        commands.copy_buffer_to_buffer(BufferCopy {
+                            from: 0,
+                            to: 1,
+                            src: 0,
+                            dst: 0,
+                            size: 8 * mem::size_of::<f32>(),
+                        })?;
+                        Ok(())
+                    }
                 });
 
                 executor.add(Task {
@@ -1232,6 +1346,7 @@ pub const INDEX_OFFSET: usize = 1_000_000_000;
 #[repr(C)]
 struct CameraInfo {
     projection: Matrix<f32, 4, 4>,
+    resolution: Vector<f32, 2>,
 }
 
 #[derive(Clone, Copy, Default, Debug)]
@@ -1256,12 +1371,29 @@ struct EntityInput {
 
 #[derive(Clone, Copy)]
 #[repr(C)]
+pub struct CachePush {
+    pub camera_buffer: Buffer,
+    pub transform_buffer: Buffer,
+    pub cache_buffer: Buffer,
+    pub cache_pos_image: Image,
+    pub cache_color_image: Image,
+    pub cache_pos_image2: Image,
+    pub cache_color_image2: Image,
+}
+
+#[derive(Clone, Copy)]
+#[repr(C)]
 pub struct DrawPush {
+    pub resolution: Vector<f32, 2>,
+    pub tiles: Vector<f32, 2>,
     pub info_buffer: Buffer,
     pub camera_buffer: Buffer,
     pub vertex_buffer: Buffer,
     pub transform_buffer: Buffer,
     pub world_buffer: Buffer,
+    pub cache_buffer: Buffer,
+    pub cache_pos_image: Image,
+    pub cache_color_image: Image,
 }
 
 #[derive(Clone, Copy)]

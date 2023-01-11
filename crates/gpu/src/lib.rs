@@ -26,7 +26,7 @@ pub mod prelude {
     pub(crate) use crate::buffer::InternalBuffer;
     pub use crate::buffer::{Buffer, BufferInfo};
     pub use crate::commands::{
-        Access, Attachment, Barrier, BindIndexBuffer, BufferCopy, BufferWrite, Clear, Commands,
+        Access, Attachment, Barrier, BindIndexBuffer, BufferCopy, BufferRead, BufferWrite, Clear, Commands,
         Draw, DrawIndexed, ImageCopy, LoadOp, PipelineBarrier, PushConstant, Render, RenderArea,
     };
     pub(crate) use crate::context::DESCRIPTOR_COUNT;
