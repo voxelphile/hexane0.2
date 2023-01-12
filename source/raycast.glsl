@@ -29,6 +29,12 @@ bool ray_cast(inout Ray ray, out RayHit hit) {
 	f32 dist;
 
 	for(int i = 0; i < MAX_STEP_COUNT; i++) {
+		bool in_chunk = all(greaterThanEqual(map_pos, vec3(-EPSILON))) && all(lessThan(map_pos, vec3(CHUNK_SIZE + EPSILON)));
+
+		if(!in_chunk) {
+			return false;
+		}
+
 		VoxelQuery query;
 		query.chunk_id = ray.chunk_id;
 		query.position = map_pos;

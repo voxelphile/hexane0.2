@@ -77,7 +77,7 @@ impl Default for BufferInfo<'_> {
     fn default() -> Self {
         Self {
             size: 0,
-            memory: Memory::empty(),
+            memory: Memory::DEVICE_LOCAL,
             usage: BufferUsage::all(),
             debug_name: "Buffer",
         }

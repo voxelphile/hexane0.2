@@ -35,7 +35,7 @@ use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 const SMALL_SIZE: usize = 512;
 const REALLY_LARGE_SIZE: usize = 200_000_000;
 
-const CHUNK_SIZE: usize = 32;
+const CHUNK_SIZE: usize = 8;
 const AXIS_MAX_CHUNKS: usize = 8;
 
 pub type Vertex = (f32, f32, f32);
@@ -147,7 +147,6 @@ fn main() {
             }],
             depth: Some(default()),
             raster: Raster {
-                face_cull: FaceCull::BACK,
                 ..default()
             },
             ..default()
@@ -369,6 +368,7 @@ fn main() {
 
     camera_info.set(CameraInfo {
         projection: camera.get().projection(),
+        inv_projection: camera.get().projection().inverse(),
         resolution: Vector::new([resolution.get().0 as f32, resolution.get().1 as f32]),
     });
 
@@ -642,6 +642,7 @@ fn main() {
                 
                 camera_info.set(CameraInfo {
                     projection: camera.get().projection(),
+                    inv_projection: camera.get().projection().inverse(),
                     resolution: Vector::new([width as f32, height as f32]),
                 });
 
@@ -1053,6 +1054,7 @@ pub const INDEX_OFFSET: usize = 1_000_000_000;
 #[repr(C)]
 struct CameraInfo {
     projection: Matrix<f32, 4, 4>,
+    inv_projection: Matrix<f32, 4, 4>,
     resolution: Vector<f32, 2>,
 }
 

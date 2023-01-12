@@ -65,7 +65,7 @@ void main() {
 	EntityInput entity_input = info.entity_input;
 
 	if(!inp.first){
-		transform.position.xyz = vec3(512, 180, 512);
+		transform.position.xyz = vec3(64, 64, 64);
 		rigidbody.velocity.xyz = vec3(0);
 		inp.target_rotation.xyz = vec3(-3.14 / 2.0 + 0.1, 0, 0);
 		inp.first = true;
@@ -129,7 +129,7 @@ void main() {
 	}
 
 	if(ENABLE_FLIGHT) {
-		transform.position.xyz += direction.xyz * 10;
+		transform.position.xyz += direction.xyz * 100 * delta_time;
 	}
 	
 	transforms.data[0] = transform;

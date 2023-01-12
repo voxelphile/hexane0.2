@@ -6,11 +6,11 @@ use bitflags::bitflags;
 
 bitflags! {
     pub struct Memory: u32 {
-        const DEDICATED_MEMORY = 0x00000001;
+        const DEVICE_LOCAL = 0x00000001;
         const HOST_ACCESS = 0x00000002;
     }
 }
-
+	
 pub(crate) struct InternalMemory {
     pub(crate) memory: vk::DeviceMemory,
     pub(crate) properties: Memory,
@@ -19,6 +19,10 @@ pub(crate) struct InternalMemory {
 impl From<Memory> for vk::MemoryPropertyFlags {
     fn from(memory: Memory) -> Self {
         let mut result = vk::MemoryPropertyFlags::empty();
+
+        if memory.contains(Memory::DEVICE_LOCAL) {
+            result |= vk::MemoryPropertyFlags::DEVICE_LOCAL;
+        }
 
         if memory.contains(Memory::HOST_ACCESS) {
             result |=

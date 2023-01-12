@@ -15,8 +15,16 @@ bool voxel_query(inout VoxelQuery query) {
 
 	query.id = u16(imageLoad(
 		chunk_image, 
-		i32vec3(floor(mod(query.position, CHUNK_SIZE)))
+		i32vec3(query.position)
 	).r);
+	
+	if(any(lessThan(query.position, vec3(0)))) {
+		return false;
+	}
+	
+	if(any(greaterThanEqual(query.position, vec3(CHUNK_SIZE)))) {
+		return false;
+	}
 
 	return query.id != 0;
 }
@@ -35,9 +43,17 @@ void voxel_change(inout VoxelChange change) {
 		change.chunk_id
 	);
 
+	if(any(lessThan(change.position, vec3(0)))) {
+		return;
+	}
+	
+	if(any(greaterThanEqual(change.position, vec3(CHUNK_SIZE)))) {
+		return;
+	}
+
 	imageStore(
 		chunk_image,
-		i32vec3(floor(mod(change.position, CHUNK_SIZE))),
+		i32vec3(change.position),
 		u32vec4(change.id)
 	);
 }

@@ -5,6 +5,7 @@
 #include "vertex.glsl"
 #include "transform.glsl"
 #include "voxel.glsl"
+#include "aabb.glsl"
 #include "raycast.glsl"
 
 #define VERTICES_PER_CUBE 6
@@ -24,6 +25,7 @@ decl_buffer(
 	Camera,
 	{
 		mat4 projection;
+		mat4 inv_projection;
 		vec2 resolution;
 	}
 )
@@ -50,6 +52,7 @@ vec3 offsets[8] = vec3[](
 
 layout(location = 0) out vec4 position;
 layout(location = 1) out flat u32 chunk;
+layout(location = 2) out flat u32 j123;
 
 void main() {
 	Buffer(Transforms) transforms = get_buffer(Transforms, push_constant.transform_id);
@@ -65,12 +68,13 @@ void main() {
 	//magical plus one because player is 0
 	Transform ctransform = transforms.data[chunk + 1];
 	Transform transform = transforms.data[0];
+	transform.position.xyz += vec3(0.4, 1.8, 0.4);
 
 	vec3 positional_offset = offsets[indices[j]] * CHUNK_SIZE;
 
-	position = vec4(positional_offset * ctransform.position.xyz, 1.0);
+	position = vec4(positional_offset, 1.0);
 
-	gl_Position = camera.projection * inverse(compute_transform_matrix(transform)) * position;
+	gl_Position = camera.projection * inverse(compute_transform_matrix(transform)) * vec4(position.xyz + ctransform.position.xyz, 1.0);
 }
 
 #elif defined fragment
@@ -87,20 +91,33 @@ void main() {
 	Image(3D, u32) perlin_img = get_image(3D, u32, push_constant.perlin_id);
 
 	Transform transform = transforms.data[0];
-
 	transform.position.xyz += vec3(0.4, 1.8, 0.4);
 
 	vec2 screenPos = (gl_FragCoord.xy / camera.resolution.xy) * 2.0 - 1.0;
-	vec4 target = inverse(camera.projection) * vec4(screenPos, 1, 1);
+	vec4 target = camera.inv_projection * vec4(screenPos, 1, 1);
 	vec3 dir = (compute_transform_matrix(transform) * vec4(normalize(vec3(target.xyz) / target.w), 0)).xyz;
 
 	vec4 color = vec4(0, 0, 0, 1);
 
+	vec3 origin = position.xyz;
+
+	Box chunk_box;
+	chunk_box.position = transforms.data[chunk + 1].position.xyz;
+	chunk_box.dimensions = vec3(CHUNK_SIZE);
+
+	Box player_box;
+	player_box.dimensions = vec3(0.8, 2, 0.8);
+	player_box.position = transform.position.xyz;
+
+	if(aabb_check(player_box, chunk_box)) {
+		origin = transform.position.xyz;
+	}
+
 	Ray ray;
 	ray.chunk_id = world.chunks[chunk];
-	ray.origin = position.xyz;
+	ray.origin = origin;
 	ray.direction = dir;
-	ray.max_distance = 100;
+	ray.max_distance = 512;
 
 	RayHit hit;
 
@@ -117,8 +134,14 @@ void main() {
 		if(hit.id == 4) {
 			color.xyz = mix(vec3(107, 84, 40) / 256, vec3(64, 41, 5) / 256, noise_factor);
 		}
+		if(hit.mask.x) {
+			color.xyz *= 0.5;
+		}
+		if(hit.mask.z) {
+			color.xyz *= 0.75;
+		}
 	} else {
-		color.xyz = vec3(0.2, 0.4, 0.8);
+		discard;
 	}	
 
 	result = color;

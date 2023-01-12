@@ -6,6 +6,7 @@
 #include "transform.glsl"
 #include "world.glsl"
 #include "voxel.glsl"
+#include "aabb.glsl"
 
 struct PhysicsPush {
 	f32 fixed_time;
@@ -21,11 +22,6 @@ decl_push_constant(PhysicsPush)
 
 layout (local_size_x = 256) in;
 
-struct Box {
-	vec3 position;
-	vec3 dimensions;
-	vec3 velocity;
-};
 
 struct CollisionResponse {
 	vec3 normal;
@@ -33,15 +29,15 @@ struct CollisionResponse {
 	f32 exit_time;
 };
 
-bool swept_aabb(Box a, Box b, inout CollisionResponse response) {
+bool swept_aabb(Box a, Box b, vec3 velocity, inout CollisionResponse response) {
 	Buffer(Info) info = get_buffer(Info, push_constant.info_id);
 
 	f32 fixed_time = push_constant.fixed_time;
 
 	vec3 inv_entry, inv_exit;
 
-	bvec3 i = greaterThan(a.velocity, vec3(0));
-	bvec3 j = equal(a.velocity, vec3(0));
+	bvec3 i = greaterThan(velocity, vec3(0));
+	bvec3 j = equal(velocity, vec3(0));
 
 	f32vec3 i_gt = f32vec3(i);
 	f32vec3 i_lte = f32vec3(not(i));
@@ -56,8 +52,8 @@ bool swept_aabb(Box a, Box b, inout CollisionResponse response) {
 
 	vec3 entry, exit;
 
-	entry = j_eq * -10000 + j_neq * (inv_entry / a.velocity); 
-	exit = j_eq * 10000 + j_neq * (inv_exit / a.velocity); 
+	entry = j_eq * -10000 + j_neq * (inv_entry / velocity); 
+	exit = j_eq * 10000 + j_neq * (inv_exit / velocity); 
 
 	response.entry_time = max(entry.x, max(entry.y, entry.z));
 	response.exit_time = min(exit.x, min(exit.y, exit.z));
@@ -96,41 +92,31 @@ bool swept_aabb(Box a, Box b, inout CollisionResponse response) {
 	return true;
 }
 
-bool aabb_check(Box a, Box b) {
-	return !(a.position.x + a.dimensions.x < b.position.x 
-		|| a.position.x > b.position.x + b.dimensions.x
-		|| a.position.y + a.dimensions.y < b.position.y 
-		|| a.position.y > b.position.y + b.dimensions.y
-		|| a.position.z + a.dimensions.z < b.position.z 
-		|| a.position.z > b.position.z + b.dimensions.z
-	);
-}
-
-Box get_swept_broadphase_box(Box a) {
+Box get_swept_broadphase_box(Box a, vec3 velocity) {
 	Box b;
-	b.position.x = a.velocity.x > 0 ? 
+	b.position.x = velocity.x > 0 ? 
 		a.position.x 
-		: a.position.x + a.velocity.x;
+		: a.position.x + velocity.x;
 
-	b.position.y = a.velocity.y > 0 ? 
+	b.position.y = velocity.y > 0 ? 
 		a.position.y 
-		: a.position.y + a.velocity.y;
+		: a.position.y + velocity.y;
 
-	b.position.z = a.velocity.z > 0 ? 
+	b.position.z = velocity.z > 0 ? 
 		a.position.z 
-		: a.position.z + a.velocity.z;
+		: a.position.z + velocity.z;
 
-	b.dimensions.x = a.velocity.x > 0 ? 
-		a.velocity.x + a.dimensions.x 
-		: a.dimensions.x - a.velocity.x; 
+	b.dimensions.x = velocity.x > 0 ? 
+		velocity.x + a.dimensions.x 
+		: a.dimensions.x - velocity.x; 
 
-	b.dimensions.y = a.velocity.y > 0 ? 
-		a.velocity.y + a.dimensions.y 
-		: a.dimensions.y - a.velocity.y; 
+	b.dimensions.y = velocity.y > 0 ? 
+		velocity.y + a.dimensions.y 
+		: a.dimensions.y - velocity.y; 
 
-	b.dimensions.z = a.velocity.z > 0 ? 
-		a.velocity.z + a.dimensions.z 
-		: a.dimensions.z - a.velocity.z; 
+	b.dimensions.z = velocity.z > 0 ? 
+		velocity.z + a.dimensions.z 
+		: a.dimensions.z - velocity.z; 
 	return b;
 }
 
@@ -197,9 +183,9 @@ void main() {
 		Box block;
 		block.position = floor(transform.position.xyz) + vec3(x, y, z);
 		block.dimensions = vec3(1);
-		player.velocity = data[i].velocity + data[i].acceleration * fixed_time;
+		vec3 velocity = data[i].velocity + data[i].acceleration * fixed_time;
 
-		Box broadphase = get_swept_broadphase_box(player);	
+		Box broadphase = get_swept_broadphase_box(player, velocity);	
 
 		if(aabb_check(broadphase, block)) {
 		
@@ -214,7 +200,7 @@ void main() {
 		}
 
 		CollisionResponse response;
-		if(swept_aabb(player, block, response)) {
+		if(swept_aabb(player, block, velocity, response)) {
 			query.position += response.normal;
 			if(voxel_query(query)) {
 				continue;

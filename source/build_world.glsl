@@ -31,7 +31,7 @@ void main() {
 	VoxelChange change;
 	change.chunk_id = world.chunks[chunk];
 	change.id = u16(0);
-	change.position = f32vec3(gl_GlobalInvocationID);
+	change.position = mod(f32vec3(gl_GlobalInvocationID), CHUNK_SIZE);
 	
 	f32 noise_factor = f32(imageLoad(perlin_image, i32vec3(gl_GlobalInvocationID.x, 32, gl_GlobalInvocationID.z) % i32vec3(imageSize(perlin_image))).r) / f32(~0u);
 
