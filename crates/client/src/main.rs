@@ -35,7 +35,7 @@ use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 const SMALL_SIZE: usize = 512;
 const REALLY_LARGE_SIZE: usize = 200_000_000;
 
-const CHUNK_SIZE: usize = 128;
+const CHUNK_SIZE: usize = 32;
 const AXIS_MAX_CHUNKS: usize = 8;
 
 pub type Vertex = (f32, f32, f32);
@@ -81,8 +81,8 @@ fn main() {
     let window = WindowBuilder::new()
         .with_title("Hexane | FPS 0")
         .with_inner_size(winit::dpi::PhysicalSize {
-            width: 1920,
-            height: 1080,
+            width: 1920 / 2,
+            height: 1080 / 2,
         })
         .build(&event_loop)
         .unwrap();
@@ -168,13 +168,6 @@ fn main() {
         })
         .expect("failed to create pipeline");
     
-    let bitset_pipeline = pipeline_compiler
-        .create_compute_pipeline(ComputePipelineInfo {
-            shader: Shader(Compute, "build_bitset", &[]),
-            ..default()
-        })
-        .expect("failed to create pipeline");
-
     /*let vertex_pipeline = pipeline_compiler
         .create_compute_pipeline(ComputePipelineInfo {
             shader: Shader(Compute, "build_mesh", &[]),
@@ -579,9 +572,6 @@ fn main() {
                             .refresh_compute_pipeline(&world_pipeline)
                             .unwrap();
                         pipeline_compiler
-                            .refresh_compute_pipeline(&bitset_pipeline)
-                            .unwrap();
-                        pipeline_compiler
                             .refresh_compute_pipeline(&physics_pipeline)
                             .unwrap();
                     }
@@ -891,6 +881,7 @@ fn main() {
                 executor.add(Task {
                     resources: [
                         Buffer(&world_buffer, BufferAccess::ComputeShaderReadWrite),
+                        Buffer(&transform_buffer, BufferAccess::ComputeShaderReadWrite),
                         Image(&perlin_image, ImageAccess::ComputeShaderReadWrite),
                     ],
                     task: |commands| {
@@ -900,6 +891,7 @@ fn main() {
                             commands.push_constant(PushConstant {
                                 data: BuildWorldPush {
                                     perlin_image: (perlin_image)(),
+                                    transform_buffer: (transform_buffer)(),
                                     world_buffer: (world_buffer)(),
                                 },
                                 pipeline: &world_pipeline,
@@ -1026,7 +1018,7 @@ fn main() {
                         })?;
 
                         commands.draw(gpu::prelude::Draw {
-                            vertex_count: 3,
+                            vertex_count: chunk_len * 36,
                         })?;
 
                         commands.end_rendering()
@@ -1122,6 +1114,7 @@ pub struct BuildBitsetPush {
 #[repr(C)]
 pub struct BuildWorldPush {
     pub world_buffer: Buffer,
+    pub transform_buffer: Buffer,
     pub perlin_image: Image,
 }
 #[derive(Clone, Copy)]

@@ -1,7 +1,7 @@
 #define MAX_STEP_COUNT 512
 
 struct Ray {
-	BufferId world_id;
+	ImageId chunk_id;
 	vec3 origin;
 	vec3 direction;
 	f32 max_distance;
@@ -30,7 +30,7 @@ bool ray_cast(inout Ray ray, out RayHit hit) {
 
 	for(int i = 0; i < MAX_STEP_COUNT; i++) {
 		VoxelQuery query;
-		query.world_id = ray.world_id;
+		query.chunk_id = ray.chunk_id;
 		query.position = map_pos;
 
 		bool voxel_found = voxel_query(query);

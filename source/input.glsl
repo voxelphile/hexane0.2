@@ -44,6 +44,7 @@ layout (local_size_x = 256) in;
 #define DEPTH 1
 
 #define GRAVITY -9
+#define ENABLE_FLIGHT true
 
 #define COLLIDE_DELTA 0.09
 
@@ -125,6 +126,10 @@ void main() {
 	if(input_axis.y == 1 && rigidbody.on_ground) {
 		rigidbody.velocity.y += 10;
 		rigidbody.on_ground = false;
+	}
+
+	if(ENABLE_FLIGHT) {
+		transform.position.xyz += direction.xyz * 10;
 	}
 	
 	transforms.data[0] = transform;

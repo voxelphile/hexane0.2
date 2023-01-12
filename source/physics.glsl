@@ -150,9 +150,11 @@ void swap(inout i32 a, inout i32 b) {
 }
 
 void main() {
+	return;
 
 	Buffer(Transforms) transforms = get_buffer(Transforms, push_constant.transform_id);
 	Buffer(Rigidbodies) rigidbodies = get_buffer(Rigidbodies, push_constant.rigidbody_id);
+	Buffer(World) world = get_buffer(World, push_constant.world_id);
 
 	Transform transform = transforms.data[0];
 	Rigidbody rigidbody = rigidbodies.data[0];
@@ -201,8 +203,10 @@ void main() {
 
 		if(aabb_check(broadphase, block)) {
 		
+		u32 chunk = u32(block.position.x + block.position.y / CHUNK_SIZE + block.position.z / CHUNK_SIZE / CHUNK_SIZE);
+
 		VoxelQuery query;
-		query.world_id = push_constant.world_id;
+		query.chunk_id = world.chunks[chunk];
 		query.position = block.position;
 		
 		if(!voxel_query(query)) {

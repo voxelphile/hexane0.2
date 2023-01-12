@@ -4,7 +4,6 @@
 #include "world.glsl"
 #include "vertex.glsl"
 #include "transform.glsl"
-#include "bits.glsl"
 #include "voxel.glsl"
 #include "raycast.glsl"
 
@@ -38,23 +37,53 @@ decl_buffer(
 	
 #ifdef vertex
 
-vec2 positions[3] = vec2[](
-	vec2(-1.0, -1.0),
-	vec2(-1.0,  4.0),
-	vec2( 4.0, -1.0)
+vec3 offsets[8] = vec3[](
+        vec3(0, 0, 1),
+        vec3(0, 1, 1),
+        vec3(1, 1, 1),
+        vec3(1, 0, 1),
+        vec3(0, 0, 0),
+        vec3(0, 1, 0),
+        vec3(1, 1, 0),
+	vec3(1, 0, 0)
 );
 
+layout(location = 0) out vec4 position;
+layout(location = 1) out flat u32 chunk;
+
 void main() {
-	gl_Position = vec4(positions[gl_VertexIndex], 0.0, 1.0);
+	Buffer(Transforms) transforms = get_buffer(Transforms, push_constant.transform_id);
+	Buffer(Camera) camera = get_buffer(Camera, push_constant.camera_id);
+	
+	u32 indices[36] = u32[](1, 0, 3, 1, 3, 2, 4, 5, 6, 4, 6, 7, 2, 3, 7, 2, 7, 6, 5, 4, 0, 5, 0, 1, 6, 5, 1, 6, 1, 2, 3, 0, 4, 3, 4, 7);
+
+	u32 i = gl_VertexIndex / 36;
+	u32 j = gl_VertexIndex % 36;
+
+	chunk = i;
+
+	//magical plus one because player is 0
+	Transform ctransform = transforms.data[chunk + 1];
+	Transform transform = transforms.data[0];
+
+	vec3 positional_offset = offsets[indices[j]] * CHUNK_SIZE;
+
+	position = vec4(positional_offset * ctransform.position.xyz, 1.0);
+
+	gl_Position = camera.projection * inverse(compute_transform_matrix(transform)) * position;
 }
 
 #elif defined fragment
+
+layout(location = 0) in vec4 position;
+layout(location = 1) in flat u32 chunk;
 
 layout(location = 0) out vec4 result;
 
 void main() {
 	Buffer(Camera) camera = get_buffer(Camera, push_constant.camera_id);
 	Buffer(Transforms) transforms = get_buffer(Transforms, push_constant.transform_id);
+	Buffer(World) world = get_buffer(World, push_constant.world_id);
 	Image(3D, u32) perlin_img = get_image(3D, u32, push_constant.perlin_id);
 
 	Transform transform = transforms.data[0];
@@ -68,15 +97,14 @@ void main() {
 	vec4 color = vec4(0, 0, 0, 1);
 
 	Ray ray;
-	ray.world_id = push_constant.world_id;
-	ray.origin = transform.position.xyz;
+	ray.chunk_id = world.chunks[chunk];
+	ray.origin = position.xyz;
 	ray.direction = dir;
 	ray.max_distance = 100;
 
 	RayHit hit;
 
 	bool success = ray_cast(ray, hit);
-
 
 	if (success) {
 		f32 noise_factor = f32(imageLoad(perlin_img, i32vec3(hit.back_step) % i32vec3(imageSize(perlin_img))).r) / f32(~0u);
@@ -88,12 +116,6 @@ void main() {
 		}
 		if(hit.id == 4) {
 			color.xyz = mix(vec3(107, 84, 40) / 256, vec3(64, 41, 5) / 256, noise_factor);
-		}
-		if(hit.mask.x) {
-			color.xyz *= 0.5;
-		}
-		if(hit.mask.z) {
-			color.xyz *= 0.75;
 		}
 	} else {
 		color.xyz = vec3(0.2, 0.4, 0.8);
