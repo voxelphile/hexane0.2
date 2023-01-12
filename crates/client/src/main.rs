@@ -81,8 +81,8 @@ fn main() {
     let window = WindowBuilder::new()
         .with_title("Hexane | FPS 0")
         .with_inner_size(winit::dpi::PhysicalSize {
-            width: 1920 / 2,
-            height: 1080 / 2,
+            width: 1920,
+            height: 1080,
         })
         .build(&event_loop)
         .unwrap();
@@ -168,27 +168,6 @@ fn main() {
         })
         .expect("failed to create pipeline");
     
-    let clear_cache_pipeline = pipeline_compiler
-        .create_compute_pipeline(ComputePipelineInfo {
-            shader: Shader(Compute, "clearcache", &[]),
-            ..default()
-        })
-        .expect("failed to create pipeline");
-    
-    let copy_cache_pipeline = pipeline_compiler
-        .create_compute_pipeline(ComputePipelineInfo {
-            shader: Shader(Compute, "copycache", &[]),
-            ..default()
-        })
-        .expect("failed to create pipeline");
-    
-    let cache_pipeline = pipeline_compiler
-        .create_compute_pipeline(ComputePipelineInfo {
-            shader: Shader(Compute, "reproj", &[]),
-            ..default()
-        })
-        .expect("failed to create pipeline");
-
     let bitset_pipeline = pipeline_compiler
         .create_compute_pipeline(ComputePipelineInfo {
             shader: Shader(Compute, "build_bitset", &[]),
@@ -235,52 +214,6 @@ fn main() {
             .expect("failed to create depth image"),
     );
     
-    let mut cache_pos_img = Cell::new(
-        device
-            .create_image(ImageInfo {
-                extent: ImageExtent::TwoDim(width as _, height as _),
-                usage: ImageUsage::COLOR,
-                format: Format::Rgba32Sfloat,
-                ..default()
-            })
-            .expect("failed to create cache image"),
-    );
-    
-    let mut cache_color_img = Cell::new(
-        device
-            .create_image(ImageInfo {
-                extent: ImageExtent::TwoDim(width as _, height as _),
-                usage: ImageUsage::COLOR,
-                format: Format::Rgba32Sfloat,
-                ..default()
-            })
-            .expect("failed to create cache image"),
-    );
-    
-    let mut cache_pos_img2 = Cell::new(
-        device
-            .create_image(ImageInfo {
-                extent: ImageExtent::TwoDim(width as _, height as _),
-                usage: ImageUsage::COLOR,
-                format: Format::Rgba32Sfloat,
-                ..default()
-            })
-            .expect("failed to create cache image"),
-    );
-    
-    let mut cache_color_img2 = Cell::new(
-        device
-            .create_image(ImageInfo {
-                extent: ImageExtent::TwoDim(width as _, height as _),
-                usage: ImageUsage::COLOR,
-                format: Format::Rgba32Sfloat,
-                ..default()
-            })
-            .expect("failed to create cache image"),
-    );
-
-    
-
     let mut noise_img = Cell::new(
         device
             .create_image(ImageInfo {
@@ -320,23 +253,6 @@ fn main() {
         );
     }
     
-    let vertex_count_staging_buffer = device
-        .create_buffer(BufferInfo {
-            size: mem::size_of::<u32>(),
-            memory: Memory::HOST_ACCESS,
-            debug_name: "Staging Buffer",
-            ..default()
-        })
-        .expect("failed to create buffer");
-    
-    let cache_buffer = device
-        .create_buffer(BufferInfo {
-            size: 1000,
-            debug_name: "Cache Buffer",
-            ..default()
-        })
-        .expect("failed to create buffer");
-
     let general_staging_buffer = device
         .create_buffer(BufferInfo {
             size: 1000000,
@@ -479,17 +395,11 @@ fn main() {
     let rigidbody_buffer = || rigidbody_buffer;
     let info_buffer = || info_buffer;
     let camera_buffer = || camera_buffer;
-    let cache_buffer = || cache_buffer;
     let world_buffer = || world_buffer;
     let general_staging_buffer = || general_staging_buffer;
-    let vertex_count_staging_buffer = || vertex_count_staging_buffer;
     let chunk_staging_buffer = || chunk_staging_buffer;
     let noise_staging_buffer = || noise_staging_buffer;
     let depth_image = || depth_img.get();
-    let cache_pos_image = || cache_pos_img.get();
-    let cache_color_image = || cache_color_img.get();
-    let cache_pos_image2 = || cache_pos_img2.get();
-    let cache_color_image2 = || cache_color_img2.get();
     let noise_image = || noise_img.get();
     let perlin_image = || perlin_img.get();
     let present_image = || {
@@ -1005,40 +915,7 @@ fn main() {
                         Ok(())
                     },
                 });
-/*
-                executor.add(Task {
-                    resources: [
-                        Buffer(&world_buffer, BufferAccess::ComputeShaderReadOnly),
-                        Buffer(&vertex_buffer, BufferAccess::ComputeShaderReadWrite),
-                        Image(&perlin_image, ImageAccess::ComputeShaderReadWrite),
-                    ],
-                    task: |commands| {
-                        if update.get() {
-                            commands.set_pipeline(&vertex_pipeline)?;
 
-                            commands.push_constant(PushConstant {
-                                data: BuildMeshPush {
-                                    world_buffer: (world_buffer)(),
-                                    vertex_buffer: (vertex_buffer)(),
-                                    perlin_image: (perlin_image)(),
-                                },
-                                pipeline: &vertex_pipeline,
-                            })?;
-
-                            const WORK_GROUP_SIZE: usize = 8;
-
-                            let dispatch_size = ((AXIS_MAX_CHUNKS * CHUNK_SIZE) as f64
-                                / WORK_GROUP_SIZE as f64)
-                                .ceil() as usize;
-
-                            commands.dispatch(dispatch_size, dispatch_size, dispatch_size)?;
-                            update.set(false);
-                            build.set(false);
-                        }
-                        Ok(())
-                    },
-                });
-*/
                 executor.add(Task {
                     resources: [
                         Buffer(&info_buffer, BufferAccess::ComputeShaderReadOnly),
@@ -1100,105 +977,6 @@ fn main() {
                         Ok(())
                     },
                 });
-                
-                executor.add(Task {
-                    resources: [
-                        Buffer(&vertex_buffer, BufferAccess::TransferRead),
-                        Buffer(&vertex_count_staging_buffer, BufferAccess::TransferWrite),
-                    ],
-                    task: |commands| {
-                            commands.copy_buffer_to_buffer(BufferCopy {
-                                from: 0,
-                                to: 1,
-                                src: 0,
-                                dst: 0,
-                                size: mem::size_of::<u32>(),
-                            })?;
-                        Ok(())
-                    },
-                });
-                
-                executor.add(Task {
-                    resources: [
-                        Buffer(&vertex_count_staging_buffer, BufferAccess::HostTransferRead),
-                    ],
-                    task: |commands| {
-                        vertex_count.set(commands.read_buffer::<u32>(BufferRead {
-                            buffer: 0,
-                            offset: 0
-                        }).unwrap());
-                        Ok(())
-                    }
-                });
-                
-                executor.add(Task {
-                    resources: [
-                        Buffer(&camera_buffer, BufferAccess::ShaderReadOnly),
-                        Buffer(&transform_buffer, BufferAccess::ShaderReadOnly),
-                        Buffer(&cache_buffer, BufferAccess::ShaderReadWrite),
-                        Image(&cache_pos_image, ImageAccess::ShaderReadWrite),
-                        Image(&cache_color_image, ImageAccess::ShaderReadWrite),
-                    ],
-                    task: |commands| {
-                        let (width, height) = resolution.get();
-
-                        commands.set_pipeline(&cache_pipeline)?;
-
-                        let tiles = Vector::new([100.0, 100.0]);
-                        
-                        commands.push_constant(PushConstant {
-                            data: CachePush {
-                                camera_buffer: (camera_buffer)(),
-                                transform_buffer: (transform_buffer)(),
-                                cache_buffer: (cache_buffer)(),
-                                cache_pos_image: (cache_pos_image)(),
-                                cache_color_image: (cache_color_image)(),
-                                cache_pos_image2: (cache_pos_image2)(),
-                                cache_color_image2: (cache_color_image2)(),
-                            },
-                            pipeline: &cache_pipeline,
-                        })?;
-                            
-
-                        commands.dispatch((width as f32 / 8.0).ceil() as usize, (height as f32 / 8.0).ceil() as usize, 1)?;
-
-                        Ok(())
-                    },
-                });
-                
-                executor.add(Task {
-                    resources: [
-                        Image(&cache_pos_image, ImageAccess::ShaderReadWrite),
-                        Image(&cache_color_image, ImageAccess::ShaderReadWrite),
-                        Image(&cache_pos_image2, ImageAccess::ShaderReadWrite),
-                        Image(&cache_color_image2, ImageAccess::ShaderReadWrite),
-                    ],
-                    task: |commands| {
-                        let (width, height) = resolution.get();
-
-                        commands.set_pipeline(&copy_cache_pipeline)?;
-
-                        let tiles = Vector::new([100.0, 100.0]);
-                        
-                        commands.push_constant(PushConstant {
-                            data: CachePush {
-                                camera_buffer: (camera_buffer)(),
-                                transform_buffer: (transform_buffer)(),
-                                cache_buffer: (cache_buffer)(),
-                                cache_pos_image: (cache_pos_image)(),
-                                cache_color_image: (cache_color_image)(),
-                                cache_pos_image2: (cache_pos_image2)(),
-                                cache_color_image2: (cache_color_image2)(),
-                            },
-                            pipeline: &copy_cache_pipeline,
-                        })?;
-                            
-
-                        commands.dispatch((width as f32 / 8.0).ceil() as usize, (height as f32 / 8.0).ceil() as usize, 1)?;
-
-                        Ok(())
-                    },
-                });
 
                 executor.add(Task {
                     resources: [
@@ -1208,9 +986,7 @@ fn main() {
                         Buffer(&vertex_buffer, BufferAccess::VertexShaderReadOnly),
                         Buffer(&transform_buffer, BufferAccess::VertexShaderReadOnly),
                         Buffer(&world_buffer, BufferAccess::FragmentShaderReadOnly),
-                        Buffer(&cache_buffer, BufferAccess::ShaderReadWrite),
-                        Image(&cache_pos_image, ImageAccess::ShaderReadWrite),
-                        Image(&cache_color_image, ImageAccess::ShaderReadWrite),
+                        Image(&perlin_image, ImageAccess::FragmentShaderReadWrite),
                     ],
                     task: |commands| {
                         let (width, height) = resolution.get();
@@ -1223,7 +999,7 @@ fn main() {
                             color: [Attachment {
                                 image: 0,
                                 load_op: LoadOp::Clear,
-                                clear: Clear::Color(0.1, 0.4, 0.8, 1.0),
+                                clear: Clear::Color(1.0, 0.0, 1.0, 1.0),
                             }],
                             depth: Some(Attachment {
                                 image: 1,
@@ -1237,87 +1013,26 @@ fn main() {
                             },
                         })?;
 
-                        let tiles = Vector::new([100.0, 100.0]);
-                        
                         commands.push_constant(PushConstant {
                             data: DrawPush {
-                                resolution: Vector::new([width as f32, height as f32]),
-                                tiles,
                                 info_buffer: (info_buffer)(),
                                 camera_buffer: (camera_buffer)(),
                                 vertex_buffer: (vertex_buffer)(),
                                 transform_buffer: (transform_buffer)(),
                                 world_buffer: (world_buffer)(),
-                                cache_buffer: (cache_buffer)(),
-                                cache_pos_image: (cache_pos_image)(),
-                                cache_color_image: (cache_color_image)(),
+                                perlin_image: (perlin_image)(),
                             },
                             pipeline: &draw_pipeline,
                         })?;
 
-                        let vertex_count = (tiles[0] * tiles[1]) as usize * 6;
-
                         commands.draw(gpu::prelude::Draw {
-                            vertex_count,
+                            vertex_count: 3,
                         })?;
 
                         commands.end_rendering()
                     },
                 });
                 
-                executor.add(Task {
-                    resources: [
-                        Buffer(&camera_buffer, BufferAccess::ShaderReadOnly),
-                        Buffer(&transform_buffer, BufferAccess::ShaderReadOnly),
-                        Buffer(&cache_buffer, BufferAccess::ShaderReadWrite),
-                        Image(&cache_pos_image, ImageAccess::ShaderReadWrite),
-                        Image(&cache_color_image, ImageAccess::ShaderReadWrite),
-                        Image(&cache_pos_image2, ImageAccess::ShaderReadWrite),
-                        Image(&cache_color_image2, ImageAccess::ShaderReadWrite),
-                    ],
-                    task: |commands| {
-                        let (width, height) = resolution.get();
-
-                        commands.set_pipeline(&clear_cache_pipeline)?;
-
-                        let tiles = Vector::new([100.0, 100.0]);
-                        
-                        commands.push_constant(PushConstant {
-                            data: CachePush {
-                                camera_buffer: (camera_buffer)(),
-                                transform_buffer: (transform_buffer)(),
-                                cache_buffer: (cache_buffer)(),
-                                cache_pos_image: (cache_pos_image)(),
-                                cache_color_image: (cache_color_image)(),
-                                cache_pos_image2: (cache_pos_image2)(),
-                                cache_color_image2: (cache_color_image2)(),
-                            },
-                            pipeline: &clear_cache_pipeline,
-                        })?;
-                            
-
-                        commands.dispatch((width as f32 / 8.0).ceil() as usize, (height as f32 / 8.0).ceil() as usize, 1)?;
-
-                        Ok(())
-                    },
-                });
-                
-
-                
-                executor.add(Task {
-                    resources: [Buffer(&transform_buffer, BufferAccess::TransferRead), Buffer(&cache_buffer, BufferAccess::TransferWrite)],
-                    task: |commands| {
-                        commands.copy_buffer_to_buffer(BufferCopy {
-                            from: 0,
-                            to: 1,
-                            src: 0,
-                            dst: 0,
-                            size: 8 * mem::size_of::<f32>(),
-                        })?;
-                        Ok(())
-                    }
-                });
-
                 executor.add(Task {
                     resources: [Image(&present_image, ImageAccess::Present)],
                     task: |commands| {
@@ -1371,29 +1086,13 @@ struct EntityInput {
 
 #[derive(Clone, Copy)]
 #[repr(C)]
-pub struct CachePush {
-    pub camera_buffer: Buffer,
-    pub transform_buffer: Buffer,
-    pub cache_buffer: Buffer,
-    pub cache_pos_image: Image,
-    pub cache_color_image: Image,
-    pub cache_pos_image2: Image,
-    pub cache_color_image2: Image,
-}
-
-#[derive(Clone, Copy)]
-#[repr(C)]
 pub struct DrawPush {
-    pub resolution: Vector<f32, 2>,
-    pub tiles: Vector<f32, 2>,
     pub info_buffer: Buffer,
     pub camera_buffer: Buffer,
     pub vertex_buffer: Buffer,
     pub transform_buffer: Buffer,
     pub world_buffer: Buffer,
-    pub cache_buffer: Buffer,
-    pub cache_pos_image: Image,
-    pub cache_color_image: Image,
+    pub perlin_image: Image,
 }
 
 #[derive(Clone, Copy)]

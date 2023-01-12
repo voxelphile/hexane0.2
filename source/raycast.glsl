@@ -1,4 +1,4 @@
-#define MAX_STEP_COUNT 128
+#define MAX_STEP_COUNT 512
 
 struct Ray {
 	BufferId world_id;
@@ -13,6 +13,7 @@ struct RayHit {
 	vec3 back_step;
 	vec3 destination;
 	bvec3 mask;
+	u32 id;
 };
 
 bool ray_cast(inout Ray ray, out RayHit hit) {
@@ -36,9 +37,12 @@ bool ray_cast(inout Ray ray, out RayHit hit) {
 
 		if (voxel_found) {
 			vec3 destination = ray.origin + ray.direction * (dist - 1e-4);
+			vec3 back_step = map_pos - ray_step * vec3(mask);
 
 			hit.destination = destination;
+			hit.back_step = back_step;
 			hit.mask = mask;
+			hit.id = query.id;
 			return true;
 		}
 
@@ -47,6 +51,10 @@ bool ray_cast(inout Ray ray, out RayHit hit) {
 		side_dist += vec3(mask) * delta_dist;
 		map_pos += ivec3(vec3(mask)) * ray_step;
 		dist += length(vec3(mask) * ray_step);
+
+		if(dist > ray.max_distance) {
+			break;
+		}
 	}
 
 	return false;
