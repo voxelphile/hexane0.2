@@ -1,9 +1,16 @@
-#define CHUNK_SIZE 128
+#define CHUNK_SIZE 16
 #define AXIS_MAX_CHUNKS 8
+
+struct Chunk {
+	vec3 minimum;
+	vec3 maximum;
+	ImageId data;
+};
 
 decl_buffer(
 	World,
 	{
-		ImageId chunks[1000];
+		Chunk chunks[1000];
 	}
 )
+

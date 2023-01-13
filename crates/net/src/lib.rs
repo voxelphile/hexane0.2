@@ -1,8 +1,8 @@
 #![feature(default_free_fn)]
 
+use std::default::default;
 use std::mem;
 use std::net;
-use std::default::default;
 use std::result;
 
 #[cfg(target_os = "windows")]
@@ -37,7 +37,7 @@ pub struct Socket {
     #[cfg(target_os = "linux")]
     handle: libc::c_int,
     #[cfg(target_os = "windows")]
-    handle: win_sock::SOCKET, 
+    handle: win_sock::SOCKET,
 }
 
 impl Socket {
@@ -49,11 +49,17 @@ impl Socket {
 
         let mut wsa_data = mem::MaybeUninit::<WSADATA>::new(default());
 
-        unsafe { WSAStartup(version, &mut wsa_data as *mut _ as *mut _); }
+        unsafe {
+            WSAStartup(version, &mut wsa_data as *mut _ as *mut _);
+        }
 
         let handle = match ty {
-            SocketType::Stream => unsafe { socket(AF_INET.0 as _, SOCK_STREAM as _, IPPROTO_TCP.0) },
-            SocketType::Datagram => unsafe { socket(AF_INET.0 as _, SOCK_DGRAM as _, IPPROTO_UDP.0) },
+            SocketType::Stream => unsafe {
+                socket(AF_INET.0 as _, SOCK_STREAM as _, IPPROTO_TCP.0)
+            },
+            SocketType::Datagram => unsafe {
+                socket(AF_INET.0 as _, SOCK_DGRAM as _, IPPROTO_UDP.0)
+            },
         };
 
         if handle == INVALID_SOCKET {
@@ -62,7 +68,6 @@ impl Socket {
 
         Ok(Self { handle })
     }
-    
 
     #[cfg(target_os = "linux")]
     pub fn open(ty: SocketType) -> Result<Self> {
@@ -80,13 +85,12 @@ impl Socket {
         Ok(Self { handle })
     }
 
-    pub fn close(self) {
-    }
+    pub fn close(self) {}
 
     pub fn bind(&mut self, addrs: impl net::ToSocketAddrs) -> Result<()> {
         #[cfg(target_os = "linux")]
         use libc::*;
-        
+
         #[cfg(target_os = "windows")]
         use win_sock::*;
 
@@ -141,9 +145,13 @@ impl Socket {
 impl Drop for Socket {
     fn drop(&mut self) {
         #[cfg(target_os = "linux")]
-        unsafe { libc::close(self.handle); }
+        unsafe {
+            libc::close(self.handle);
+        }
 
         #[cfg(target_os = "windows")]
-        unsafe { win_sock::closesocket(self.handle); }
+        unsafe {
+            win_sock::closesocket(self.handle);
+        }
     }
 }

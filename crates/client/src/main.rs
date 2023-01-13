@@ -17,8 +17,8 @@ use std::cell::Cell;
 use std::cmp;
 use std::default::default;
 use std::env;
-use std::num;
 use std::mem;
+use std::num;
 use std::ops;
 use std::path;
 use std::time;
@@ -35,7 +35,7 @@ use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 const SMALL_SIZE: usize = 512;
 const REALLY_LARGE_SIZE: usize = 200_000_000;
 
-const CHUNK_SIZE: usize = 128;
+const CHUNK_SIZE: usize = 16;
 const AXIS_MAX_CHUNKS: usize = 8;
 
 pub type Vertex = (f32, f32, f32);
@@ -95,7 +95,6 @@ fn main() {
 
     let source_path = root_path.join("source");
     let asset_path = root_path.join("assets");
-    
 
     let context = Context::new(ContextInfo {
         enable_validation: true,
@@ -104,7 +103,6 @@ fn main() {
         ..default()
     })
     .expect("failed to create context");
-
 
     let mut device = context
         .create_device(DeviceInfo {
@@ -137,10 +135,7 @@ fn main() {
 
     let draw_pipeline = pipeline_compiler
         .create_graphics_pipeline(GraphicsPipelineInfo {
-            shaders: [
-                Shader(Vertex, "rtx", &[]),
-                Shader(Fragment, "rtx", &[]),
-            ],
+            shaders: [Shader(Vertex, "rtx", &[]), Shader(Fragment, "rtx", &[])],
             color: [gpu::prelude::Color {
                 format: device.presentation_format(swapchain.get()).unwrap(),
                 blend: Some(Blend {
@@ -150,9 +145,7 @@ fn main() {
                 }),
             }],
             depth: Some(default()),
-            raster: Raster {
-                ..default()
-            },
+            raster: Raster { ..default() },
             ..default()
         })
         .expect("failed to create pipeline");
@@ -164,20 +157,27 @@ fn main() {
         })
         .expect("failed to create pipeline");
 
+    let box_pipeline = pipeline_compiler
+        .create_compute_pipeline(ComputePipelineInfo {
+            shader: Shader(Compute, "build_box", &[]),
+            ..default()
+        })
+        .expect("failed to create pipeline");
+
     let world_pipeline = pipeline_compiler
         .create_compute_pipeline(ComputePipelineInfo {
             shader: Shader(Compute, "build_world", &[]),
             ..default()
         })
         .expect("failed to create pipeline");
-    
+
     /*let vertex_pipeline = pipeline_compiler
-        .create_compute_pipeline(ComputePipelineInfo {
-            shader: Shader(Compute, "build_mesh", &[]),
-            ..default()
-        })
-        .expect("failed to create pipeline");
-*/
+            .create_compute_pipeline(ComputePipelineInfo {
+                shader: Shader(Compute, "build_mesh", &[]),
+                ..default()
+            })
+            .expect("failed to create pipeline");
+    */
     let noise_pipeline = pipeline_compiler
         .create_compute_pipeline(ComputePipelineInfo {
             shader: Shader(Compute, "build_noise", &[]),
@@ -209,7 +209,7 @@ fn main() {
             })
             .expect("failed to create depth image"),
     );
-    
+
     let mut noise_img = Cell::new(
         device
             .create_image(ImageInfo {
@@ -237,18 +237,24 @@ fn main() {
     let chunk_len = AXIS_MAX_CHUNKS.pow(3);
 
     for _ in 0..chunk_len {
-        chunk_images.push(
-            device
-                .create_image(ImageInfo {
-                    extent: ImageExtent::ThreeDim(CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE),
-                    usage: ImageUsage::TRANSFER_DST,
-                    format: Format::R16Uint,
-                    ..default()
-                })
-                .expect("failed to create depth image"),
-        );
+        for _ in 0..6 {
+            chunk_images.extend(unsafe { mem::transmute::<f32, [u8; 4]>(0.0) });
+        }
+
+        chunk_images.extend(unsafe {
+            mem::transmute::<Image, [u8; 4]>(
+                device
+                    .create_image(ImageInfo {
+                        extent: ImageExtent::ThreeDim(CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE),
+                        usage: ImageUsage::TRANSFER_DST,
+                        format: Format::R16Uint,
+                        ..default()
+                    })
+                    .expect("failed to create depth image"),
+            )
+        });
     }
-    
+
     let general_staging_buffer = device
         .create_buffer(BufferInfo {
             size: 1000000,
@@ -373,6 +379,10 @@ fn main() {
     camera_info.set(CameraInfo {
         projection: camera.get().projection(),
         inv_projection: camera.get().projection().inverse(),
+        far: match camera.get() {
+            Camera::Perspective { clip, .. } => clip.1,
+            _ => unreachable!(),
+        },
         resolution: Vector::new([resolution.get().0 as f32, resolution.get().1 as f32]),
     });
 
@@ -615,7 +625,6 @@ fn main() {
                         .expect("failed to create swapchain"),
                 );
 
-
                 depth_img.set(
                     device
                         .create_image(ImageInfo {
@@ -643,10 +652,14 @@ fn main() {
                 };
 
                 camera.set(new_camera);
-                
+
                 camera_info.set(CameraInfo {
                     projection: camera.get().projection(),
                     inv_projection: camera.get().projection().inverse(),
+                    far: match camera.get() {
+                        Camera::Perspective { clip, .. } => clip.1,
+                        _ => unreachable!(),
+                    },
                     resolution: Vector::new([width as f32, height as f32]),
                 });
 
@@ -784,7 +797,10 @@ fn main() {
                             mt.push(42069);
 
                             for i in 1..N as usize {
-                                let num = num::Wrapping(F) * num::Wrapping((mt[i - 1] ^ (mt[i - 1] >> (W - 2))) + i as u32); 
+                                let num = num::Wrapping(F)
+                                    * num::Wrapping(
+                                        (mt[i - 1] ^ (mt[i - 1] >> (W - 2))) + i as u32,
+                                    );
                                 mt.push(num.0);
                             }
                             commands.write_buffer(BufferWrite {
@@ -908,6 +924,35 @@ fn main() {
 
                             commands.dispatch(size, size, size)?;
                         }
+                        Ok(())
+                    },
+                });
+
+                executor.add(Task {
+                    resources: [
+                        Buffer(&world_buffer, BufferAccess::ComputeShaderReadWrite),
+                        Buffer(&transform_buffer, BufferAccess::ComputeShaderReadWrite),
+                        Image(&perlin_image, ImageAccess::ComputeShaderReadWrite),
+                    ],
+                    task: |commands| {
+                        if update.get() {
+                            commands.set_pipeline(&box_pipeline)?;
+
+                            commands.push_constant(PushConstant {
+                                data: BuildWorldPush {
+                                    perlin_image: (perlin_image)(),
+                                    transform_buffer: (transform_buffer)(),
+                                    world_buffer: (world_buffer)(),
+                                },
+                                pipeline: &box_pipeline,
+                            })?;
+
+                            const WORK_GROUP_SIZE: usize = 8;
+
+                            let size = (AXIS_MAX_CHUNKS) / WORK_GROUP_SIZE;
+
+                            commands.dispatch(size, size, size)?;
+                        }
                         update.set(false);
                         Ok(())
                     },
@@ -982,7 +1027,7 @@ fn main() {
                         Buffer(&camera_buffer, BufferAccess::FragmentShaderReadOnly),
                         Buffer(&vertex_buffer, BufferAccess::VertexShaderReadOnly),
                         Buffer(&transform_buffer, BufferAccess::VertexShaderReadOnly),
-                        Buffer(&world_buffer, BufferAccess::FragmentShaderReadOnly),
+                        Buffer(&world_buffer, BufferAccess::ShaderReadOnly),
                         Image(&perlin_image, ImageAccess::FragmentShaderReadWrite),
                     ],
                     task: |commands| {
@@ -1029,7 +1074,7 @@ fn main() {
                         commands.end_rendering()
                     },
                 });
-                
+
                 executor.add(Task {
                     resources: [Image(&present_image, ImageAccess::Present)],
                     task: |commands| {
@@ -1059,6 +1104,7 @@ pub const INDEX_OFFSET: usize = 1_000_000_000;
 struct CameraInfo {
     projection: Matrix<f32, 4, 4>,
     inv_projection: Matrix<f32, 4, 4>,
+    far: f32,
     resolution: Vector<f32, 2>,
 }
 

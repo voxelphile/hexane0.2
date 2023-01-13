@@ -375,7 +375,7 @@ impl Commands<'_> {
 
         Ok(())
     }
-    
+
     pub fn read_buffer<T: Copy>(&mut self, read: BufferRead) -> Result<T> {
         let Commands {
             device,
@@ -390,10 +390,7 @@ impl Commands<'_> {
             ..
         } = &*device;
 
-        let BufferRead {
-            buffer,
-            offset,
-        } = read;
+        let BufferRead { buffer, offset } = read;
 
         let resources = resources.lock().unwrap();
 

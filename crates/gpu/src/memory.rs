@@ -10,7 +10,7 @@ bitflags! {
         const HOST_ACCESS = 0x00000002;
     }
 }
-	
+
 pub(crate) struct InternalMemory {
     pub(crate) memory: vk::DeviceMemory,
     pub(crate) properties: Memory,

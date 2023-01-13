@@ -29,7 +29,7 @@ void main() {
 	}
 
 	VoxelChange change;
-	change.chunk_id = world.chunks[chunk];
+	change.chunk_id = world.chunks[chunk].data;
 	change.id = u16(0);
 	change.position = mod(f32vec3(gl_GlobalInvocationID), CHUNK_SIZE);
 	

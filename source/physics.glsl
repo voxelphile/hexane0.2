@@ -136,6 +136,8 @@ void swap(inout i32 a, inout i32 b) {
 }
 
 void main() {
+	return;
+
 	if(gl_GlobalInvocationID.x != 0) {
 		return;
 	}
@@ -194,7 +196,7 @@ void main() {
 		u32 chunk = u32(block.position.x) / CHUNK_SIZE + u32(block.position.y) / CHUNK_SIZE * AXIS_MAX_CHUNKS + u32(block.position.z) / CHUNK_SIZE * AXIS_MAX_CHUNKS * AXIS_MAX_CHUNKS;
 
 		VoxelQuery query;
-		query.chunk_id = world.chunks[chunk];
+		query.chunk_id = world.chunks[chunk].data;
 		query.position = block.position;
 		
 		if(!voxel_query(query)) {

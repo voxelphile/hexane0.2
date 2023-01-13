@@ -26,8 +26,9 @@ pub mod prelude {
     pub(crate) use crate::buffer::InternalBuffer;
     pub use crate::buffer::{Buffer, BufferInfo};
     pub use crate::commands::{
-        Access, Attachment, Barrier, BindIndexBuffer, BufferCopy, BufferRead, BufferWrite, Clear, Commands,
-        Draw, DrawIndexed, ImageCopy, LoadOp, PipelineBarrier, PushConstant, Render, RenderArea,
+        Access, Attachment, Barrier, BindIndexBuffer, BufferCopy, BufferRead, BufferWrite, Clear,
+        Commands, Draw, DrawIndexed, ImageCopy, LoadOp, PipelineBarrier, PushConstant, Render,
+        RenderArea,
     };
     pub(crate) use crate::context::DESCRIPTOR_COUNT;
     pub use crate::context::{Context, ContextInfo};
@@ -39,9 +40,9 @@ pub mod prelude {
     pub(crate) use crate::memory::InternalMemory;
     pub use crate::memory::Memory;
     pub use crate::pipeline::{
-        Blend, BlendFactor, BlendOp, Color, ColorComponent, CompareOp, ComputePipelineInfo, Depth, FaceCull,
-        GraphicsPipelineInfo, Pipeline, PipelineCompiler, PipelineCompilerInfo, PipelineStage,
-        Raster, Shader, ShaderCompiler, ShaderType,
+        Blend, BlendFactor, BlendOp, Color, ColorComponent, CompareOp, ComputePipelineInfo, Depth,
+        FaceCull, GraphicsPipelineInfo, Pipeline, PipelineCompiler, PipelineCompilerInfo,
+        PipelineStage, Raster, Shader, ShaderCompiler, ShaderType,
     };
     pub use crate::semaphore::{
         BinarySemaphore, BinarySemaphoreInfo, TimelineSemaphore, TimelineSemaphoreInfo,

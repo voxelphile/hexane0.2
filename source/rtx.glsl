@@ -26,6 +26,7 @@ decl_buffer(
 	{
 		mat4 projection;
 		mat4 inv_projection;
+		f32 far;
 		vec2 resolution;
 	}
 )
@@ -43,12 +44,14 @@ vec3 offsets[8] = vec3[](
 	vec3(1, 0, 0)
 );
 
-layout(location = 0) out vec4 position;
-layout(location = 1) out flat u32 chunk;
+layout(location = 0) out vec4 internal_position;
+layout(location = 1) out vec4 world_position;
+layout(location = 2) out flat u32 chunk;
 
 void main() {
 	Buffer(Transforms) transforms = get_buffer(Transforms, push_constant.transform_id);
 	Buffer(Camera) camera = get_buffer(Camera, push_constant.camera_id);
+	Buffer(World) world = get_buffer(World, push_constant.world_id);
 	
 	u32 indices[36] = u32[](1, 0, 3, 1, 3, 2, 4, 5, 6, 4, 6, 7, 2, 3, 7, 2, 7, 6, 5, 4, 0, 5, 0, 1, 6, 5, 1, 6, 1, 2, 3, 0, 4, 3, 4, 7);
 
@@ -62,17 +65,22 @@ void main() {
 	Transform transform = transforms.data[0];
 	transform.position.xyz += vec3(0.4, 1.8, 0.4);
 
-	vec3 positional_offset = clamp(offsets[indices[j]], EPSILON, 1 - EPSILON) * CHUNK_SIZE;
+	vec3 positional_offset = clamp(offsets[indices[j]], EPSILON * EPSILON, 1 - EPSILON * EPSILON) * CHUNK_SIZE;
 
-	position = vec4(positional_offset, 1.0);
+	positional_offset = clamp(positional_offset, world.chunks[chunk].minimum, world.chunks[chunk].maximum); 
 
-	gl_Position = camera.projection * inverse(compute_transform_matrix(transform)) * vec4(position.xyz + ctransform.position.xyz, 1.0);
+	internal_position = vec4(positional_offset, 1.0);
+	world_position = vec4(internal_position.xyz + ctransform.position.xyz, 1.0);
+
+	gl_Position = camera.projection * inverse(compute_transform_matrix(transform)) * world_position;
+
 }
 
 #elif defined fragment
 
-layout(location = 0) in vec4 position;
-layout(location = 1) in flat u32 chunk;
+layout(location = 0) in vec4 internal_position;
+layout(location = 1) in vec4 world_position;
+layout(location = 2) in flat u32 chunk;
 
 layout(location = 0) out vec4 result;
 
@@ -91,7 +99,7 @@ void main() {
 
 	vec4 color = vec4(0, 0, 0, 1);
 
-	vec3 origin = position.xyz;
+	vec3 origin = internal_position.xyz;
 
 	Box chunk_box;
 	chunk_box.position = transforms.data[chunk + 1].position.xyz;
@@ -105,12 +113,10 @@ void main() {
 		origin = mod(transform.position.xyz, CHUNK_SIZE);
 	}
 
-
 	Ray ray;
-	ray.chunk_id = world.chunks[chunk];
+	ray.chunk_id = world.chunks[chunk].data;
 	ray.origin = origin;
 	ray.direction = dir;
-	ray.max_distance = 512;
 
 	RayHit hit;
 
