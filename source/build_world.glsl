@@ -23,7 +23,7 @@ void main() {
 	Buffer(Transforms) transforms = get_buffer(Transforms, push_constant.transform_id);
 
 	u32 chunk = gl_GlobalInvocationID.x / CHUNK_SIZE + gl_GlobalInvocationID.y / CHUNK_SIZE * AXIS_MAX_CHUNKS + gl_GlobalInvocationID.z / CHUNK_SIZE * AXIS_MAX_CHUNKS * AXIS_MAX_CHUNKS;
-
+	
 	if (all(equal(mod(f32vec3(gl_GlobalInvocationID) / f32(CHUNK_SIZE), 1), vec3(0)))) {
 		transforms.data[1 + chunk].position.xyz = vec3(gl_GlobalInvocationID);
 	}

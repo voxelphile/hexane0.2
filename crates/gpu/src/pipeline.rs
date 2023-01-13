@@ -342,7 +342,7 @@ impl PipelineCompiler {
             .color
             .iter()
             .map(|color| vk::PipelineColorBlendAttachmentState {
-                blend_enable: false as _,
+                blend_enable: color.blend.is_some() as _,
                 ..color.blend.unwrap_or_default().into()
             })
             .collect::<Vec<_>>();

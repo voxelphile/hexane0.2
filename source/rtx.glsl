@@ -13,7 +13,7 @@
 struct RtxPush {
 	BufferId info_id;
 	BufferId camera_id;
-	BufferId vertex_id;
+	BufferId sort_id;
 	BufferId transform_id;
 	BufferId world_id;
 	ImageId perlin_id;
@@ -30,13 +30,6 @@ decl_buffer(
 	}
 )
 
-decl_buffer(
-	Cache,
-	{
-		Transform last;
-	}
-)
-	
 #ifdef vertex
 
 vec3 offsets[8] = vec3[](
@@ -52,7 +45,6 @@ vec3 offsets[8] = vec3[](
 
 layout(location = 0) out vec4 position;
 layout(location = 1) out flat u32 chunk;
-layout(location = 2) out flat u32 j123;
 
 void main() {
 	Buffer(Transforms) transforms = get_buffer(Transforms, push_constant.transform_id);
@@ -70,7 +62,7 @@ void main() {
 	Transform transform = transforms.data[0];
 	transform.position.xyz += vec3(0.4, 1.8, 0.4);
 
-	vec3 positional_offset = offsets[indices[j]] * CHUNK_SIZE;
+	vec3 positional_offset = clamp(offsets[indices[j]], EPSILON, 1 - EPSILON) * CHUNK_SIZE;
 
 	position = vec4(positional_offset, 1.0);
 
@@ -110,8 +102,9 @@ void main() {
 	player_box.position = transform.position.xyz;
 
 	if(aabb_check(player_box, chunk_box)) {
-		origin = transform.position.xyz;
+		origin = mod(transform.position.xyz, CHUNK_SIZE);
 	}
+
 
 	Ray ray;
 	ray.chunk_id = world.chunks[chunk];

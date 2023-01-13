@@ -35,7 +35,7 @@ use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 const SMALL_SIZE: usize = 512;
 const REALLY_LARGE_SIZE: usize = 200_000_000;
 
-const CHUNK_SIZE: usize = 8;
+const CHUNK_SIZE: usize = 128;
 const AXIS_MAX_CHUNKS: usize = 8;
 
 pub type Vertex = (f32, f32, f32);
@@ -143,7 +143,11 @@ fn main() {
             ],
             color: [gpu::prelude::Color {
                 format: device.presentation_format(swapchain.get()).unwrap(),
-                ..default()
+                blend: Some(Blend {
+                    src_color: BlendFactor::SrcAlpha,
+                    dst_color: BlendFactor::OneMinusSrcAlpha,
+                    ..default()
+                }),
             }],
             depth: Some(default()),
             raster: Raster {
@@ -298,7 +302,7 @@ fn main() {
 
     let transform_buffer = device
         .create_buffer(BufferInfo {
-            size: SMALL_SIZE,
+            size: 1000000,
             debug_name: "General Buffer",
             ..default()
         })

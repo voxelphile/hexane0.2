@@ -136,7 +136,9 @@ void swap(inout i32 a, inout i32 b) {
 }
 
 void main() {
-	return;
+	if(gl_GlobalInvocationID.x != 0) {
+		return;
+	}
 
 	Buffer(Transforms) transforms = get_buffer(Transforms, push_constant.transform_id);
 	Buffer(Rigidbodies) rigidbodies = get_buffer(Rigidbodies, push_constant.rigidbody_id);
@@ -189,7 +191,7 @@ void main() {
 
 		if(aabb_check(broadphase, block)) {
 		
-		u32 chunk = u32(block.position.x + block.position.y / CHUNK_SIZE + block.position.z / CHUNK_SIZE / CHUNK_SIZE);
+		u32 chunk = u32(block.position.x) / CHUNK_SIZE + u32(block.position.y) / CHUNK_SIZE * AXIS_MAX_CHUNKS + u32(block.position.z) / CHUNK_SIZE * AXIS_MAX_CHUNKS * AXIS_MAX_CHUNKS;
 
 		VoxelQuery query;
 		query.chunk_id = world.chunks[chunk];
