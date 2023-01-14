@@ -95,11 +95,12 @@ void main() {
 	Image(2D, u32) prepass_img = get_image(2D, u32, push_constant.prepass_id);
 
 	Transform transform = transforms.data[0];
-	transform.position.xyz += vec3(0.4, 1.8, 0.4);
+	Transform eye_transform = transform;
+	eye_transform.position.xyz += vec3(0.4, 1.8, 0.4);
 
 	vec2 screenPos = (gl_FragCoord.xy / camera.resolution.xy) * 2.0 - 1.0;
 	vec4 target = camera.inv_projection * vec4(screenPos, 1, 1);
-	vec3 dir = (compute_transform_matrix(transform) * vec4(normalize(vec3(target.xyz) / target.w), 0)).xyz;
+	vec3 dir = (compute_transform_matrix(eye_transform) * vec4(normalize(vec3(target.xyz) / target.w), 0)).xyz;
 
 	vec4 color = vec4(0, 0, 0, 1);
 
@@ -114,7 +115,7 @@ void main() {
 	player_box.position = transform.position.xyz;
 
 	if(aabb_check(player_box, chunk_box)) {
-		origin = mod(transform.position.xyz, CHUNK_SIZE);
+		origin = mod(eye_transform.position.xyz, CHUNK_SIZE);
 	}
 
 	Ray ray;
@@ -146,7 +147,7 @@ void main() {
 		}
 
 
-		vec4 v_clip_coord = camera.projection * inverse(compute_transform_matrix(transform)) * vec4(chunk_box.position + hit.back_step, 1.0);
+		vec4 v_clip_coord = camera.projection * inverse(compute_transform_matrix(eye_transform)) * vec4(chunk_box.position + hit.destination, 1.0);
 		float f_ndc_depth = v_clip_coord.z / v_clip_coord.w;
 		gl_FragDepth = (f_ndc_depth + 1.0) * 0.5;
 

@@ -209,7 +209,7 @@ fn main() {
         })
         .expect("failed to create pipeline");
     
-    const PREPASS_SCALE: usize = 4;
+    const PREPASS_SCALE: usize = 2;
 
     let mut depth_img = Cell::new(
         device
@@ -398,7 +398,7 @@ fn main() {
 
     let mut camera = Cell::new(Camera::Perspective {
         fov: 120.0 * std::f32::consts::PI / 360.0,
-        clip: (0.001, 500.0),
+        clip: (0.1, 500.0),
         aspect_ratio: width as f32 / height as f32,
         position: Vector::new([16.0, 48.0, 16.0]),
         rotation: default(),
