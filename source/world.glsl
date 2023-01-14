@@ -1,4 +1,4 @@
-#define CHUNK_SIZE 16
+#define CHUNK_SIZE 64
 #define AXIS_MAX_CHUNKS 8
 
 struct Chunk {

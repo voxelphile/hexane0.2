@@ -35,7 +35,7 @@ use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 const SMALL_SIZE: usize = 512;
 const REALLY_LARGE_SIZE: usize = 200_000_000;
 
-const CHUNK_SIZE: usize = 16;
+const CHUNK_SIZE: usize = 64;
 const AXIS_MAX_CHUNKS: usize = 8;
 
 pub type Vertex = (f32, f32, f32);
@@ -138,14 +138,24 @@ fn main() {
             shaders: [Shader(Vertex, "rtx", &[]), Shader(Fragment, "rtx", &[])],
             color: [gpu::prelude::Color {
                 format: device.presentation_format(swapchain.get()).unwrap(),
-                blend: Some(Blend {
-                    src_color: BlendFactor::SrcAlpha,
-                    dst_color: BlendFactor::OneMinusSrcAlpha,
-                    ..default()
-                }),
+                blend: None,
             }],
             depth: Some(default()),
-            raster: Raster { ..default() },
+            ..default()
+        })
+        .expect("failed to create pipeline");
+
+    let upscale_pipeline = pipeline_compiler
+        .create_graphics_pipeline(GraphicsPipelineInfo {
+            shaders: [
+                Shader(Vertex, "fx", &[]),
+                Shader(Fragment, "upscale", &[]),
+            ],
+            color: [gpu::prelude::Color {
+                format: device.presentation_format(swapchain.get()).unwrap(),
+                blend: None,
+            }],
+            depth: None,
             ..default()
         })
         .expect("failed to create pipeline");
@@ -198,13 +208,33 @@ fn main() {
             ..default()
         })
         .expect("failed to create pipeline");
+    
+    const PREPASS_SCALE: usize = 4;
 
     let mut depth_img = Cell::new(
         device
             .create_image(ImageInfo {
-                extent: ImageExtent::TwoDim(width as _, height as _),
+                extent: ImageExtent::TwoDim(
+                    width as usize / PREPASS_SCALE,
+                    height as usize / PREPASS_SCALE,
+                ),
                 usage: ImageUsage::DEPTH,
                 format: Format::D32Sfloat,
+                ..default()
+            })
+            .expect("failed to create depth image"),
+    );
+
+
+    let mut prepass_img = Cell::new(
+        device
+            .create_image(ImageInfo {
+                extent: ImageExtent::TwoDim(
+                    width as usize / PREPASS_SCALE,
+                    height as usize / PREPASS_SCALE,
+                ),
+                usage: ImageUsage::COLOR,
+                format: device.presentation_format(swapchain.get()).unwrap(),
                 ..default()
             })
             .expect("failed to create depth image"),
@@ -383,7 +413,7 @@ fn main() {
             Camera::Perspective { clip, .. } => clip.1,
             _ => unreachable!(),
         },
-        resolution: Vector::new([resolution.get().0 as f32, resolution.get().1 as f32]),
+        resolution: Vector::new([resolution.get().0 as f32 / PREPASS_SCALE as f32, resolution.get().1 as f32 / PREPASS_SCALE as f32]),
     });
 
     let info = Cell::new(Info::default());
@@ -407,6 +437,7 @@ fn main() {
     let chunk_staging_buffer = || chunk_staging_buffer;
     let noise_staging_buffer = || noise_staging_buffer;
     let depth_image = || depth_img.get();
+    let prepass_image = || prepass_img.get();
     let noise_image = || noise_img.get();
     let perlin_image = || perlin_img.get();
     let present_image = || {
@@ -628,13 +659,30 @@ fn main() {
                 depth_img.set(
                     device
                         .create_image(ImageInfo {
-                            extent: ImageExtent::TwoDim(width as _, height as _),
+                extent: ImageExtent::TwoDim(
+                    width as usize / PREPASS_SCALE,
+                    height as usize / PREPASS_SCALE,
+                ),
                             usage: ImageUsage::DEPTH,
                             format: Format::D32Sfloat,
                             ..default()
                         })
                         .expect("failed to create depth image"),
                 );
+                
+    prepass_img.set(
+        device
+            .create_image(ImageInfo {
+                extent: ImageExtent::TwoDim(
+                    width as usize / PREPASS_SCALE,
+                    height as usize / PREPASS_SCALE,
+                ),
+                usage: ImageUsage::COLOR,
+                format: device.presentation_format(swapchain.get()).unwrap(),
+                ..default()
+            })
+            .expect("failed to create depth image"),
+    );
 
                 let new_camera = {
                     let mut camera = camera.get();
@@ -660,7 +708,7 @@ fn main() {
                         Camera::Perspective { clip, .. } => clip.1,
                         _ => unreachable!(),
                     },
-                    resolution: Vector::new([width as f32, height as f32]),
+                    resolution: Vector::new([width as f32 / PREPASS_SCALE as f32, height as f32 / PREPASS_SCALE as f32]),
                 });
 
                 update.set(true);
@@ -1019,10 +1067,11 @@ fn main() {
                         Ok(())
                     },
                 });
+                
 
                 executor.add(Task {
                     resources: [
-                        Image(&present_image, ImageAccess::ColorAttachment),
+                        Image(&prepass_image, ImageAccess::ColorAttachment),
                         Image(&depth_image, ImageAccess::DepthAttachment),
                         Buffer(&camera_buffer, BufferAccess::FragmentShaderReadOnly),
                         Buffer(&vertex_buffer, BufferAccess::VertexShaderReadOnly),
@@ -1033,7 +1082,9 @@ fn main() {
                     task: |commands| {
                         let (width, height) = resolution.get();
 
-                        commands.set_resolution(resolution.get())?;
+                        let resolution = (width / PREPASS_SCALE as u32, height / PREPASS_SCALE as u32);
+
+                        commands.set_resolution(resolution)?;
 
                         commands.set_pipeline(&draw_pipeline)?;
 
@@ -1049,8 +1100,8 @@ fn main() {
                                 clear: Clear::Depth(1.0),
                             }),
                             render_area: RenderArea {
-                                width,
-                                height,
+                                width: width / PREPASS_SCALE as u32,
+                                height: height / PREPASS_SCALE as u32,
                                 ..default()
                             },
                         })?;
@@ -1069,6 +1120,48 @@ fn main() {
 
                         commands.draw(gpu::prelude::Draw {
                             vertex_count: chunk_len * 36,
+                        })?;
+
+                        commands.end_rendering()
+                    },
+                });
+                
+                executor.add(Task {
+                    resources: [
+                        Image(&present_image, ImageAccess::ColorAttachment),
+                        Image(&prepass_image, ImageAccess::FragmentShaderReadOnly),
+                    ],
+                    task: |commands| {
+                        let (width, height) = resolution.get();
+
+                        commands.set_resolution(resolution.get())?;
+
+                        commands.set_pipeline(&upscale_pipeline)?;
+
+                        commands.start_rendering(Render {
+                            color: [Attachment {
+                                image: 0,
+                                load_op: LoadOp::Clear,
+                                clear: Clear::Color(0.0, 0.0, 0.0, 0.0),
+                            }],
+                            depth: None,
+                            render_area: RenderArea {
+                                width: width,
+                                height: height,
+                                ..default()
+                            },
+                        })?;
+
+                        commands.push_constant(PushConstant {
+                            data: UpscalePush {
+                                from_image: (prepass_image)(),
+                                scale: PREPASS_SCALE as u32,
+                            },
+                            pipeline: &upscale_pipeline,
+                        })?;
+
+                        commands.draw(gpu::prelude::Draw {
+                            vertex_count: 3,
                         })?;
 
                         commands.end_rendering()
@@ -1130,6 +1223,17 @@ struct EntityInput {
 
 #[derive(Clone, Copy)]
 #[repr(C)]
+pub struct PrepassPush {
+    pub info_buffer: Buffer,
+    pub camera_buffer: Buffer,
+    pub vertex_buffer: Buffer,
+    pub transform_buffer: Buffer,
+    pub world_buffer: Buffer,
+    pub perlin_image: Image,
+}
+
+#[derive(Clone, Copy)]
+#[repr(C)]
 pub struct DrawPush {
     pub info_buffer: Buffer,
     pub camera_buffer: Buffer,
@@ -1137,6 +1241,13 @@ pub struct DrawPush {
     pub transform_buffer: Buffer,
     pub world_buffer: Buffer,
     pub perlin_image: Image,
+}
+
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct UpscalePush {
+    pub from_image: Image,
+    pub scale: u32,
 }
 
 #[derive(Clone, Copy)]

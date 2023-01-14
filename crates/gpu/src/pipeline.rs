@@ -140,6 +140,7 @@ impl ShaderCompiler {
                     .arg("-g")
                     .arg(format!("-fshader-stage={}", options.ty))
                     .arg("--target-env=vulkan1.3")
+                    .arg("-O")
                     .arg("-c")
                     .arg(&temporary_path)
                     .arg("-o")

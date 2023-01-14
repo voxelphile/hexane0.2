@@ -17,6 +17,7 @@ struct RtxPush {
 	BufferId transform_id;
 	BufferId world_id;
 	ImageId perlin_id;
+	ImageId prepass_id;
 };
 
 decl_push_constant(RtxPush)
@@ -78,6 +79,8 @@ void main() {
 
 #elif defined fragment
 
+layout (depth_greater) out float gl_FragDepth;
+
 layout(location = 0) in vec4 internal_position;
 layout(location = 1) in vec4 world_position;
 layout(location = 2) in flat u32 chunk;
@@ -89,6 +92,7 @@ void main() {
 	Buffer(Transforms) transforms = get_buffer(Transforms, push_constant.transform_id);
 	Buffer(World) world = get_buffer(World, push_constant.world_id);
 	Image(3D, u32) perlin_img = get_image(3D, u32, push_constant.perlin_id);
+	Image(2D, u32) prepass_img = get_image(2D, u32, push_constant.prepass_id);
 
 	Transform transform = transforms.data[0];
 	transform.position.xyz += vec3(0.4, 1.8, 0.4);
@@ -102,8 +106,8 @@ void main() {
 	vec3 origin = internal_position.xyz;
 
 	Box chunk_box;
-	chunk_box.position = transforms.data[chunk + 1].position.xyz;
-	chunk_box.dimensions = vec3(CHUNK_SIZE);
+	chunk_box.position = transforms.data[chunk + 1].position.xyz + world.chunks[chunk].minimum;
+	chunk_box.dimensions = world.chunks[chunk].maximum;
 
 	Box player_box;
 	player_box.dimensions = vec3(0.8, 2, 0.8);
@@ -119,9 +123,10 @@ void main() {
 	ray.direction = dir;
 
 	RayHit hit;
-
+	
 	bool success = ray_cast(ray, hit);
-
+		
+		
 	if (success) {
 		f32 noise_factor = f32(imageLoad(perlin_img, i32vec3(hit.back_step) % i32vec3(imageSize(perlin_img))).r) / f32(~0u);
 		if(hit.id == 0) {
@@ -139,6 +144,12 @@ void main() {
 		if(hit.mask.z) {
 			color.xyz *= 0.75;
 		}
+
+
+		vec4 v_clip_coord = camera.projection * inverse(compute_transform_matrix(transform)) * vec4(chunk_box.position + hit.back_step, 1.0);
+		float f_ndc_depth = v_clip_coord.z / v_clip_coord.w;
+		gl_FragDepth = (f_ndc_depth + 1.0) * 0.5;
+
 	} else {
 		discard;
 	}	

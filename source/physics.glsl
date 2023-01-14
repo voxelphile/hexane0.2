@@ -136,8 +136,6 @@ void swap(inout i32 a, inout i32 b) {
 }
 
 void main() {
-	return;
-
 	if(gl_GlobalInvocationID.x != 0) {
 		return;
 	}
@@ -197,7 +195,7 @@ void main() {
 
 		VoxelQuery query;
 		query.chunk_id = world.chunks[chunk].data;
-		query.position = block.position;
+		query.position = mod(block.position, CHUNK_SIZE);
 		
 		if(!voxel_query(query)) {
 			continue;
@@ -231,9 +229,9 @@ void main() {
 	
 	player.velocity = vec3(0);
 
-	if(data[0].entry_time > data[1].entry_time) swap(order[0], order[1]);
-	if(data[1].entry_time > data[2].entry_time) swap(order[1], order[2]);
-	if(data[0].entry_time > data[1].entry_time) swap(order[0], order[1]);
+	if(data[0].entry_time < data[1].entry_time) swap(order[0], order[1]);
+	if(data[1].entry_time < data[2].entry_time) swap(order[1], order[2]);
+	if(data[0].entry_time < data[1].entry_time) swap(order[0], order[1]);
 
 	for(i32 i = 2; i >= 0; i--) {
 		i32 o = order[i];
