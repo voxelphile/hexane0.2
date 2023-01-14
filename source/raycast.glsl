@@ -17,10 +17,9 @@ struct RayHit {
 
 bool ray_cast(inout Ray ray, out RayHit hit) {
 	ray.direction = normalize(ray.direction);
-	ray.origin += ray.direction * pow(EPSILON, 3);
 
 
-	ivec3 map_pos = ivec3(floor(ray.origin + 0.));
+	vec3 map_pos = ivec3(floor(ray.origin + 0.));
 	vec3 delta_dist = abs(vec3(length(ray.direction)) / ray.direction);
 	ivec3 ray_step = ivec3(sign(ray.direction));
 	vec3 side_dist = (sign(ray.direction) * (vec3(map_pos) - ray.origin) + (sign(ray.direction) * 0.5) + 0.5) * delta_dist;
@@ -39,7 +38,7 @@ bool ray_cast(inout Ray ray, out RayHit hit) {
 
 		bool voxel_found = voxel_query(query);
 
-		if (voxel_found && in_chunk) {
+		if (voxel_found) {
 			float dist = length(vec3(mask) * (side_dist - delta_dist));
 			vec3 destination = ray.origin + ray.direction * dist;
 			vec3 back_step = map_pos - ray_step * vec3(mask);

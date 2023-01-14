@@ -104,6 +104,9 @@ void main() {
 
 	vec4 color = vec4(0, 0, 0, 1);
 
+	vec3 boxmin = transforms.data[chunk + 1].position.xyz + world.chunks[chunk].minimum;
+	vec3 boxmax = transforms.data[chunk + 1].position.xyz + world.chunks[chunk].maximum;
+
 	vec3 origin = internal_position.xyz;
 
 	Box chunk_box;
@@ -114,8 +117,8 @@ void main() {
 	player_box.dimensions = vec3(0.8, 2, 0.8);
 	player_box.position = transform.position.xyz;
 
-	if(aabb_check(player_box, chunk_box)) {
-		origin = mod(eye_transform.position.xyz, CHUNK_SIZE);
+	if(all(greaterThan(eye_transform.position.xyz, boxmin)) && all(lessThan(eye_transform.position.xyz, boxmax))) {
+		origin = (compute_transform_matrix(eye_transform) * vec4(0, 0, 0, 1)).xyz;
 	}
 
 	Ray ray;
@@ -147,7 +150,7 @@ void main() {
 		}
 
 
-		vec4 v_clip_coord = camera.projection * inverse(compute_transform_matrix(eye_transform)) * vec4(chunk_box.position + hit.destination, 1.0);
+		vec4 v_clip_coord = camera.projection * inverse(compute_transform_matrix(transform)) * vec4(chunk_box.position + hit.destination, 1.0);
 		float f_ndc_depth = v_clip_coord.z / v_clip_coord.w;
 		gl_FragDepth = (f_ndc_depth + 1.0) * 0.5;
 
