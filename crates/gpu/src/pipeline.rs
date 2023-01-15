@@ -75,6 +75,7 @@ pub struct ShaderCompilationOptions<'a> {
     input_path: &'a path::Path,
     output_path: &'a path::Path,
     ty: ShaderType,
+    defines: &'a [&'a str],
 }
 
 pub enum ShaderCompiler {
@@ -130,8 +131,14 @@ impl ShaderCompiler {
 
                 fs::remove_file(temporary_path.clone());
 
-                let modified_code =
-                    source_code.replacen("\n", &format!("\n#define {}\r\n", options.ty), 1);
+                
+                let mut modified_code = source_code.clone();
+
+                modified_code = modified_code.replacen("\n", &format!("\n#define {}\r\n", options.ty), 1);
+
+                for define in options.defines {
+                    modified_code = modified_code.replacen("\n", &format!("\n#define {}\r\n", define), 1);
+                }
 
                 fs::write(temporary_path.clone(), modified_code);
 
@@ -252,7 +259,7 @@ impl PipelineCompiler {
         let shader_data = info
             .shaders
             .iter()
-            .map(|Shader(ty, name, _)| {
+            .map(|Shader(ty, name, defines)| {
                 let extension = self.inner.compiler.extension().unwrap_or("");
 
                 let mut input_path = self.inner.source_path.clone();
@@ -274,6 +281,7 @@ impl PipelineCompiler {
                         input_path: &input_path,
                         output_path: &output_path,
                         ty: *ty,
+                        defines: *defines
                     })?;
 
                 let shader_module_create_info = {
@@ -523,7 +531,7 @@ impl PipelineCompiler {
         } = &**device;
 
         let module = {
-            let Shader(ty, name, _) = info.shader;
+            let Shader(ty, name, defines) = info.shader;
 
             let extension = self.inner.compiler.extension().unwrap_or("");
 
@@ -546,6 +554,7 @@ impl PipelineCompiler {
                     input_path: &input_path,
                     output_path: &output_path,
                     ty,
+                    defines,
                 })?;
 
             let shader_module_create_info = {

@@ -32,7 +32,7 @@ decl_buffer(
 	}
 )
 
-#ifdef vertex
+#if defined(volume) && defined(vertex)
 
 vec3 offsets[8] = vec3[](
         vec3(0, 0, 1),
@@ -83,6 +83,8 @@ void main() {
 
 #elif defined fragment
 
+#ifdef volume
+
 layout (depth_greater) out float gl_FragDepth;
 
 layout(location = 0) in vec4 internal_position;
@@ -90,17 +92,9 @@ layout(location = 1) in vec4 world_position;
 layout(location = 3) in vec4 clip_position;
 layout(location = 2) in flat u32 chunk;
 
-layout(location = 0) out vec4 result;
+#endif
 
-vec2 intersectAABB(vec3 rayOrigin, vec3 rayDir, vec3 boxMin, vec3 boxMax) {
-    vec3 tMin = (boxMin - rayOrigin) / rayDir;
-    vec3 tMax = (boxMax - rayOrigin) / rayDir;
-    vec3 t1 = min(tMin, tMax);
-    vec3 t2 = max(tMin, tMax);
-    float tNear = max(max(t1.x, t1.y), t1.z);
-    float tFar = min(min(t2.x, t2.y), t2.z);
-    return vec2(tNear, tFar);
-}
+layout(location = 0) out vec4 result;
 
 void main() {
 	Buffer(Camera) camera = get_buffer(Camera, push_constant.camera_id);
@@ -116,14 +110,21 @@ void main() {
 	vec2 screenPos = (gl_FragCoord.xy / camera.resolution.xy) * 2.0 - 1.0;
 	vec4 far = camera.inv_projection * vec4(screenPos, 1, 1);
 	far.xyz /= far.w;
-	vec4 near = camera.inv_projection * vec4(screenPos, -1, 1);
+#ifdef fx
+	vec4 near = camera.inv_projection * vec4(screenPos, 0.0, 1);
 	near /= near.w;
+	vec3 origin = (compute_transform_matrix(eye_transform) * near).xyz;
+#elif defined(volume)
 	vec3 origin = internal_position.xyz;
+#endif
 	vec3 dir = (compute_transform_matrix(eye_transform) * vec4(normalize(far.xyz), 0)).xyz;
 	
 	vec4 color = vec4(0, 0, 0, 1);
-
-
+#ifdef fx
+	u32 chunk = u32(origin.x) / CHUNK_SIZE + u32(origin.y) / CHUNK_SIZE * AXIS_MAX_CHUNKS + u32(origin.z) / CHUNK_SIZE * AXIS_MAX_CHUNKS * AXIS_MAX_CHUNKS;
+	
+	origin = mod(origin, CHUNK_SIZE);
+#endif
 
 	Ray ray;
 	ray.chunk_id = world.chunks[chunk].data;
@@ -131,9 +132,8 @@ void main() {
 	ray.direction = dir;
 
 	RayHit hit;
-	
+
 	bool success = ray_cast(ray, hit);
-		
 		
 	if (success) {
 		f32 noise_factor = f32(imageLoad(perlin_img, i32vec3(hit.back_step) % i32vec3(imageSize(perlin_img))).r) / f32(~0u);

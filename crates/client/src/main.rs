@@ -135,7 +135,7 @@ fn main() {
 
     let draw_pipeline = pipeline_compiler
         .create_graphics_pipeline(GraphicsPipelineInfo {
-            shaders: [Shader(Vertex, "rtx", &[]), Shader(Fragment, "rtx", &[])],
+            shaders: [Shader(Vertex, "rtx", &["volume"]), Shader(Fragment, "rtx", &["volume"])],
             color: [gpu::prelude::Color {
                 format: device.presentation_format(swapchain.get()).unwrap(),
                 blend: None,
@@ -151,7 +151,7 @@ fn main() {
     
     let draw2_pipeline = pipeline_compiler
         .create_graphics_pipeline(GraphicsPipelineInfo {
-            shaders: [Shader(Vertex, "rtx2", &[]), Shader(Fragment, "rtx2", &[])],
+            shaders: [Shader(Vertex, "fx", &[]), Shader(Fragment, "rtx", &["fx"])],
             color: [gpu::prelude::Color {
                 format: device.presentation_format(swapchain.get()).unwrap(),
                 blend: None,
