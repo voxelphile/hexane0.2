@@ -65,7 +65,7 @@ void main() {
 	EntityInput entity_input = info.entity_input;
 
 	if(!inp.first){
-		transform.position.xyz = vec3(64, 180, 64);
+		transform.position.xyz = vec3(64, 256 + 128, 64);
 		rigidbody.velocity.xyz = vec3(0);
 		inp.target_rotation.xyz = vec3(-3.14 / 2.0 + 0.1, 0, 0);
 		inp.first = true;
