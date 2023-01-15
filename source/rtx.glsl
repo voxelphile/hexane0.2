@@ -67,7 +67,8 @@ void main() {
 	Transform transform = transforms.data[0];
 	transform.position.xyz += vec3(0.4, 1.8, 0.4);
 
-	vec3 positional_offset = clamp(offsets[indices[j]], EPSILON * EPSILON, 1 - EPSILON * EPSILON) * CHUNK_SIZE;
+	vec3 positional_offset = clamp(offsets[indices[j]], pow(EPSILON, 3), 1 - pow(EPSILON, 3)) * CHUNK_SIZE;
+	
 
 	positional_offset = clamp(positional_offset, world.chunks[chunk].minimum, world.chunks[chunk].maximum); 
 
@@ -122,8 +123,6 @@ void main() {
 	
 	vec4 color = vec4(0, 0, 0, 1);
 
-	vec3 boxmin = transforms.data[chunk + 1].position.xyz + world.chunks[chunk].minimum;
-	vec3 boxmax = transforms.data[chunk + 1].position.xyz + world.chunks[chunk].maximum;
 
 
 	Ray ray;

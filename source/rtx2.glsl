@@ -50,8 +50,6 @@ void main() {
 
 #elif defined fragment
 
-layout (depth_greater) out float gl_FragDepth;
-
 layout(location = 0) out vec4 result;
 
 void main() {
@@ -69,8 +67,8 @@ void main() {
 
 	vec2 screenPos = (gl_FragCoord.xy / camera.resolution.xy) * 2.0 - 1.0;
 	vec4 far = camera.inv_projection * vec4(screenPos, 1, 1);
-	far.xyz /= far.w;
-	vec4 near = camera.inv_projection * vec4(screenPos, -0.99, 1);
+	far /= far.w;
+	vec4 near = camera.inv_projection * vec4(screenPos, 0.0, 1);
 	near /= near.w;
 	vec3 origin = (compute_transform_matrix(eye_transform) * near).xyz;
 	vec3 dir = (compute_transform_matrix(eye_transform) * vec4(normalize(far.xyz), 0)).xyz;
@@ -112,7 +110,7 @@ void main() {
 
 		vec4 v_clip_coord = camera.projection * inverse(compute_transform_matrix(transform)) * vec4(transforms.data[chunk + 1].position.xyz + hit.destination, 1.0);
 		float f_ndc_depth = v_clip_coord.z / v_clip_coord.w;
-		gl_FragDepth = (f_ndc_depth + 1.0) * 0.5;
+		//gl_FragDepth = (f_ndc_depth + 1.0) * 0.4;
 
 	} else {
 		discard;
