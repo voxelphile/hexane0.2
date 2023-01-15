@@ -1011,7 +1011,7 @@ fn main() {
                                 pipeline: &box_pipeline,
                             })?;
 
-                            const WORK_GROUP_SIZE: usize = 8;
+                            const WORK_GROUP_SIZE: usize = 1;
 
                             let size = (AXIS_MAX_CHUNKS) / WORK_GROUP_SIZE;
 
