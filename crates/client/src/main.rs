@@ -141,6 +141,22 @@ fn main() {
                 blend: None,
             }],
             depth: Some(default()),
+            raster: Raster {
+                face_cull: FaceCull::BACK,
+                ..default()
+            },
+            ..default()
+        })
+        .expect("failed to create pipeline");
+    
+    let draw2_pipeline = pipeline_compiler
+        .create_graphics_pipeline(GraphicsPipelineInfo {
+            shaders: [Shader(Vertex, "rtx2", &[]), Shader(Fragment, "rtx2", &[])],
+            color: [gpu::prelude::Color {
+                format: device.presentation_format(swapchain.get()).unwrap(),
+                blend: None,
+            }],
+            depth: Some(default()),
             ..default()
         })
         .expect("failed to create pipeline");
@@ -1068,7 +1084,6 @@ fn main() {
                     },
                 });
                 
-
                 executor.add(Task {
                     resources: [
                         Image(&prepass_image, ImageAccess::ColorAttachment),
@@ -1086,7 +1101,7 @@ fn main() {
 
                         commands.set_resolution(resolution)?;
 
-                        commands.set_pipeline(&draw_pipeline)?;
+                        commands.set_pipeline(&draw2_pipeline)?;
 
                         commands.start_rendering(Render {
                             color: [Attachment {
@@ -1115,6 +1130,63 @@ fn main() {
                                 world_buffer: (world_buffer)(),
                                 perlin_image: (perlin_image)(),
                             },
+                            pipeline: &draw2_pipeline,
+                        })?;
+
+                        commands.draw(gpu::prelude::Draw {
+                            vertex_count: 3,
+                        })?;
+
+                        commands.end_rendering()
+                    },
+                });
+
+                executor.add(Task {
+                    resources: [
+                        Image(&prepass_image, ImageAccess::ColorAttachment),
+                        Image(&depth_image, ImageAccess::DepthAttachment),
+                        Buffer(&camera_buffer, BufferAccess::FragmentShaderReadOnly),
+                        Buffer(&vertex_buffer, BufferAccess::VertexShaderReadOnly),
+                        Buffer(&transform_buffer, BufferAccess::VertexShaderReadOnly),
+                        Buffer(&world_buffer, BufferAccess::ShaderReadOnly),
+                        Image(&perlin_image, ImageAccess::FragmentShaderReadWrite),
+                    ],
+                    task: |commands| {
+                        let (width, height) = resolution.get();
+
+                        let resolution = (width / PREPASS_SCALE as u32, height / PREPASS_SCALE as u32);
+
+                        commands.set_resolution(resolution)?;
+
+                        commands.set_pipeline(&draw_pipeline)?;
+
+                        commands.start_rendering(Render {
+                            color: [Attachment {
+                                image: 0,
+                                load_op: LoadOp::Load,
+                                clear: Clear::Color(1.0, 0.0, 1.0, 1.0),
+                            }],
+                            depth: Some(Attachment {
+                                image: 1,
+                                load_op: LoadOp::Load,
+                                clear: Clear::Depth(1.0),
+                            }),
+                            render_area: RenderArea {
+                                width: width / PREPASS_SCALE as u32,
+                                height: height / PREPASS_SCALE as u32,
+                                ..default()
+                            },
+                        })?;
+
+                        commands.push_constant(PushConstant {
+                            data: DrawPush {
+                                info_buffer: (info_buffer)(),
+                                camera_buffer: (camera_buffer)(),
+                                vertex_buffer: (vertex_buffer)(),
+                                transform_buffer: (transform_buffer)(),
+                                world_buffer: (world_buffer)(),
+                                perlin_image: (perlin_image)(),
+                            },
                             pipeline: &draw_pipeline,
                         })?;
 
@@ -1125,6 +1197,7 @@ fn main() {
                         commands.end_rendering()
                     },
                 });
+                
                 
                 executor.add(Task {
                     resources: [
