@@ -36,7 +36,7 @@ const SMALL_SIZE: usize = 512;
 const REALLY_LARGE_SIZE: usize = 200_000_000;
 
 const CHUNK_SIZE: usize = 64;
-const AXIS_MAX_CHUNKS: usize = 8;
+const AXIS_MAX_CHUNKS: usize = 4;
 
 pub type Vertex = (f32, f32, f32);
 pub type Color = [f32; 4];
@@ -282,7 +282,7 @@ fn main() {
 
     let chunk_len = AXIS_MAX_CHUNKS.pow(3);
 
-    for _ in 0..chunk_len {
+    for _ in 0..2 * chunk_len {
         for _ in 0..6 {
             chunk_images.extend(unsafe { mem::transmute::<f32, [u8; 4]>(0.0) });
         }

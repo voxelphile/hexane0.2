@@ -4,7 +4,7 @@
 #include "rigidbody.glsl"
 #include "info.glsl"
 #include "transform.glsl"
-#include "world.glsl"
+#include "region.glsl"
 #include "voxel.glsl"
 #include "aabb.glsl"
 
@@ -13,7 +13,7 @@ struct PhysicsPush {
 	BufferId info_id;
 	BufferId transform_id;
 	BufferId rigidbody_id;
-	BufferId world_id;
+	BufferId region_id;
 };
 
 decl_push_constant(PhysicsPush)
@@ -142,7 +142,7 @@ void main() {
 
 	Buffer(Transforms) transforms = get_buffer(Transforms, push_constant.transform_id);
 	Buffer(Rigidbodies) rigidbodies = get_buffer(Rigidbodies, push_constant.rigidbody_id);
-	Buffer(World) world = get_buffer(World, push_constant.world_id);
+	Buffer(Region) region = get_buffer(Region, push_constant.region_id);
 
 	Transform transform = transforms.data[0];
 	Rigidbody rigidbody = rigidbodies.data[0];
@@ -194,7 +194,7 @@ void main() {
 		u32 chunk = u32(block.position.x) / CHUNK_SIZE + u32(block.position.y) / CHUNK_SIZE * AXIS_MAX_CHUNKS + u32(block.position.z) / CHUNK_SIZE * AXIS_MAX_CHUNKS * AXIS_MAX_CHUNKS;
 
 		VoxelQuery query;
-		query.chunk_id = world.chunks[chunk].data;
+		query.chunk_id = region.chunks[chunk].data;
 		query.position = mod(block.position, CHUNK_SIZE);
 		
 		if(!voxel_query(query)) {
