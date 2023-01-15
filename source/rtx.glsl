@@ -66,6 +66,7 @@ void main() {
 	Transform ctransform = transforms.data[chunk + 1];
 	Transform transform = transforms.data[0];
 	transform.position.xyz = vec3(AXIS_MAX_CHUNKS * CHUNK_SIZE / 2);
+	transform.position.xyz += fract(transforms.data[0].position.xyz - 0.5);
 
 	vec3 positional_offset = clamp(offsets[indices[j]], pow(EPSILON, 3), 1 - pow(EPSILON, 3)) * CHUNK_SIZE;
 	
@@ -101,11 +102,11 @@ void main() {
 	Buffer(Transforms) transforms = get_buffer(Transforms, push_constant.transform_id);
 	Buffer(Region) region = get_buffer(Region, push_constant.region_id);
 	Image(3D, u32) perlin_img = get_image(3D, u32, push_constant.perlin_id);
-	Image(2D, u32) prepass_img = get_image(2D, u32, push_constant.prepass_id);
 
 	Transform transform = transforms.data[0];
 	Transform eye_transform = transform;
 	eye_transform.position.xyz = vec3(AXIS_MAX_CHUNKS * CHUNK_SIZE / 2);
+	eye_transform.position.xyz += fract(transforms.data[0].position.xyz - 0.5);
 	
 	vec2 screenPos = (gl_FragCoord.xy / camera.resolution.xy) * 2.0 - 1.0;
 	vec4 far = camera.inv_projection * vec4(screenPos, 1, 1);
@@ -136,7 +137,7 @@ void main() {
 	bool success = ray_cast(ray, hit);
 		
 	if (success) {
-		f32 noise_factor = f32(imageLoad(perlin_img, i32vec3(hit.back_step) % i32vec3(imageSize(perlin_img))).r) / f32(~0u);
+		f32 noise_factor = f32(imageLoad(perlin_img, (region.observer_position + ivec3(transforms.data[chunk + 1].position.xyz) + i32vec3(hit.back_step)) % i32vec3(imageSize(perlin_img))).r) / f32(~0u);
 		if(hit.id == 0) {
 			color.xyz = vec3(1, 0, 1);
 		}

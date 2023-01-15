@@ -38,7 +38,8 @@ bool ray_cast(inout Ray ray, out RayHit hit) {
 
 		bool voxel_found = voxel_query(query);
 
-		if (voxel_found) {
+		//1 is air
+		if (voxel_found && query.id != 1) {
 			float dist = length(vec3(mask) * (side_dist - delta_dist));
 			vec3 destination = ray.origin + ray.direction * dist;
 			vec3 back_step = map_pos - ray_step * vec3(mask);

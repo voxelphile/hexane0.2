@@ -13,8 +13,9 @@ decl_buffer(
 	{
 		Chunk chunks[MAX_CHUNKS];
 		Chunk reserve[MAX_CHUNKS];
-		vec3 fractional_position;
 		ivec3 observer_position;
+		bool dirty;
+		bool first;
 	}
 )
 

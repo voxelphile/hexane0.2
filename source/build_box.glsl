@@ -22,6 +22,10 @@ void main() {
 	Buffer(Region) region = get_buffer(Region, push_constant.region_id);
 	Buffer(Transforms) transforms = get_buffer(Transforms, push_constant.transform_id);
 
+	if(!region.dirty) {
+		return;
+	}
+
 	u32 chunk = gl_GlobalInvocationID.x + gl_GlobalInvocationID.y * AXIS_MAX_CHUNKS + gl_GlobalInvocationID.z * AXIS_MAX_CHUNKS * AXIS_MAX_CHUNKS;
 	
 	vec3 minimum = vec3(CHUNK_SIZE);
@@ -31,7 +35,7 @@ void main() {
 		for(u32 y = 0; y < CHUNK_SIZE; y++) {
 			for(u32 z = 0; z < CHUNK_SIZE; z++) {
 				VoxelQuery query;
-				query.chunk_id = region.chunks[chunk].data;
+				query.chunk_id = region.reserve[chunk].data;
 				query.position = vec3(x, y, z);
 
 				if(voxel_query(query)) {
@@ -42,8 +46,8 @@ void main() {
 		}
 	}
 
-	region.chunks[chunk].minimum = minimum;
-	region.chunks[chunk].maximum = maximum;
+	region.reserve[chunk].minimum = minimum;
+	region.reserve[chunk].maximum = maximum;
 }
 
 #endif

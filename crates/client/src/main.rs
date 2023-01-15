@@ -196,6 +196,20 @@ fn main() {
             ..default()
         })
         .expect("failed to create pipeline");
+    
+    let move_world_pipeline = pipeline_compiler
+        .create_compute_pipeline(ComputePipelineInfo {
+            shader: Shader(Compute, "move_world", &[]),
+            ..default()
+        })
+        .expect("failed to create pipeline");
+    
+    let after_world_pipeline = pipeline_compiler
+        .create_compute_pipeline(ComputePipelineInfo {
+            shader: Shader(Compute, "after_world", &[]),
+            ..default()
+        })
+        .expect("failed to create pipeline");
 
     /*let vertex_pipeline = pipeline_compiler
             .create_compute_pipeline(ComputePipelineInfo {
@@ -959,6 +973,35 @@ fn main() {
 
                             commands.dispatch(dispatch_size, dispatch_size, dispatch_size)?;
                         }
+                        update.set(false);
+                        Ok(())
+                    },
+                });
+
+                
+                executor.add(Task {
+                    resources: [
+                        Buffer(&world_buffer, BufferAccess::ComputeShaderReadWrite),
+                        Buffer(&transform_buffer, BufferAccess::ComputeShaderReadWrite),
+                        Image(&perlin_image, ImageAccess::ComputeShaderReadWrite),
+                    ],
+                    task: |commands| {
+                            commands.set_pipeline(&move_world_pipeline)?;
+
+                            commands.push_constant(PushConstant {
+                                data: BuildWorldPush {
+                                    perlin_image: (perlin_image)(),
+                                    transform_buffer: (transform_buffer)(),
+                                    world_buffer: (world_buffer)(),
+                                },
+                                pipeline: &move_world_pipeline,
+                            })?;
+
+                            const WORK_GROUP_SIZE: usize = 8;
+
+                            let size = (AXIS_MAX_CHUNKS * CHUNK_SIZE) / WORK_GROUP_SIZE;
+
+                            commands.dispatch(size, size, size)?;
                         Ok(())
                     },
                 });
@@ -970,7 +1013,6 @@ fn main() {
                         Image(&perlin_image, ImageAccess::ComputeShaderReadWrite),
                     ],
                     task: |commands| {
-                        if update.get() {
                             commands.set_pipeline(&world_pipeline)?;
 
                             commands.push_constant(PushConstant {
@@ -987,7 +1029,6 @@ fn main() {
                             let size = (AXIS_MAX_CHUNKS * CHUNK_SIZE) / WORK_GROUP_SIZE;
 
                             commands.dispatch(size, size, size)?;
-                        }
                         Ok(())
                     },
                 });
@@ -999,7 +1040,6 @@ fn main() {
                         Image(&perlin_image, ImageAccess::ComputeShaderReadWrite),
                     ],
                     task: |commands| {
-                        if update.get() {
                             commands.set_pipeline(&box_pipeline)?;
 
                             commands.push_constant(PushConstant {
@@ -1016,8 +1056,33 @@ fn main() {
                             let size = (AXIS_MAX_CHUNKS) / WORK_GROUP_SIZE;
 
                             commands.dispatch(size, size, size)?;
-                        }
-                        update.set(false);
+                        Ok(())
+                    },
+                });
+                
+                executor.add(Task {
+                    resources: [
+                        Buffer(&world_buffer, BufferAccess::ComputeShaderReadWrite),
+                        Buffer(&transform_buffer, BufferAccess::ComputeShaderReadWrite),
+                        Image(&perlin_image, ImageAccess::ComputeShaderReadWrite),
+                    ],
+                    task: |commands| {
+                            commands.set_pipeline(&after_world_pipeline)?;
+
+                            commands.push_constant(PushConstant {
+                                data: BuildWorldPush {
+                                    perlin_image: (perlin_image)(),
+                                    transform_buffer: (transform_buffer)(),
+                                    world_buffer: (world_buffer)(),
+                                },
+                                pipeline: &after_world_pipeline,
+                            })?;
+
+                            const WORK_GROUP_SIZE: usize = 8;
+
+                            let size = (AXIS_MAX_CHUNKS * CHUNK_SIZE) / WORK_GROUP_SIZE;
+
+                            commands.dispatch(size, size, size)?;
                         Ok(())
                     },
                 });

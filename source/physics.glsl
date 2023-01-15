@@ -136,9 +136,7 @@ void swap(inout i32 a, inout i32 b) {
 }
 
 void main() {
-	if(gl_GlobalInvocationID.x != 0) {
 		return;
-	}
 
 	Buffer(Transforms) transforms = get_buffer(Transforms, push_constant.transform_id);
 	Buffer(Rigidbodies) rigidbodies = get_buffer(Rigidbodies, push_constant.rigidbody_id);

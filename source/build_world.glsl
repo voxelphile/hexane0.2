@@ -21,18 +21,26 @@ void main() {
 	Image(3D, u32) perlin_image = get_image(3D, u32, push_constant.perlin_id);
 	Buffer(Region) region = get_buffer(Region, push_constant.region_id);
 	Buffer(Transforms) transforms = get_buffer(Transforms, push_constant.transform_id);
-
+	
+	region.observer_position = ivec3(transforms.data[0].position.xyz);
+	
 	ivec3 local_position = ivec3(gl_GlobalInvocationID);
-	ivec3 world_position = local_position;
+	ivec3 world_position = region.observer_position + local_position;
 
-	u32 chunk = local_position.x / CHUNK_SIZE + world_position.y / CHUNK_SIZE * AXIS_MAX_CHUNKS + world_position.z / CHUNK_SIZE * AXIS_MAX_CHUNKS * AXIS_MAX_CHUNKS;
+
+	u32 chunk = local_position.x / CHUNK_SIZE + local_position.y / CHUNK_SIZE * AXIS_MAX_CHUNKS + local_position.z / CHUNK_SIZE * AXIS_MAX_CHUNKS * AXIS_MAX_CHUNKS;
 	
 	if (all(equal(mod(f32vec3(local_position) / f32(CHUNK_SIZE), 1), vec3(0)))) {
 		transforms.data[1 + chunk].position.xyz = vec3(local_position);
 	}
 
+	VoxelQuery query;
+	query.chunk_id = region.reserve[chunk].data;
+	query.position = mod(f32vec3(local_position), CHUNK_SIZE);
+
+
 	VoxelChange change;
-	change.chunk_id = region.chunks[chunk].data;
+	change.chunk_id = region.reserve[chunk].data;
 	change.id = u16(0);
 	change.position = mod(f32vec3(local_position), CHUNK_SIZE);
 	
@@ -46,6 +54,8 @@ void main() {
 		change.id = u16(2);
 	} else if(world_position.y < height) {
 		change.id = u16(4);
+	} else {
+		change.id = u16(1);
 	}
 
 	voxel_change(change);
