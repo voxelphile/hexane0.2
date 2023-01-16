@@ -22,18 +22,19 @@ void main() {
 	Buffer(Region) region = get_buffer(Region, push_constant.region_id);
 	Buffer(Transforms) transforms = get_buffer(Transforms, push_constant.transform_id);
 
-	if(region.observer_position != ivec3(transforms.data[0].position.xyz)) {
+	if(!region.first || region.observer_position != ivec3(transforms.data[0].position.xyz)) {
 		region.dirty = true;
 	} else{
 		return;
 	}
+	region.first = true;
 
 	ivec3 diff = region.observer_position - ivec3(transforms.data[0].position.xyz);
 
 	ivec3 from_position = ivec3(gl_GlobalInvocationID.xyz);
 	ivec3 to_position = from_position + diff;
 
-	if(any(lessThan(to_position, ivec3(0))) || any(greaterThan(to_position, ivec3(AXIS_MAX_CHUNKS * CHUNK_SIZE)))) {
+	if(any(lessThan(to_position, ivec3(0))) || any(greaterThanEqual(to_position, ivec3(AXIS_MAX_CHUNKS * CHUNK_SIZE)))) {
 		return;	
 	}
 

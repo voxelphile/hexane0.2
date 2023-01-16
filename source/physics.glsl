@@ -136,13 +136,18 @@ void swap(inout i32 a, inout i32 b) {
 }
 
 void main() {
+	if(gl_GlobalInvocationID != uvec3(0)) 
 		return;
 
 	Buffer(Transforms) transforms = get_buffer(Transforms, push_constant.transform_id);
 	Buffer(Rigidbodies) rigidbodies = get_buffer(Rigidbodies, push_constant.rigidbody_id);
 	Buffer(Region) region = get_buffer(Region, push_constant.region_id);
 
-	Transform transform = transforms.data[0];
+	Transform transform = transforms.data[0]; 
+	Transform eye_transform = transform;
+	eye_transform.position.xyz = vec3(AXIS_MAX_CHUNKS * CHUNK_SIZE / 2);
+	eye_transform.position.xyz += transforms.data[0].position.xyz - region.observer_position;
+	eye_transform.position.xyz -= vec3(0.4, 1.8, 0.4);
 	Rigidbody rigidbody = rigidbodies.data[0];
 
 	rigidbody.on_ground = false;
@@ -173,7 +178,7 @@ void main() {
 		
 	Box player;
 	player.dimensions = vec3(0.8, 2, 0.8);
-	player.position = transform.position.xyz;
+	player.position = eye_transform.position.xyz;
 
 	for(i32 i = 0; i < 3; i++) {
 	for(i32 x = -h_mag; x < h_mag; x++) {
@@ -181,28 +186,34 @@ void main() {
 	for(i32 z = -h_mag; z < h_mag; z++) {
 		
 		Box block;
-		block.position = floor(transform.position.xyz) + vec3(x, y, z);
+		block.position = floor(player.position) + vec3(x, y, z);
 		block.dimensions = vec3(1);
 		vec3 velocity = data[i].velocity + data[i].acceleration * fixed_time;
 
 		Box broadphase = get_swept_broadphase_box(player, velocity);	
 
 		if(aabb_check(broadphase, block)) {
+
 		
 		u32 chunk = u32(block.position.x) / CHUNK_SIZE + u32(block.position.y) / CHUNK_SIZE * AXIS_MAX_CHUNKS + u32(block.position.z) / CHUNK_SIZE * AXIS_MAX_CHUNKS * AXIS_MAX_CHUNKS;
 
 		VoxelQuery query;
 		query.chunk_id = region.chunks[chunk].data;
 		query.position = mod(block.position, CHUNK_SIZE);
+
+		bool voxel_found = voxel_query(query);
 		
-		if(!voxel_query(query)) {
+		//1 is air
+		if (!voxel_found || query.id == 1) {
 			continue;
 		}
 
 		CollisionResponse response;
 		if(swept_aabb(player, block, velocity, response)) {
 			query.position += response.normal;
-			if(voxel_query(query)) {
+			bool voxel_found = voxel_query(query);
+
+			if(voxel_found && query.id != 1) {
 				continue;
 			}
 			if(response.entry_time > fixed_time) {

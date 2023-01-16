@@ -66,11 +66,10 @@ void main() {
 	Transform ctransform = transforms.data[chunk + 1];
 	Transform transform = transforms.data[0];
 	transform.position.xyz = vec3(AXIS_MAX_CHUNKS * CHUNK_SIZE / 2);
-	transform.position.xyz += fract(transforms.data[0].position.xyz - 0.5);
+	transform.position.xyz += transforms.data[0].position.xyz - region.observer_position;
 
 	vec3 positional_offset = clamp(offsets[indices[j]], pow(EPSILON, 3), 1 - pow(EPSILON, 3)) * CHUNK_SIZE;
 	
-
 	positional_offset = clamp(positional_offset, region.chunks[chunk].minimum, region.chunks[chunk].maximum); 
 
 	internal_position = vec4(positional_offset, 1.0);
@@ -106,7 +105,7 @@ void main() {
 	Transform transform = transforms.data[0];
 	Transform eye_transform = transform;
 	eye_transform.position.xyz = vec3(AXIS_MAX_CHUNKS * CHUNK_SIZE / 2);
-	eye_transform.position.xyz += fract(transforms.data[0].position.xyz - 0.5);
+	eye_transform.position.xyz += transforms.data[0].position.xyz - region.observer_position;
 	
 	vec2 screenPos = (gl_FragCoord.xy / camera.resolution.xy) * 2.0 - 1.0;
 	vec4 far = camera.inv_projection * vec4(screenPos, 1, 1);
@@ -131,6 +130,8 @@ void main() {
 	ray.chunk_id = region.chunks[chunk].data;
 	ray.origin = origin;
 	ray.direction = dir;
+	ray.minimum = region.chunks[chunk].minimum;
+	ray.maximum = region.chunks[chunk].maximum;
 
 	RayHit hit;
 
@@ -147,10 +148,10 @@ void main() {
 		if(hit.id == 4) {
 			color.xyz = mix(vec3(107, 84, 40) / 256, vec3(64, 41, 5) / 256, noise_factor);
 		}
-		if(hit.mask.x) {
+		if(abs(hit.normal.x) == 1) {
 			color.xyz *= 0.5;
 		}
-		if(hit.mask.z) {
+		if(abs(hit.normal.z) == 1) {
 			color.xyz *= 0.75;
 		}
 

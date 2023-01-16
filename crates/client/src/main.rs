@@ -1078,9 +1078,9 @@ fn main() {
                                 pipeline: &after_world_pipeline,
                             })?;
 
-                            const WORK_GROUP_SIZE: usize = 8;
+                            const WORK_GROUP_SIZE: usize = 1;
 
-                            let size = (AXIS_MAX_CHUNKS * CHUNK_SIZE) / WORK_GROUP_SIZE;
+                            let size = (AXIS_MAX_CHUNKS) / WORK_GROUP_SIZE;
 
                             commands.dispatch(size, size, size)?;
                         Ok(())

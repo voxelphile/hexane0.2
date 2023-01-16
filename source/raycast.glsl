@@ -4,6 +4,8 @@ struct Ray {
 	ImageId chunk_id;
 	vec3 origin;
 	vec3 direction;
+	vec3 minimum;
+	vec3 maximum;
 };
 
 struct RayHit {
@@ -11,13 +13,11 @@ struct RayHit {
 	vec3 normal;
 	vec3 back_step;
 	vec3 destination;
-	bvec3 mask;
 	u32 id;
 };
 
 bool ray_cast(inout Ray ray, out RayHit hit) {
 	ray.direction = normalize(ray.direction);
-
 
 	vec3 map_pos = ivec3(floor(ray.origin + 0.));
 	vec3 delta_dist = abs(vec3(length(ray.direction)) / ray.direction);
@@ -26,7 +26,7 @@ bool ray_cast(inout Ray ray, out RayHit hit) {
 	bvec3 mask;
 
 	for(int i = 0; i < MAX_STEP_COUNT; i++) {
-		bool in_chunk = all(greaterThanEqual(map_pos, vec3(-EPSILON))) && all(lessThan(map_pos, vec3(CHUNK_SIZE + EPSILON)));
+		bool in_chunk = all(greaterThanEqual(map_pos, vec3(ray.minimum -EPSILON))) && all(lessThan(map_pos, vec3(ray.maximum + EPSILON)));
 
 		if(!in_chunk) {
 			return false;
@@ -43,10 +43,10 @@ bool ray_cast(inout Ray ray, out RayHit hit) {
 			float dist = length(vec3(mask) * (side_dist - delta_dist));
 			vec3 destination = ray.origin + ray.direction * dist;
 			vec3 back_step = map_pos - ray_step * vec3(mask);
-
+			vec3 normal = vec3(mask) * sign(-ray.direction);
 			hit.destination = destination;
 			hit.back_step = back_step;
-			hit.mask = mask;
+			hit.normal = normal;
 			hit.id = query.id;
 			return true;
 		}

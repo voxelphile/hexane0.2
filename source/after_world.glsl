@@ -15,7 +15,7 @@ decl_push_constant(BuildRegionPush)
 
 #ifdef compute
 
-layout (local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+layout (local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
 
 void main() {
 	Image(3D, u32) perlin_image = get_image(3D, u32, push_constant.perlin_id);
@@ -27,27 +27,10 @@ void main() {
 	}
 	region.dirty = false;
 
-	u32 chunk = gl_GlobalInvocationID.x / CHUNK_SIZE + gl_GlobalInvocationID.y / CHUNK_SIZE * AXIS_MAX_CHUNKS + gl_GlobalInvocationID.z / CHUNK_SIZE * AXIS_MAX_CHUNKS * AXIS_MAX_CHUNKS;
-
-	VoxelQuery query;
-	query.chunk_id = region.reserve[chunk].data;
-	query.position = mod(vec3(gl_GlobalInvocationID), CHUNK_SIZE);
-	
-	voxel_query(query);
-
-	VoxelChange change;
-	change.chunk_id = region.chunks[chunk].data;
-	change.position = mod(vec3(gl_GlobalInvocationID), CHUNK_SIZE);
-	change.id = query.id;
-
-	voxel_change(change);
-	
-	VoxelChange change2;
-	change2.chunk_id = region.reserve[chunk].data;
-	change2.position = mod(vec3(gl_GlobalInvocationID), CHUNK_SIZE);
-	change2.id = u16(0);
-
-	voxel_change(change2);
+	u32 chunk = gl_GlobalInvocationID.x  + gl_GlobalInvocationID.y * AXIS_MAX_CHUNKS + gl_GlobalInvocationID.z * AXIS_MAX_CHUNKS * AXIS_MAX_CHUNKS;
+	ImageId temp = region.reserve[chunk].data;
+	region.reserve[chunk].data = region.chunks[chunk].data;
+	region.chunks[chunk].data = temp;
 	
 	region.chunks[chunk].minimum = region.reserve[chunk].minimum;
 	region.chunks[chunk].maximum = region.reserve[chunk].maximum;
