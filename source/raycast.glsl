@@ -1,11 +1,9 @@
 #define MAX_STEP_COUNT 512
 
 struct Ray {
-	ImageId chunk_id;
+	Buffer(Region) region;
 	vec3 origin;
 	vec3 direction;
-	vec3 minimum;
-	vec3 maximum;
 };
 
 struct RayHit {
@@ -18,23 +16,30 @@ struct RayHit {
 
 bool ray_cast(inout Ray ray, out RayHit hit) {
 	ray.direction = normalize(ray.direction);
+	
+	u32 chunk = u32(ray.origin.x) / CHUNK_SIZE + u32(ray.origin.y) / CHUNK_SIZE * AXIS_MAX_CHUNKS + u32(ray.origin.z) / CHUNK_SIZE * AXIS_MAX_CHUNKS * AXIS_MAX_CHUNKS;
 
-	vec3 map_pos = ivec3(floor(ray.origin + 0.));
+	vec3 map_pos = vec3(floor(ray.origin + 0.));
 	vec3 delta_dist = abs(vec3(length(ray.direction)) / ray.direction);
 	ivec3 ray_step = ivec3(sign(ray.direction));
 	vec3 side_dist = (sign(ray.direction) * (vec3(map_pos) - ray.origin) + (sign(ray.direction) * 0.5) + 0.5) * delta_dist;
 	bvec3 mask;
 
+	uvec3 chunk_pos = uvec3(floor(ray.origin / CHUNK_SIZE)) * CHUNK_SIZE;
+
+	uvec3 minimum = chunk_pos + ray.region.chunks[chunk].minimum;
+	uvec3 maximum = chunk_pos + ray.region.chunks[chunk].maximum;
+
 	for(int i = 0; i < MAX_STEP_COUNT; i++) {
-		bool in_chunk = all(greaterThanEqual(map_pos, vec3(ray.minimum -EPSILON))) && all(lessThan(map_pos, vec3(ray.maximum + EPSILON)));
+		bool in_chunk = all(greaterThanEqual(map_pos, vec3(minimum -EPSILON))) && all(lessThan(map_pos, vec3(maximum + EPSILON)));
 
 		if(!in_chunk) {
 			return false;
 		}
 
 		VoxelQuery query;
-		query.chunk_id = ray.chunk_id;
-		query.position = map_pos;
+		query.region_data = ray.region.data;
+		query.position = uvec3(map_pos);
 
 		bool voxel_found = voxel_query(query);
 

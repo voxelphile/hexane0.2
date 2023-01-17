@@ -105,40 +105,35 @@ void main() {
 	Transform transform = transforms.data[0];
 	Transform eye_transform = transform;
 	eye_transform.position.xyz = vec3(AXIS_MAX_CHUNKS * CHUNK_SIZE / 2);
-	eye_transform.position.xyz += transforms.data[0].position.xyz - region.observer_position;
+	eye_transform.position.xyz += vec3(transforms.data[0].position.xyz) - vec3(region.observer_position);
 	
 	vec2 screenPos = (gl_FragCoord.xy / camera.resolution.xy) * 2.0 - 1.0;
 	vec4 far = camera.inv_projection * vec4(screenPos, 1, 1);
-	far.xyz /= far.w;
+	far /= far.w;
 #ifdef fx
-	vec4 near = camera.inv_projection * vec4(screenPos, 0.0, 1);
+	vec4 near = camera.inv_projection * vec4(screenPos, 0, 1);
 	near /= near.w;
 	vec3 origin = (compute_transform_matrix(eye_transform) * near).xyz;
+	
+	u32 chunk = u32(origin.x) / CHUNK_SIZE + u32(origin.y) / CHUNK_SIZE * AXIS_MAX_CHUNKS + u32(origin.z) / CHUNK_SIZE * AXIS_MAX_CHUNKS * AXIS_MAX_CHUNKS;
 #elif defined(volume)
-	vec3 origin = internal_position.xyz;
+	vec3 origin = region_position.xyz;
 #endif
 	vec3 dir = (compute_transform_matrix(eye_transform) * vec4(normalize(far.xyz), 0)).xyz;
 	
 	vec4 color = vec4(0, 0, 0, 1);
-#ifdef fx
-	u32 chunk = u32(origin.x) / CHUNK_SIZE + u32(origin.y) / CHUNK_SIZE * AXIS_MAX_CHUNKS + u32(origin.z) / CHUNK_SIZE * AXIS_MAX_CHUNKS * AXIS_MAX_CHUNKS;
-	
-	origin = mod(origin, CHUNK_SIZE);
-#endif
 
 	Ray ray;
-	ray.chunk_id = region.chunks[chunk].data;
+	ray.region = region;
 	ray.origin = origin;
 	ray.direction = dir;
-	ray.minimum = region.chunks[chunk].minimum;
-	ray.maximum = region.chunks[chunk].maximum;
 
 	RayHit hit;
 
 	bool success = ray_cast(ray, hit);
 		
 	if (success) {
-		f32 noise_factor = f32(imageLoad(perlin_img, (region.observer_position + ivec3(transforms.data[chunk + 1].position.xyz) + i32vec3(hit.back_step)) % i32vec3(imageSize(perlin_img))).r) / f32(~0u);
+		f32 noise_factor = f32(imageLoad(perlin_img, abs((region.observer_position + ivec3(transforms.data[chunk + 1].position.xyz) + i32vec3(hit.back_step))) % i32vec3(imageSize(perlin_img))).r) / f32(~0u);
 		if(hit.id == 0) {
 			color.xyz = vec3(1, 0, 1);
 		}
@@ -156,7 +151,7 @@ void main() {
 		}
 
 
-		vec4 v_clip_coord = camera.projection * inverse(compute_transform_matrix(eye_transform)) * vec4(transforms.data[chunk + 1].position.xyz + hit.destination, 1.0);
+		vec4 v_clip_coord = camera.projection * inverse(compute_transform_matrix(eye_transform)) * vec4(hit.destination, 1.0);
 		float f_ndc_depth = v_clip_coord.z / v_clip_coord.w;
 		gl_FragDepth = (f_ndc_depth + 1.0) * 0.5;
 

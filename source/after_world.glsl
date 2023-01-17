@@ -27,13 +27,9 @@ void main() {
 	}
 	region.dirty = false;
 
-	u32 chunk = gl_GlobalInvocationID.x  + gl_GlobalInvocationID.y * AXIS_MAX_CHUNKS + gl_GlobalInvocationID.z * AXIS_MAX_CHUNKS * AXIS_MAX_CHUNKS;
-	ImageId temp = region.reserve[chunk].data;
-	region.reserve[chunk].data = region.chunks[chunk].data;
-	region.chunks[chunk].data = temp;
-	
-	region.chunks[chunk].minimum = region.reserve[chunk].minimum;
-	region.chunks[chunk].maximum = region.reserve[chunk].maximum;
+	ImageId temp = region.reserve;
+	region.reserve = region.data;
+	region.data = temp;
 }
 
 #endif

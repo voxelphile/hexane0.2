@@ -3,16 +3,16 @@
 #define MAX_CHUNKS 64
 
 struct Chunk {
-	vec3 minimum;
-	vec3 maximum;
-	ImageId data;
+	uvec3 minimum;
+	uvec3 maximum;
 };
 
 decl_buffer(
 	Region,
 	{
+		ImageId data;
+		ImageId reserve;
 		Chunk chunks[MAX_CHUNKS];
-		Chunk reserve[MAX_CHUNKS];
 		ivec3 observer_position;
 		bool dirty;
 		bool first;

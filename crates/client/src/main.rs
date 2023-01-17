@@ -296,23 +296,17 @@ fn main() {
 
     let chunk_len = AXIS_MAX_CHUNKS.pow(3);
 
-    for _ in 0..2 * chunk_len {
-        for _ in 0..6 {
-            chunk_images.extend(unsafe { mem::transmute::<f32, [u8; 4]>(0.0) });
-        }
-
-        chunk_images.extend(unsafe {
-            mem::transmute::<Image, [u8; 4]>(
+    for _ in 0..2 {
+        chunk_images.push(
                 device
                     .create_image(ImageInfo {
-                        extent: ImageExtent::ThreeDim(CHUNK_SIZE, CHUNK_SIZE, CHUNK_SIZE),
+                        extent: ImageExtent::ThreeDim(CHUNK_SIZE * AXIS_MAX_CHUNKS, CHUNK_SIZE * AXIS_MAX_CHUNKS, CHUNK_SIZE * AXIS_MAX_CHUNKS),
                         usage: ImageUsage::TRANSFER_DST,
                         format: Format::R16Uint,
                         ..default()
                     })
                     .expect("failed to create depth image"),
-            )
-        });
+        );
     }
 
     let general_staging_buffer = device
@@ -1078,11 +1072,7 @@ fn main() {
                                 pipeline: &after_world_pipeline,
                             })?;
 
-                            const WORK_GROUP_SIZE: usize = 1;
-
-                            let size = (AXIS_MAX_CHUNKS) / WORK_GROUP_SIZE;
-
-                            commands.dispatch(size, size, size)?;
+                            commands.dispatch(1, 1, 1)?;
                         Ok(())
                     },
                 });

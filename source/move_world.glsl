@@ -38,27 +38,24 @@ void main() {
 		return;	
 	}
 
-	u32 from_chunk = from_position.x / CHUNK_SIZE + from_position.y / CHUNK_SIZE * AXIS_MAX_CHUNKS + from_position.z / CHUNK_SIZE * AXIS_MAX_CHUNKS * AXIS_MAX_CHUNKS;
-	u32 to_chunk = to_position.x / CHUNK_SIZE + to_position.y / CHUNK_SIZE * AXIS_MAX_CHUNKS + to_position.z / CHUNK_SIZE * AXIS_MAX_CHUNKS * AXIS_MAX_CHUNKS;
-
 	VoxelQuery query;
-	query.chunk_id = region.chunks[from_chunk].data;
-	query.position = mod(vec3(from_position), CHUNK_SIZE);
+	query.region_data = region.data;
+	query.position = uvec3(from_position);
 	
 	if(!voxel_query(query)) {
 		return;
 	}
 
 	VoxelChange change;
-	change.chunk_id = region.reserve[to_chunk].data;
-	change.position = mod(vec3(to_position), CHUNK_SIZE);
+	change.region_data = region.reserve;
+	change.position = uvec3(to_position);
 	change.id = query.id;
 
 	voxel_change(change);
 	
 	VoxelChange change2;
-	change2.chunk_id = region.chunks[from_chunk].data;
-	change2.position = mod(vec3(from_position), CHUNK_SIZE);
+	change2.region_data = region.data;
+	change2.position = uvec3(from_position);
 	change2.id = u16(0);
 
 	voxel_change(change2);

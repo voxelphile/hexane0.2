@@ -135,8 +135,10 @@ void swap(inout i32 a, inout i32 b) {
 	b = temp;
 }
 
+#define ENABLE_PHYSICS false
+
 void main() {
-	if(gl_GlobalInvocationID != uvec3(0)) 
+	if(gl_GlobalInvocationID != uvec3(0) || !ENABLE_PHYSICS) 
 		return;
 
 	Buffer(Transforms) transforms = get_buffer(Transforms, push_constant.transform_id);
@@ -194,12 +196,9 @@ void main() {
 
 		if(aabb_check(broadphase, block)) {
 
-		
-		u32 chunk = u32(block.position.x) / CHUNK_SIZE + u32(block.position.y) / CHUNK_SIZE * AXIS_MAX_CHUNKS + u32(block.position.z) / CHUNK_SIZE * AXIS_MAX_CHUNKS * AXIS_MAX_CHUNKS;
-
 		VoxelQuery query;
-		query.chunk_id = region.chunks[chunk].data;
-		query.position = mod(block.position, CHUNK_SIZE);
+		query.region_data = region.data;
+		query.position = uvec3(block.position);
 
 		bool voxel_found = voxel_query(query);
 		
@@ -210,7 +209,7 @@ void main() {
 
 		CollisionResponse response;
 		if(swept_aabb(player, block, velocity, response)) {
-			query.position += response.normal;
+			query.position = uvec3(ivec3(query.position) + ivec3(response.normal));
 			bool voxel_found = voxel_query(query);
 
 			if(voxel_found && query.id != 1) {

@@ -28,26 +28,30 @@ void main() {
 
 	u32 chunk = gl_GlobalInvocationID.x + gl_GlobalInvocationID.y * AXIS_MAX_CHUNKS + gl_GlobalInvocationID.z * AXIS_MAX_CHUNKS * AXIS_MAX_CHUNKS;
 	
-	vec3 minimum = vec3(CHUNK_SIZE);
-	vec3 maximum = vec3(0);
+	uvec3 minimum = uvec3(CHUNK_SIZE);
+	uvec3 maximum = uvec3(0);
 
 	for(u32 x = 0; x < CHUNK_SIZE; x++) {
 		for(u32 y = 0; y < CHUNK_SIZE; y++) {
 			for(u32 z = 0; z < CHUNK_SIZE; z++) {
+				uvec3 internal_position = uvec3(x, y, z);
+
 				VoxelQuery query;
-				query.chunk_id = region.reserve[chunk].data;
-				query.position = vec3(x, y, z);
+				query.region_data = region.reserve;
+				query.position = uvec3(transforms.data[chunk + 1].position.xyz) + internal_position;
 
 				if(voxel_query(query)) {
-					minimum = min(minimum, query.position);
-					maximum = max(maximum, query.position + 1);
+					minimum = min(minimum, internal_position);
+					maximum = max(maximum, internal_position + 1);
 				}
 			}
 		}
 	}
 
-	region.reserve[chunk].minimum = minimum;
-	region.reserve[chunk].maximum = maximum;
+	region.chunks[chunk].minimum = minimum;
+	region.chunks[chunk].maximum = maximum;
+		
+	transforms.data[1 + chunk].position.xyz = vec3(gl_GlobalInvocationID) * CHUNK_SIZE;
 }
 
 #endif
