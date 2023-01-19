@@ -1,7 +1,7 @@
 struct VoxelQuery {
 	//input
 	ImageId region_data;
-	uvec3 position;
+	ivec3 position;
 	//output
 	u16 id;
 };
@@ -18,11 +18,11 @@ bool voxel_query(inout VoxelQuery query) {
 		i32vec3(query.position)
 	).r);
 	
-	if(any(lessThan(query.position, vec3(0)))) {
+	if(any(lessThan(query.position, ivec3(0)))) {
 		return false;
 	}
 	
-	if(any(greaterThanEqual(query.position, vec3(CHUNK_SIZE * AXIS_MAX_CHUNKS)))) {
+	if(any(greaterThanEqual(query.position, ivec3(REGION_SIZE)))) {
 		return false;
 	}
 
@@ -32,7 +32,7 @@ bool voxel_query(inout VoxelQuery query) {
 struct VoxelChange {
 	//input
 	ImageId region_data;
-	uvec3 position;
+	ivec3 position;
 	u16 id;
 };
 
@@ -43,11 +43,11 @@ void voxel_change(inout VoxelChange change) {
 		change.region_data
 	);
 
-	if(any(lessThan(change.position, vec3(0)))) {
+	if(any(lessThan(change.position, ivec3(0)))) {
 		return;
 	}
 	
-	if(any(greaterThanEqual(change.position, vec3(CHUNK_SIZE * AXIS_MAX_CHUNKS)))) {
+	if(any(greaterThanEqual(change.position, ivec3(REGION_SIZE)))) {
 		return;
 	}
 

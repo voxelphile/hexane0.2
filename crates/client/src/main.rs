@@ -35,6 +35,7 @@ use raw_window_handle::{HasRawDisplayHandle, HasRawWindowHandle};
 const SMALL_SIZE: usize = 512;
 const REALLY_LARGE_SIZE: usize = 200_000_000;
 
+const REGION_SIZE: usize = 512;
 const CHUNK_SIZE: usize = 64;
 const AXIS_MAX_CHUNKS: usize = 4;
 
@@ -294,13 +295,11 @@ fn main() {
 
     let mut chunk_images = vec![];
 
-    let chunk_len = AXIS_MAX_CHUNKS.pow(3);
-
     for _ in 0..2 {
         chunk_images.push(
                 device
                     .create_image(ImageInfo {
-                        extent: ImageExtent::ThreeDim(CHUNK_SIZE * AXIS_MAX_CHUNKS, CHUNK_SIZE * AXIS_MAX_CHUNKS, CHUNK_SIZE * AXIS_MAX_CHUNKS),
+                        extent: ImageExtent::ThreeDim(REGION_SIZE, REGION_SIZE, REGION_SIZE),
                         usage: ImageUsage::TRANSFER_DST,
                         format: Format::R16Uint,
                         ..default()
@@ -958,8 +957,6 @@ fn main() {
                                 pipeline: &perlin_pipeline,
                             })?;
 
-                            let size = AXIS_MAX_CHUNKS * CHUNK_SIZE;
-
                             const WORK_GROUP_SIZE: usize = 8;
 
                             let dispatch_size =
@@ -972,6 +969,29 @@ fn main() {
                     },
                 });
 
+                executor.add(Task {
+                    resources: [
+                        Buffer(&info_buffer, BufferAccess::ComputeShaderReadOnly),
+                        Buffer(&input_buffer, BufferAccess::ComputeShaderReadOnly),
+                        Buffer(&transform_buffer, BufferAccess::ComputeShaderReadWrite),
+                        Buffer(&rigidbody_buffer, BufferAccess::ComputeShaderReadWrite),
+                    ],
+                    task: |commands| {
+                        commands.set_pipeline(&input_pipeline)?;
+
+                        commands.push_constant(PushConstant {
+                            data: InputPush {
+                                info_buffer: (info_buffer)(),
+                                transform_buffer: (transform_buffer)(),
+                                rigidbody_buffer: (rigidbody_buffer)(),
+                                input_buffer: (input_buffer)(),
+                            },
+                            pipeline: &input_pipeline,
+                        })?;
+
+                        commands.dispatch(1, 1, 1)
+                    },
+                });
                 
                 executor.add(Task {
                     resources: [
@@ -993,7 +1013,7 @@ fn main() {
 
                             const WORK_GROUP_SIZE: usize = 8;
 
-                            let size = (AXIS_MAX_CHUNKS * CHUNK_SIZE) / WORK_GROUP_SIZE;
+                            let size = REGION_SIZE / WORK_GROUP_SIZE;
 
                             commands.dispatch(size, size, size)?;
                         Ok(())
@@ -1020,7 +1040,7 @@ fn main() {
 
                             const WORK_GROUP_SIZE: usize = 8;
 
-                            let size = (AXIS_MAX_CHUNKS * CHUNK_SIZE) / WORK_GROUP_SIZE;
+                            let size = REGION_SIZE / WORK_GROUP_SIZE;
 
                             commands.dispatch(size, size, size)?;
                         Ok(())
@@ -1077,29 +1097,6 @@ fn main() {
                     },
                 });
 
-                executor.add(Task {
-                    resources: [
-                        Buffer(&info_buffer, BufferAccess::ComputeShaderReadOnly),
-                        Buffer(&input_buffer, BufferAccess::ComputeShaderReadOnly),
-                        Buffer(&transform_buffer, BufferAccess::ComputeShaderReadWrite),
-                        Buffer(&rigidbody_buffer, BufferAccess::ComputeShaderReadWrite),
-                    ],
-                    task: |commands| {
-                        commands.set_pipeline(&input_pipeline)?;
-
-                        commands.push_constant(PushConstant {
-                            data: InputPush {
-                                info_buffer: (info_buffer)(),
-                                transform_buffer: (transform_buffer)(),
-                                rigidbody_buffer: (rigidbody_buffer)(),
-                                input_buffer: (input_buffer)(),
-                            },
-                            pipeline: &input_pipeline,
-                        })?;
-
-                        commands.dispatch(1, 1, 1)
-                    },
-                });
 
                 const PHYSICS_FIXED_TIME: f32 = 0.01;
                 const PHYSICS_TIME_PRECISION: f32 = 1_000_000.0;
@@ -1246,7 +1243,7 @@ fn main() {
                         })?;
 
                         commands.draw(gpu::prelude::Draw {
-                            vertex_count: chunk_len * 36,
+                            vertex_count: AXIS_MAX_CHUNKS.pow(3) as usize * 36,
                         })?;
 
                         commands.end_rendering()

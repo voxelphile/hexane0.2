@@ -45,7 +45,6 @@ layout (local_size_x = 256) in;
 
 #define GRAVITY -9
 #define ENABLE_FLIGHT true
-
 #define COLLIDE_DELTA 0.09
 
 void main() {
@@ -129,7 +128,7 @@ void main() {
 	}
 
 	if(ENABLE_FLIGHT) {
-		transform.position.xyz += direction.xyz * 100 * delta_time;
+		transform.position.xyz += direction.xyz * 1000 * delta_time;
 	}
 	
 	transforms.data[0] = transform;

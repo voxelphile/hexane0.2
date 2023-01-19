@@ -27,12 +27,10 @@ void main() {
 		return;
 	}
 	
-	region.observer_position = ivec3(transforms.data[0].position.xyz);
+	region.floating_origin = region.observer_position;
 	
-	uvec3 local_position = gl_GlobalInvocationID;
-	ivec3 world_position = region.observer_position + ivec3(local_position) - ivec3(vec3(CHUNK_SIZE * AXIS_MAX_CHUNKS / 2));
-
-	u32 chunk = local_position.x / CHUNK_SIZE + local_position.y / CHUNK_SIZE * AXIS_MAX_CHUNKS + local_position.z / CHUNK_SIZE * AXIS_MAX_CHUNKS * AXIS_MAX_CHUNKS;
+	ivec3 local_position = ivec3(gl_GlobalInvocationID);
+	ivec3 world_position = region.floating_origin - ivec3(vec3(REGION_SIZE / 2)) + local_position;
 
 	VoxelQuery query;
 	query.region_data = region.reserve;

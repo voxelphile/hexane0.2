@@ -147,7 +147,8 @@ void main() {
 
 	Transform transform = transforms.data[0]; 
 	Transform eye_transform = transform;
-	eye_transform.position.xyz = vec3(AXIS_MAX_CHUNKS * CHUNK_SIZE / 2);
+	ivec3 diff = region.floating_origin - region.observer_position;
+	eye_transform.position.xyz = vec3(REGION_SIZE / 2) - vec3(diff);
 	eye_transform.position.xyz += transforms.data[0].position.xyz - region.observer_position;
 	eye_transform.position.xyz -= vec3(0.4, 1.8, 0.4);
 	Rigidbody rigidbody = rigidbodies.data[0];
@@ -198,7 +199,7 @@ void main() {
 
 		VoxelQuery query;
 		query.region_data = region.data;
-		query.position = uvec3(block.position);
+		query.position = ivec3(block.position);
 
 		bool voxel_found = voxel_query(query);
 		
@@ -209,7 +210,7 @@ void main() {
 
 		CollisionResponse response;
 		if(swept_aabb(player, block, velocity, response)) {
-			query.position = uvec3(ivec3(query.position) + ivec3(response.normal));
+			query.position = ivec3(query.position) + ivec3(response.normal);
 			bool voxel_found = voxel_query(query);
 
 			if(voxel_found && query.id != 1) {
