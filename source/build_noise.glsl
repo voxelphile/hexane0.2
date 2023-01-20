@@ -23,8 +23,10 @@ void main() {
 
 	u32 x = random(push_constant.mersenne_id);
 	u32 y = random(push_constant.mersenne_id);
+	u32 z = random(push_constant.mersenne_id);
+	u32 a = random(push_constant.mersenne_id);
 
-	imageStore(noise_img, i32vec3(gl_GlobalInvocationID), u32vec4(x, y, 0, 0));
+	imageStore(noise_img, i32vec3(gl_GlobalInvocationID), u32vec4(x, y, z, a));
 }
 
 #endif

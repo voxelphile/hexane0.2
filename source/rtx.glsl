@@ -190,7 +190,7 @@ void main() {
 		shadow_ray.region = region;
 		shadow_ray.origin = hit.destination + hit.normal * EPSILON;
 		shadow_ray.direction = normalize(sun_pos - hit.destination);
-		shadow_ray.max_distance = 4; 
+		shadow_ray.max_distance = 50; 
 		shadow_ray.minimum = vec3(0);
 		shadow_ray.maximum = vec3(REGION_SIZE);
 

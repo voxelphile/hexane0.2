@@ -70,17 +70,16 @@ void main() {
 		inp.first = true;
 	}
 	
-	f32 sens = 3.14 / 2;
-	f32 max_target_rotation_time = 0.1;
+	f32 sens = 0.002;
+	f32 rate = exp2(0.01);
 
-	inp.target_rotation.xy -= (entity_input.look.yx * delta_time) * sens;
+	inp.target_rotation.xy -= (entity_input.look.yx) * sens;
 
 	inp.target_rotation.x = clamp(inp.target_rotation.x, -3.14 / 2.0 + 0.1, 3.14 / 2.0 - 0.1);
 	if(entity_input.look.xy != vec2(0)) {
 		inp.target_rotation_time = 0;
 	}
-	inp.target_rotation_time += info.delta_time;
-	transform.rotation = mix(transform.rotation, inp.target_rotation, clamp(inp.target_rotation_time / max_target_rotation_time, 0, 1));
+	transform.rotation = mix(transform.rotation, inp.target_rotation, exp2(-rate * delta_time));
 
 	vec3 direction = vec3(0);
 

@@ -232,6 +232,13 @@ fn main() {
             ..default()
         })
         .expect("failed to create pipeline");
+    
+    let worley_pipeline = pipeline_compiler
+        .create_compute_pipeline(ComputePipelineInfo {
+            shader: Shader(Compute, "build_worley", &[]),
+            ..default()
+        })
+        .expect("failed to create pipeline");
 
     let physics_pipeline = pipeline_compiler
         .create_compute_pipeline(ComputePipelineInfo {
@@ -276,13 +283,24 @@ fn main() {
             .create_image(ImageInfo {
                 extent: ImageExtent::ThreeDim(16, 16, 16),
                 usage: ImageUsage::TRANSFER_DST,
-                format: Format::Rg32Uint,
+                format: Format::Rgba32Uint,
                 ..default()
             })
             .expect("failed to create depth image"),
     );
 
     let mut perlin_img = Cell::new(
+        device
+            .create_image(ImageInfo {
+                extent: ImageExtent::ThreeDim(256, 256, 256),
+                usage: ImageUsage::TRANSFER_DST,
+                format: Format::R32Uint,
+                ..default()
+            })
+            .expect("failed to create depth image"),
+    );
+    
+    let mut worley_img = Cell::new(
         device
             .create_image(ImageInfo {
                 extent: ImageExtent::ThreeDim(256, 256, 256),
@@ -463,6 +481,7 @@ fn main() {
     let prepass_image = || prepass_img.get();
     let noise_image = || noise_img.get();
     let perlin_image = || perlin_img.get();
+    let worley_image = || worley_img.get();
     let present_image = || {
         device
             .acquire_next_image(Acquire {
@@ -490,17 +509,6 @@ fn main() {
 
         let current_instant = time::Instant::now();
 
-        let delta_time = current_instant.duration_since(last_instant).as_secs_f64();
-
-        last_instant = current_instant;
-
-        info.set(Info {
-            time: current_instant
-                .duration_since(startup_instant)
-                .as_secs_f32(),
-            delta_time: info.get().delta_time + delta_time as f32,
-            ..info.get()
-        });
 
         match event {
             Event::WindowEvent {
@@ -521,18 +529,23 @@ fn main() {
                     });
                 }
 
-                physics_time_accum.set(physics_time_accum.get() + info.get().delta_time);
+        
+                let delta_time = current_instant.duration_since(last_instant).as_secs_f64();
+                
+
+        last_instant = current_instant;
+
+        info.set(Info {
+            time: current_instant
+                .duration_since(startup_instant)
+                .as_secs_f32(),
+            delta_time: info.get().delta_time + delta_time as f32,
+            ..info.get()
+        });
+                
+        physics_time_accum.set(physics_time_accum.get() + delta_time as f32);
 
                 (executable.as_mut().unwrap())();
-
-                info.set(Info {
-                    entity_input: EntityInput {
-                        look: default(),
-                        ..info.get().entity_input
-                    },
-                    delta_time: default(),
-                    ..info.get()
-                });
 
                 profiling::finish_frame!();
             }
@@ -755,7 +768,18 @@ fn main() {
                             buffer: 0,
                             offset: 1024,
                             src: &[info.get()],
-                        })
+                        });
+                
+                        info.set(Info {
+                    entity_input: EntityInput {
+                        look: default(),
+                        ..info.get().entity_input
+                    },
+                        delta_time: default(),
+                        ..info.get()
+                    });
+
+                        Ok(())
                     },
                 });
 
@@ -939,6 +963,34 @@ fn main() {
                         Ok(())
                     },
                 });
+                
+                executor.add(Task {
+                    resources: [
+                        Image(&noise_image, ImageAccess::ComputeShaderReadWrite),
+                        Image(&worley_image, ImageAccess::ComputeShaderReadWrite),
+                    ],
+                    task: |commands| {
+                        if update.get() {
+                            commands.set_pipeline(&worley_pipeline)?;
+
+                            commands.push_constant(PushConstant {
+                                data: BuildPerlinPush {
+                                    noise_image: (noise_image)(),
+                                    perlin_image: (worley_image)(),
+                                },
+                                pipeline: &worley_pipeline,
+                            })?;
+
+                            const WORK_GROUP_SIZE: usize = 8;
+
+                            let dispatch_size =
+                                (2048 as f64 / WORK_GROUP_SIZE as f64).ceil() as usize;
+
+                            commands.dispatch(dispatch_size, dispatch_size, dispatch_size)?;
+                        }
+                        Ok(())
+                    },
+                });
 
                 executor.add(Task {
                     resources: [
@@ -1004,6 +1056,7 @@ fn main() {
 
                             commands.push_constant(PushConstant {
                                 data: BuildWorldPush {
+                                    worley_image: (worley_image)(),
                                     perlin_image: (perlin_image)(),
                                     transform_buffer: (transform_buffer)(),
                                     world_buffer: (world_buffer)(),
@@ -1025,6 +1078,7 @@ fn main() {
                         Buffer(&world_buffer, BufferAccess::ComputeShaderReadWrite),
                         Buffer(&transform_buffer, BufferAccess::ComputeShaderReadWrite),
                         Image(&perlin_image, ImageAccess::ComputeShaderReadWrite),
+                        Image(&worley_image, ImageAccess::ComputeShaderReadWrite),
                     ],
                     task: |commands| {
                             commands.set_pipeline(&world_pipeline)?;
@@ -1032,6 +1086,7 @@ fn main() {
                             commands.push_constant(PushConstant {
                                 data: BuildWorldPush {
                                     perlin_image: (perlin_image)(),
+                                    worley_image: (worley_image)(),
                                     transform_buffer: (transform_buffer)(),
                                     world_buffer: (world_buffer)(),
                                 },
@@ -1060,6 +1115,7 @@ fn main() {
                                 data: BuildWorldPush {
                                     perlin_image: (perlin_image)(),
                                     transform_buffer: (transform_buffer)(),
+                                    worley_image: (worley_image)(),
                                     world_buffer: (world_buffer)(),
                                 },
                                 pipeline: &box_pipeline,
@@ -1087,6 +1143,7 @@ fn main() {
                                 data: BuildWorldPush {
                                     perlin_image: (perlin_image)(),
                                     transform_buffer: (transform_buffer)(),
+                                    worley_image: (worley_image)(),
                                     world_buffer: (world_buffer)(),
                                 },
                                 pipeline: &after_world_pipeline,
@@ -1404,6 +1461,7 @@ pub struct BuildWorldPush {
     pub world_buffer: Buffer,
     pub transform_buffer: Buffer,
     pub perlin_image: Image,
+    pub worley_image: Image,
 }
 #[derive(Clone, Copy)]
 #[repr(C)]
