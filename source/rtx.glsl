@@ -140,13 +140,15 @@ void main() {
 
 	vec3 chunk_pos = transforms.data[1 + chunk].position.xyz - vec3(uvec3(vec3(AXIS_MAX_CHUNKS * CHUNK_SIZE / 2))) + vec3(uvec3(vec3(REGION_SIZE / 2))) - vec3(diff);
 
+	u32 fluff = 5;
+
 	Ray ray;
 	ray.region = region;
 	ray.origin = origin;
 	ray.direction = dir;
 	ray.max_distance = sqrt(f32(3)) * CHUNK_SIZE + 1; 
-	ray.minimum = chunk_pos + region.chunks[chunk].minimum - 1;
-	ray.maximum = chunk_pos + region.chunks[chunk].maximum + 1;
+	ray.minimum = chunk_pos + region.chunks[chunk].minimum - fluff;
+	ray.maximum = chunk_pos + region.chunks[chunk].maximum + fluff;
 
 	RayHit hit;
 

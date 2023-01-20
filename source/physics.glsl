@@ -135,7 +135,7 @@ void swap(inout i32 a, inout i32 b) {
 	b = temp;
 }
 
-#define ENABLE_PHYSICS false
+#define ENABLE_PHYSICS true
 
 void main() {
 	if(gl_GlobalInvocationID != uvec3(0) || !ENABLE_PHYSICS) 
@@ -202,11 +202,17 @@ void main() {
 		query.position = ivec3(block.position);
 
 		bool voxel_found = voxel_query(query);
-		
+
 		//1 is air
 		if (!voxel_found || query.id == 1) {
 			continue;
 		}
+		
+		while(aabb_check(block, player)) {
+			player.position.y += 1e-1;
+			transform.position.y += 1e-1;
+		}
+
 
 		CollisionResponse response;
 		if(swept_aabb(player, block, velocity, response)) {

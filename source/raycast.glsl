@@ -35,6 +35,12 @@ bool ray_cast(inout Ray ray, out RayHit hit) {
 		if(!in_chunk) {
 			return false;
 		}
+		
+		mask = lessThanEqual(side_dist.xyz, min(side_dist.yzx, side_dist.zxy));
+			
+		side_dist += vec3(mask) * delta_dist;
+		map_pos += ivec3(vec3(mask)) * ray_step;
+		dist = length(vec3(mask) * (side_dist - delta_dist));
 
 		VoxelQuery query;
 		query.region_data = ray.region.data;
@@ -57,11 +63,6 @@ bool ray_cast(inout Ray ray, out RayHit hit) {
 			return true;
 		}
 
-		mask = lessThanEqual(side_dist.xyz, min(side_dist.yzx, side_dist.zxy));
-			
-		side_dist += vec3(mask) * delta_dist;
-		map_pos += ivec3(vec3(mask)) * ray_step;
-		dist = length(vec3(mask) * (side_dist - delta_dist));
 
 		if(dist > ray.max_distance) {
 			return false;	
