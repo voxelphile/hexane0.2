@@ -1,6 +1,6 @@
 #define CHUNK_SIZE 64
 #define AXIS_MAX_CHUNKS 4
-#define MAX_CHUNKS 64
+#define MAX_CHUNKS 4096
 #define REGION_SIZE 512
 #define VIEW_DISTANCE 128
 

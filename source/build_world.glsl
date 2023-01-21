@@ -57,7 +57,7 @@ void main() {
 
 	//dunno why this is bugged.. if this statement isnt made like this
 	//then grass spawns on chunk corners
-	if(worley_noise_factor > 0.55) {
+	if(worley_noise_factor > 0.5) {
 		change.id = u16(1);
 	} else if(world_position.y > height - 1 && world_position.y < height + 1) {
 		change.id = u16(2);

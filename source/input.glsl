@@ -26,7 +26,10 @@ decl_buffer(
 	{
 		bool first;
 		vec4 target_rotation;
+		vec2 target_lateral_velocity;
+		bool jumping;
 		f32 target_rotation_time;
+		f32 coyote_counter;
 	}
 )
 	
@@ -71,7 +74,7 @@ void main() {
 	}
 	
 	f32 sens = 0.002;
-	f32 rate = exp2(0.01);
+	f32 rot_rate = exp2(0.01);
 
 	inp.target_rotation.xy -= (entity_input.look.yx) * sens;
 
@@ -79,7 +82,7 @@ void main() {
 	if(entity_input.look.xy != vec2(0)) {
 		inp.target_rotation_time = 0;
 	}
-	transform.rotation = mix(transform.rotation, inp.target_rotation, exp2(-rate * delta_time));
+	transform.rotation = mix(transform.rotation, inp.target_rotation, exp2(-rot_rate * delta_time));
 
 	vec3 direction = vec3(0);
 
@@ -118,12 +121,25 @@ void main() {
 
 	direction.xz = lateral_direction;
 	direction.y = f32(input_axis.y);
+	
+	f32 move_rate = exp2(1);
 
-	rigidbody.velocity.xz = direction.xz * 10;
+	inp.target_lateral_velocity = direction.xz * 20;
 
-	if(input_axis.y == 1 && rigidbody.on_ground) {
+	rigidbody.velocity.xz = mix(rigidbody.velocity.xz, inp.target_lateral_velocity, exp2(-move_rate * delta_time));
+
+	if(rigidbody.on_ground) {
+		inp.coyote_counter = 0;	
+		inp.jumping = false;
+	} else {
+		inp.coyote_counter += delta_time;
+	}
+
+	f32 coyote_time = 0.3;
+
+	if(input_axis.y == 1 && !inp.jumping && inp.coyote_counter < coyote_time) {
 		rigidbody.velocity.y += 10;
-		rigidbody.on_ground = false;
+		inp.jumping = true;
 	}
 
 	if(ENABLE_FLIGHT) {

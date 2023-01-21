@@ -145,6 +145,10 @@ void main() {
 	Buffer(Rigidbodies) rigidbodies = get_buffer(Rigidbodies, push_constant.rigidbody_id);
 	Buffer(Region) region = get_buffer(Region, push_constant.region_id);
 
+	if(transforms.physics) {
+		return;
+	}
+
 	Transform transform = transforms.data[0]; 
 	Transform eye_transform = transform;
 	ivec3 diff = region.floating_origin - region.observer_position;
@@ -180,7 +184,7 @@ void main() {
 	i32 order[] = i32[](0, 1, 2);
 		
 	Box player;
-	player.dimensions = vec3(0.8, 2, 0.8);
+	player.dimensions = vec3(0.8, 1.9, 0.8);
 	player.position = eye_transform.position.xyz;
 
 	for(i32 i = 0; i < 3; i++) {
@@ -192,6 +196,11 @@ void main() {
 		block.position = floor(player.position) + vec3(x, y, z);
 		block.dimensions = vec3(1);
 		vec3 velocity = data[i].velocity + data[i].acceleration * fixed_time;
+		
+		f32 clip = 0.05;
+		Box inner_clip;
+		inner_clip.position = block.position + clip;
+		inner_clip.dimensions = block.dimensions - 2 * clip;
 
 		Box broadphase = get_swept_broadphase_box(player, velocity);	
 
@@ -208,7 +217,7 @@ void main() {
 			continue;
 		}
 		
-		while(aabb_check(block, player)) {
+		while(aabb_check(inner_clip, player) && velocity.y <= 0) {
 			player.position.y += 1e-1;
 			transform.position.y += 1e-1;
 		}

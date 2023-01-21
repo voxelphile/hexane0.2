@@ -7,6 +7,7 @@ decl_buffer(
 	Transforms,
 	{
 		Transform data[1000];
+		bool physics;
 	}
 )
 
