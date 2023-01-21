@@ -17,10 +17,12 @@ use std::cell::Cell;
 use std::cmp;
 use std::default::default;
 use std::env;
+use std::io;
 use std::mem;
 use std::num;
 use std::ops;
 use std::path;
+use std::sync::{Arc, Mutex};
 use std::time;
 
 use winit::{
@@ -71,6 +73,50 @@ fn root_path() -> Option<path::PathBuf> {
     Some(current_dir)
 }
 
+#[repr(u32)]
+#[derive(Debug)]
+enum Sound {
+    GrassWalk1 = 1,
+    GrassWalk2 = 2,
+    GrassWalk3 = 3,
+    GrassWalk4 = 4,
+    GrassWalk5 = 5,
+    GrassWalk6 = 6,
+    GrassWalk7 = 7,
+    GrassWalk8 = 8,
+    GrassWalk9 = 9,
+    GrassWalk10 = 10,
+    DirtWalk1 = 11,
+    DirtWalk2 = 12,
+    DirtWalk3 = 13,
+    DirtWalk4 = 14,
+    DirtWalk5 = 15,
+    DirtWalk6 = 16,
+    DirtWalk7 = 17,
+    DirtWalk8 = 18,
+    DirtWalk9 = 19,
+    DirtWalk10 = 20,
+    DirtWalk11 = 21,
+    StoneWalk1 = 22,
+    StoneWalk2 = 23,
+    StoneWalk3 = 24,
+    StoneWalk4 = 25,
+    StoneWalk5 = 26,
+    StoneWalk6 = 27,
+    StoneWalk7 = 28,
+    StoneWalk8 = 29,
+    StoneWalk9 = 30,
+    StoneWalk10 = 31,
+    StoneWalk11 = 32,
+}
+
+impl Sound {
+    fn name(&self) -> String {
+        use convert_case::{Case, Casing};
+        format!("{}.ogg", format!("{:?}", self).to_case(Case::Snake))
+    }
+}
+
 fn main() {
     println!("Hello, client!");
 
@@ -96,6 +142,8 @@ fn main() {
 
     let source_path = root_path.join("source");
     let asset_path = root_path.join("assets");
+    let shader_asset_path = asset_path.join("shaders");
+    let sound_asset_path = asset_path.join("audio");
 
     let context = Context::new(ContextInfo {
         enable_validation: true,
@@ -128,7 +176,7 @@ fn main() {
         //default language for shader compiler is glsl
         compiler: ShaderCompiler::glslc(default()),
         source_path: &source_path,
-        asset_path: &asset_path,
+        asset_path: &shader_asset_path,
         ..default()
     });
 
@@ -136,7 +184,10 @@ fn main() {
 
     let draw_pipeline = pipeline_compiler
         .create_graphics_pipeline(GraphicsPipelineInfo {
-            shaders: [Shader(Vertex, "rtx", &["volume"]), Shader(Fragment, "rtx", &["volume"])],
+            shaders: [
+                Shader(Vertex, "rtx", &["volume"]),
+                Shader(Fragment, "rtx", &["volume"]),
+            ],
             color: [gpu::prelude::Color {
                 format: device.presentation_format(swapchain.get()).unwrap(),
                 blend: None,
@@ -149,7 +200,7 @@ fn main() {
             ..default()
         })
         .expect("failed to create pipeline");
-    
+
     let draw2_pipeline = pipeline_compiler
         .create_graphics_pipeline(GraphicsPipelineInfo {
             shaders: [Shader(Vertex, "fx", &[]), Shader(Fragment, "rtx", &["fx"])],
@@ -164,10 +215,7 @@ fn main() {
 
     let upscale_pipeline = pipeline_compiler
         .create_graphics_pipeline(GraphicsPipelineInfo {
-            shaders: [
-                Shader(Vertex, "fx", &[]),
-                Shader(Fragment, "upscale", &[]),
-            ],
+            shaders: [Shader(Vertex, "fx", &[]), Shader(Fragment, "upscale", &[])],
             color: [gpu::prelude::Color {
                 format: device.presentation_format(swapchain.get()).unwrap(),
                 blend: None,
@@ -197,14 +245,14 @@ fn main() {
             ..default()
         })
         .expect("failed to create pipeline");
-    
+
     let move_world_pipeline = pipeline_compiler
         .create_compute_pipeline(ComputePipelineInfo {
             shader: Shader(Compute, "move_world", &[]),
             ..default()
         })
         .expect("failed to create pipeline");
-    
+
     let after_world_pipeline = pipeline_compiler
         .create_compute_pipeline(ComputePipelineInfo {
             shader: Shader(Compute, "after_world", &[]),
@@ -232,7 +280,7 @@ fn main() {
             ..default()
         })
         .expect("failed to create pipeline");
-    
+
     let worley_pipeline = pipeline_compiler
         .create_compute_pipeline(ComputePipelineInfo {
             shader: Shader(Compute, "build_worley", &[]),
@@ -246,7 +294,7 @@ fn main() {
             ..default()
         })
         .expect("failed to create pipeline");
-    
+
     const PREPASS_SCALE: usize = 2;
 
     let mut depth_img = Cell::new(
@@ -262,7 +310,6 @@ fn main() {
             })
             .expect("failed to create depth image"),
     );
-
 
     let mut prepass_img = Cell::new(
         device
@@ -299,7 +346,7 @@ fn main() {
             })
             .expect("failed to create depth image"),
     );
-    
+
     let mut worley_img = Cell::new(
         device
             .create_image(ImageInfo {
@@ -315,14 +362,14 @@ fn main() {
 
     for _ in 0..2 {
         chunk_images.push(
-                device
-                    .create_image(ImageInfo {
-                        extent: ImageExtent::ThreeDim(REGION_SIZE, REGION_SIZE, REGION_SIZE),
-                        usage: ImageUsage::TRANSFER_DST,
-                        format: Format::R16Uint,
-                        ..default()
-                    })
-                    .expect("failed to create depth image"),
+            device
+                .create_image(ImageInfo {
+                    extent: ImageExtent::ThreeDim(REGION_SIZE, REGION_SIZE, REGION_SIZE),
+                    usage: ImageUsage::TRANSFER_DST,
+                    format: Format::R16Uint,
+                    ..default()
+                })
+                .expect("failed to create depth image"),
         );
     }
 
@@ -380,6 +427,32 @@ fn main() {
     let transform_buffer = device
         .create_buffer(BufferInfo {
             size: 1000000,
+            debug_name: "General Buffer",
+            ..default()
+        })
+        .expect("failed to create buffer");
+
+    let sound_buffer = device
+        .create_buffer(BufferInfo {
+            size: 4096,
+            debug_name: "General Buffer",
+            ..default()
+        })
+        .expect("failed to create buffer");
+
+    let sound_staging_buffer = device
+        .create_buffer(BufferInfo {
+            size: 4096,
+            memory: Memory::HOST_ACCESS,
+            debug_name: "General Buffer",
+            ..default()
+        })
+        .expect("failed to create buffer");
+
+    let void_staging_buffer = device
+        .create_buffer(BufferInfo {
+            size: 4096,
+            memory: Memory::HOST_ACCESS,
             debug_name: "General Buffer",
             ..default()
         })
@@ -454,7 +527,10 @@ fn main() {
             Camera::Perspective { clip, .. } => clip.1,
             _ => unreachable!(),
         },
-        resolution: Vector::new([resolution.get().0 as f32 / PREPASS_SCALE as f32, resolution.get().1 as f32 / PREPASS_SCALE as f32]),
+        resolution: Vector::new([
+            resolution.get().0 as f32 / PREPASS_SCALE as f32,
+            resolution.get().1 as f32 / PREPASS_SCALE as f32,
+        ]),
     });
 
     let info = Cell::new(Info::default());
@@ -470,6 +546,9 @@ fn main() {
     let input_buffer = || input_buffer;
     let mersenne_buffer = || mersenne_buffer;
     let transform_buffer = || transform_buffer;
+    let sound_buffer = || sound_buffer;
+    let sound_staging_buffer = || sound_staging_buffer;
+    let void_staging_buffer = || void_staging_buffer;
     let rigidbody_buffer = || rigidbody_buffer;
     let info_buffer = || info_buffer;
     let camera_buffer = || camera_buffer;
@@ -503,12 +582,18 @@ fn main() {
 
     profiling::finish_frame!();
 
+    let (_stream, stream_handle) = rodio::OutputStream::try_default().unwrap();
+
+    let stream_handle = Arc::new(Mutex::new(stream_handle));
+
     event_loop.run_return(|event, _, control_flow| {
+        let sound_asset_path = sound_asset_path.clone();
+        let stream_handle = stream_handle.clone();
+
         profiling::scope!("event loop", "ev");
         *control_flow = ControlFlow::Poll;
 
         let current_instant = time::Instant::now();
-
 
         match event {
             Event::WindowEvent {
@@ -529,21 +614,19 @@ fn main() {
                     });
                 }
 
-        
                 let delta_time = current_instant.duration_since(last_instant).as_secs_f64();
-                
 
-        last_instant = current_instant;
+                last_instant = current_instant;
 
-        info.set(Info {
-            time: current_instant
-                .duration_since(startup_instant)
-                .as_secs_f32(),
-            delta_time: info.get().delta_time + delta_time as f32,
-            ..info.get()
-        });
-                
-        physics_time_accum.set(physics_time_accum.get() + delta_time as f32);
+                info.set(Info {
+                    time: current_instant
+                        .duration_since(startup_instant)
+                        .as_secs_f32(),
+                    delta_time: info.get().delta_time + delta_time as f32,
+                    ..info.get()
+                });
+
+                physics_time_accum.set(physics_time_accum.get() + delta_time as f32);
 
                 (executable.as_mut().unwrap())();
 
@@ -695,30 +778,30 @@ fn main() {
                 depth_img.set(
                     device
                         .create_image(ImageInfo {
-                extent: ImageExtent::TwoDim(
-                    width as usize / PREPASS_SCALE,
-                    height as usize / PREPASS_SCALE,
-                ),
+                            extent: ImageExtent::TwoDim(
+                                width as usize / PREPASS_SCALE,
+                                height as usize / PREPASS_SCALE,
+                            ),
                             usage: ImageUsage::DEPTH,
                             format: Format::D32Sfloat,
                             ..default()
                         })
                         .expect("failed to create depth image"),
                 );
-                
-    prepass_img.set(
-        device
-            .create_image(ImageInfo {
-                extent: ImageExtent::TwoDim(
-                    width as usize / PREPASS_SCALE,
-                    height as usize / PREPASS_SCALE,
-                ),
-                usage: ImageUsage::COLOR,
-                format: device.presentation_format(swapchain.get()).unwrap(),
-                ..default()
-            })
-            .expect("failed to create depth image"),
-    );
+
+                prepass_img.set(
+                    device
+                        .create_image(ImageInfo {
+                            extent: ImageExtent::TwoDim(
+                                width as usize / PREPASS_SCALE,
+                                height as usize / PREPASS_SCALE,
+                            ),
+                            usage: ImageUsage::COLOR,
+                            format: device.presentation_format(swapchain.get()).unwrap(),
+                            ..default()
+                        })
+                        .expect("failed to create depth image"),
+                );
 
                 let new_camera = {
                     let mut camera = camera.get();
@@ -744,7 +827,10 @@ fn main() {
                         Camera::Perspective { clip, .. } => clip.1,
                         _ => unreachable!(),
                     },
-                    resolution: Vector::new([width as f32 / PREPASS_SCALE as f32, height as f32 / PREPASS_SCALE as f32]),
+                    resolution: Vector::new([
+                        width as f32 / PREPASS_SCALE as f32,
+                        height as f32 / PREPASS_SCALE as f32,
+                    ]),
                 });
 
                 update.set(true);
@@ -769,15 +855,15 @@ fn main() {
                             offset: 1024,
                             src: &[info.get()],
                         });
-                
+
                         info.set(Info {
-                    entity_input: EntityInput {
-                        look: default(),
-                        ..info.get().entity_input
-                    },
-                        delta_time: default(),
-                        ..info.get()
-                    });
+                            entity_input: EntityInput {
+                                look: default(),
+                                ..info.get().entity_input
+                            },
+                            delta_time: default(),
+                            ..info.get()
+                        });
 
                         Ok(())
                     },
@@ -963,7 +1049,7 @@ fn main() {
                         Ok(())
                     },
                 });
-                
+
                 executor.add(Task {
                     resources: [
                         Image(&noise_image, ImageAccess::ComputeShaderReadWrite),
@@ -1023,10 +1109,30 @@ fn main() {
 
                 executor.add(Task {
                     resources: [
+                        Buffer(&void_staging_buffer, BufferAccess::TransferRead),
+                        Buffer(&sound_buffer, BufferAccess::TransferWrite),
+                    ],
+                    task: |commands| {
+                        commands.copy_buffer_to_buffer(BufferCopy {
+                            from: 0,
+                            to: 1,
+                            src: 0,
+                            dst: 0,
+                            size: 4096,
+                        })?;
+                        Ok(())
+                    },
+                });
+
+                executor.add(Task {
+                    resources: [
                         Buffer(&info_buffer, BufferAccess::ComputeShaderReadOnly),
                         Buffer(&input_buffer, BufferAccess::ComputeShaderReadOnly),
                         Buffer(&transform_buffer, BufferAccess::ComputeShaderReadWrite),
                         Buffer(&rigidbody_buffer, BufferAccess::ComputeShaderReadWrite),
+                        Buffer(&sound_buffer, BufferAccess::ComputeShaderReadWrite),
+                        Buffer(&mersenne_buffer, BufferAccess::ComputeShaderReadWrite),
+                        Buffer(&world_buffer, BufferAccess::ComputeShaderReadWrite),
                     ],
                     task: |commands| {
                         commands.set_pipeline(&input_pipeline)?;
@@ -1037,6 +1143,9 @@ fn main() {
                                 transform_buffer: (transform_buffer)(),
                                 rigidbody_buffer: (rigidbody_buffer)(),
                                 input_buffer: (input_buffer)(),
+                                sound_buffer: (sound_buffer)(),
+                                mersenne_buffer: (mersenne_buffer)(),
+                                world_buffer: (world_buffer)(),
                             },
                             pipeline: &input_pipeline,
                         })?;
@@ -1044,7 +1153,7 @@ fn main() {
                         commands.dispatch(1, 1, 1)
                     },
                 });
-                
+
                 executor.add(Task {
                     resources: [
                         Buffer(&world_buffer, BufferAccess::ComputeShaderReadWrite),
@@ -1052,23 +1161,23 @@ fn main() {
                         Image(&perlin_image, ImageAccess::ComputeShaderReadWrite),
                     ],
                     task: |commands| {
-                            commands.set_pipeline(&move_world_pipeline)?;
+                        commands.set_pipeline(&move_world_pipeline)?;
 
-                            commands.push_constant(PushConstant {
-                                data: BuildWorldPush {
-                                    worley_image: (worley_image)(),
-                                    perlin_image: (perlin_image)(),
-                                    transform_buffer: (transform_buffer)(),
-                                    world_buffer: (world_buffer)(),
-                                },
-                                pipeline: &move_world_pipeline,
-                            })?;
+                        commands.push_constant(PushConstant {
+                            data: BuildWorldPush {
+                                worley_image: (worley_image)(),
+                                perlin_image: (perlin_image)(),
+                                transform_buffer: (transform_buffer)(),
+                                world_buffer: (world_buffer)(),
+                            },
+                            pipeline: &move_world_pipeline,
+                        })?;
 
-                            const WORK_GROUP_SIZE: usize = 8;
+                        const WORK_GROUP_SIZE: usize = 8;
 
-                            let size = REGION_SIZE / WORK_GROUP_SIZE;
+                        let size = REGION_SIZE / WORK_GROUP_SIZE;
 
-                            commands.dispatch(size, size, size)?;
+                        commands.dispatch(size, size, size)?;
                         Ok(())
                     },
                 });
@@ -1081,23 +1190,23 @@ fn main() {
                         Image(&worley_image, ImageAccess::ComputeShaderReadWrite),
                     ],
                     task: |commands| {
-                            commands.set_pipeline(&world_pipeline)?;
+                        commands.set_pipeline(&world_pipeline)?;
 
-                            commands.push_constant(PushConstant {
-                                data: BuildWorldPush {
-                                    perlin_image: (perlin_image)(),
-                                    worley_image: (worley_image)(),
-                                    transform_buffer: (transform_buffer)(),
-                                    world_buffer: (world_buffer)(),
-                                },
-                                pipeline: &world_pipeline,
-                            })?;
+                        commands.push_constant(PushConstant {
+                            data: BuildWorldPush {
+                                perlin_image: (perlin_image)(),
+                                worley_image: (worley_image)(),
+                                transform_buffer: (transform_buffer)(),
+                                world_buffer: (world_buffer)(),
+                            },
+                            pipeline: &world_pipeline,
+                        })?;
 
-                            const WORK_GROUP_SIZE: usize = 8;
+                        const WORK_GROUP_SIZE: usize = 8;
 
-                            let size = REGION_SIZE / WORK_GROUP_SIZE;
+                        let size = REGION_SIZE / WORK_GROUP_SIZE;
 
-                            commands.dispatch(size, size, size)?;
+                        commands.dispatch(size, size, size)?;
                         Ok(())
                     },
                 });
@@ -1109,27 +1218,27 @@ fn main() {
                         Image(&perlin_image, ImageAccess::ComputeShaderReadWrite),
                     ],
                     task: |commands| {
-                            commands.set_pipeline(&box_pipeline)?;
+                        commands.set_pipeline(&box_pipeline)?;
 
-                            commands.push_constant(PushConstant {
-                                data: BuildWorldPush {
-                                    perlin_image: (perlin_image)(),
-                                    transform_buffer: (transform_buffer)(),
-                                    worley_image: (worley_image)(),
-                                    world_buffer: (world_buffer)(),
-                                },
-                                pipeline: &box_pipeline,
-                            })?;
+                        commands.push_constant(PushConstant {
+                            data: BuildWorldPush {
+                                perlin_image: (perlin_image)(),
+                                transform_buffer: (transform_buffer)(),
+                                worley_image: (worley_image)(),
+                                world_buffer: (world_buffer)(),
+                            },
+                            pipeline: &box_pipeline,
+                        })?;
 
-                            const WORK_GROUP_SIZE: usize = 1;
+                        const WORK_GROUP_SIZE: usize = 1;
 
-                            let size = (AXIS_MAX_CHUNKS) / WORK_GROUP_SIZE;
+                        let size = (AXIS_MAX_CHUNKS) / WORK_GROUP_SIZE;
 
-                            commands.dispatch(size, size, size)?;
+                        commands.dispatch(size, size, size)?;
                         Ok(())
                     },
                 });
-                
+
                 executor.add(Task {
                     resources: [
                         Buffer(&world_buffer, BufferAccess::ComputeShaderReadWrite),
@@ -1137,23 +1246,22 @@ fn main() {
                         Image(&perlin_image, ImageAccess::ComputeShaderReadWrite),
                     ],
                     task: |commands| {
-                            commands.set_pipeline(&after_world_pipeline)?;
+                        commands.set_pipeline(&after_world_pipeline)?;
 
-                            commands.push_constant(PushConstant {
-                                data: BuildWorldPush {
-                                    perlin_image: (perlin_image)(),
-                                    transform_buffer: (transform_buffer)(),
-                                    worley_image: (worley_image)(),
-                                    world_buffer: (world_buffer)(),
-                                },
-                                pipeline: &after_world_pipeline,
-                            })?;
+                        commands.push_constant(PushConstant {
+                            data: BuildWorldPush {
+                                perlin_image: (perlin_image)(),
+                                transform_buffer: (transform_buffer)(),
+                                worley_image: (worley_image)(),
+                                world_buffer: (world_buffer)(),
+                            },
+                            pipeline: &after_world_pipeline,
+                        })?;
 
-                            commands.dispatch(1, 1, 1)?;
+                        commands.dispatch(1, 1, 1)?;
                         Ok(())
                     },
                 });
-
 
                 const PHYSICS_FIXED_TIME: f32 = 0.01;
                 const PHYSICS_TIME_PRECISION: f32 = 1_000_000.0;
@@ -1192,7 +1300,7 @@ fn main() {
                         Ok(())
                     },
                 });
-                
+
                 executor.add(Task {
                     resources: [
                         Image(&prepass_image, ImageAccess::ColorAttachment),
@@ -1206,7 +1314,8 @@ fn main() {
                     task: |commands| {
                         let (width, height) = resolution.get();
 
-                        let resolution = (width / PREPASS_SCALE as u32, height / PREPASS_SCALE as u32);
+                        let resolution =
+                            (width / PREPASS_SCALE as u32, height / PREPASS_SCALE as u32);
 
                         commands.set_resolution(resolution)?;
 
@@ -1242,9 +1351,7 @@ fn main() {
                             pipeline: &draw2_pipeline,
                         })?;
 
-                        commands.draw(gpu::prelude::Draw {
-                            vertex_count: 3,
-                        })?;
+                        commands.draw(gpu::prelude::Draw { vertex_count: 3 })?;
 
                         commands.end_rendering()
                     },
@@ -1263,7 +1370,8 @@ fn main() {
                     task: |commands| {
                         let (width, height) = resolution.get();
 
-                        let resolution = (width / PREPASS_SCALE as u32, height / PREPASS_SCALE as u32);
+                        let resolution =
+                            (width / PREPASS_SCALE as u32, height / PREPASS_SCALE as u32);
 
                         commands.set_resolution(resolution)?;
 
@@ -1306,8 +1414,7 @@ fn main() {
                         commands.end_rendering()
                     },
                 });
-                
-                
+
                 executor.add(Task {
                     resources: [
                         Image(&present_image, ImageAccess::ColorAttachment),
@@ -1342,11 +1449,67 @@ fn main() {
                             pipeline: &upscale_pipeline,
                         })?;
 
-                        commands.draw(gpu::prelude::Draw {
-                            vertex_count: 3,
-                        })?;
+                        commands.draw(gpu::prelude::Draw { vertex_count: 3 })?;
 
                         commands.end_rendering()
+                    },
+                });
+
+                executor.add(Task {
+                    resources: [
+                        Buffer(&sound_buffer, BufferAccess::TransferRead),
+                        Buffer(&sound_staging_buffer, BufferAccess::TransferWrite),
+                    ],
+                    task: |commands| {
+                        commands.copy_buffer_to_buffer(BufferCopy {
+                            from: 0,
+                            to: 1,
+                            src: 0,
+                            dst: 0,
+                            size: 4096,
+                        })?;
+                        Ok(())
+                    },
+                });
+
+                executor.add(Task {
+                    resources: [Buffer(
+                        &sound_staging_buffer,
+                        BufferAccess::HostTransferRead,
+                    )],
+                    task: move |commands| {
+                        let len = commands
+                            .read_buffer::<u32>(BufferRead {
+                                buffer: 0,
+                                offset: 0,
+                            })
+                            .unwrap();
+
+                        let sounds = commands
+                            .read_buffer::<[u32; 100]>(BufferRead {
+                                buffer: 0,
+                                offset: mem::size_of::<u32>(),
+                            })
+                            .unwrap();
+
+                        for i in 0..len as usize {
+                            let sound = unsafe { mem::transmute::<_, Sound>(sounds[i]) };
+
+                            let mut sound_path = sound_asset_path.clone();
+                            sound_path.push(sound.name());
+
+                            let file = std::fs::File::open(sound_path).unwrap();
+
+                            let stream_handle = stream_handle.clone();
+
+                            let stream_handle_guard = stream_handle.lock().unwrap();
+
+                            let play = stream_handle_guard.play_once(file).unwrap();
+                            play.set_volume(1.0);
+                            play.detach();
+                        }
+
+                        Ok(())
                     },
                 });
 
@@ -1439,6 +1602,9 @@ pub struct InputPush {
     pub transform_buffer: Buffer,
     pub rigidbody_buffer: Buffer,
     pub input_buffer: Buffer,
+    pub sound_buffer: Buffer,
+    pub mersenne_buffer: Buffer,
+    pub world_buffer: Buffer,
 }
 #[derive(Clone, Copy)]
 #[repr(C)]

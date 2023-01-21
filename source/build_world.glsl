@@ -61,8 +61,10 @@ void main() {
 		change.id = u16(1);
 	} else if(world_position.y > height - 1 && world_position.y < height + 1) {
 		change.id = u16(2);
-	} else if(world_position.y < height) {
+	} else if(world_position.y > height - 10 && world_position.y < height) {
 		change.id = u16(4);
+	} else if(world_position.y < height) {
+		change.id = u16(3);
 	} else {
 		change.id = u16(1);
 	}

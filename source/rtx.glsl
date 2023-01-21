@@ -166,6 +166,10 @@ void main() {
 		if(hit.id == 2) {
 			color.xyz = mix(vec3(170, 255, 21) / 256, vec3(34, 139, 34) / 256, noise_factor);
 		}
+		if(hit.id == 3) {
+			color.xyz = mix(vec3(135) / 256, vec3(80) / 256, noise_factor);
+		}
+
 		if(hit.id == 4) {
 			color.xyz = mix(vec3(107, 84, 40) / 256, vec3(64, 41, 5) / 256, noise_factor);
 		}

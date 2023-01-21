@@ -131,13 +131,14 @@ impl ShaderCompiler {
 
                 fs::remove_file(temporary_path.clone());
 
-                
                 let mut modified_code = source_code.clone();
 
-                modified_code = modified_code.replacen("\n", &format!("\n#define {}\r\n", options.ty), 1);
+                modified_code =
+                    modified_code.replacen("\n", &format!("\n#define {}\r\n", options.ty), 1);
 
                 for define in options.defines {
-                    modified_code = modified_code.replacen("\n", &format!("\n#define {}\r\n", define), 1);
+                    modified_code =
+                        modified_code.replacen("\n", &format!("\n#define {}\r\n", define), 1);
                 }
 
                 fs::write(temporary_path.clone(), modified_code);
@@ -281,7 +282,7 @@ impl PipelineCompiler {
                         input_path: &input_path,
                         output_path: &output_path,
                         ty: *ty,
-                        defines: *defines
+                        defines: *defines,
                     })?;
 
                 let shader_module_create_info = {

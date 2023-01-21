@@ -3,6 +3,10 @@
 #include "hexane.glsl"
 #include "rigidbody.glsl"
 #include "info.glsl"
+#include "noise.glsl"
+#include "sound.glsl"
+#include "region.glsl"
+#include "voxel.glsl"
 #include "transform.glsl"
 
 struct InputPush {
@@ -10,6 +14,9 @@ struct InputPush {
 	BufferId transform_id;
 	BufferId rigidbody_id;
 	BufferId input_id;
+	BufferId sound_id;
+	BufferId mersenne_id;
+	BufferId region_id;
 };
 
 decl_push_constant(InputPush)
@@ -27,6 +34,7 @@ decl_buffer(
 		bool first;
 		vec4 target_rotation;
 		vec2 target_lateral_velocity;
+		vec3 last_position;
 		bool jumping;
 		f32 target_rotation_time;
 		f32 coyote_counter;
@@ -59,6 +67,7 @@ void main() {
 	Buffer(Rigidbodies) rigidbodies = get_buffer(Rigidbodies, push_constant.rigidbody_id);
 	Buffer(Info) info = get_buffer(Info, push_constant.info_id);
 	Buffer(Input) inp = get_buffer(Input, push_constant.input_id);
+	Buffer(Region) region = get_buffer(Region, push_constant.region_id);
 
 	f32 delta_time = info.delta_time;
 
@@ -68,11 +77,29 @@ void main() {
 
 	if(!inp.first){
 		transform.position.xyz = vec3(128, 150, 128);
+		inp.last_position = transform.position.xyz;
 		rigidbody.velocity.xyz = vec3(0);
 		inp.target_rotation.xyz = vec3(-3.14 / 2.0 + 0.1, 0, 0);
 		inp.first = true;
 	}
-	
+
+	f32 step_distance = 4;
+
+	if(distance(inp.last_position, transform.position.xyz) > step_distance && rigidbody.on_ground) {
+		ivec3 diff = region.floating_origin - region.observer_position;
+		vec3 region_position = vec3(REGION_SIZE / 2) - vec3(diff);
+		region_position += transforms.data[0].position.xyz - region.observer_position;
+		VoxelQuery query;
+		query.region_data = region.data;
+		query.position = ivec3(region_position) + ivec3(0, -2, 0);
+
+		if(voxel_query(query)) {
+			play_sound_for_block_id(push_constant.sound_id, push_constant.mersenne_id, query.id);
+		}
+
+		inp.last_position = transform.position.xyz;
+	}
+
 	f32 sens = 0.002;
 	f32 rot_rate = exp2(0.01);
 
