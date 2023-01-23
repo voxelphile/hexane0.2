@@ -80,7 +80,7 @@ void main() {
 
 	k = mix(jx0, jx1, s.z);
 
-	value = u32((k * 0.5 + 0.5) * U32_MAX);
+	value = u32(((k + 1) / 2) * U32_MAX);
 
 	imageStore(perlin_img, i32vec3(gl_GlobalInvocationID), u32vec4(value, 0, 0, 0));
 }

@@ -1,5 +1,6 @@
 struct Rigidbody {
 	bool on_ground;
+	bool hit_something;
 	bool colliding;
 	vec3 velocity;
 	vec3 acceleration;

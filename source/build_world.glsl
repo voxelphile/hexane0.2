@@ -55,9 +55,14 @@ void main() {
 
 	f32 worley_noise_factor = f32(imageLoad(worley_image, abs(i32vec3(world_position.x, world_position.y * vertical_compression, world_position.z)) % i32vec3(imageSize(worley_image))).r) / f32(~0u);
 
+	f32 cave_frequency = 1e-5;
+	vec3 cave_offset = vec3(100, 200, 300);
+	f32 cave_smudge = 1e-7;
+	f32 cave_noise_factor = f32(imageLoad(perlin_image, abs(i32vec3(vec3(world_position.x * cave_frequency, 32, world_position.z * cave_frequency) + cave_offset)) % i32vec3(imageSize(perlin_image))).r) / f32(~0u);
+
 	//dunno why this is bugged.. if this statement isnt made like this
 	//then grass spawns on chunk corners
-	if(worley_noise_factor > 0.5) {
+	if(worley_noise_factor > 0.5 && cave_noise_factor > 0.5 - cave_smudge) {
 		change.id = u16(1);
 	} else if(world_position.y > height - 1 && world_position.y < height + 1) {
 		change.id = u16(2);

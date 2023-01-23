@@ -8,6 +8,7 @@
 #extension GL_EXT_shader_image_int64 : require
 #extension GL_EXT_nonuniform_qualifier : require
 #extension GL_KHR_shader_subgroup_basic : require
+#extension GL_EXT_control_flow_attributes : require
 
 #define EPSILON 1e-2
 
@@ -24,6 +25,7 @@
 #define f32 float
 #define f32vec2 vec2
 #define f32mat2x2 mat2x2
+
 #define f32mat2x3 mat2x3
 #define f32mat2x4 mat2x4
 #define f32vec3 vec3

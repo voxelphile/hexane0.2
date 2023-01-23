@@ -35,28 +35,23 @@ decl_buffer(
 		vec4 target_rotation;
 		vec2 target_lateral_velocity;
 		vec3 last_position;
+		bool running;
+		bool sprinting;
 		bool jumping;
 		f32 target_rotation_time;
+		f32 last_forward_time;
+		u32 forward_counter;
+		bool was_forward;
 		f32 coyote_counter;
 	}
 )
 	
 #ifdef compute
 
-#define SPEED 1
-#define SPEED_OF_LIGHT 1000000000
+#define HUMAN_FACTOR 7.3
+#define ENABLE_FLIGHT false
 
 layout (local_size_x = 256) in;
-
-#define SAMPLES 6
-
-#define HEIGHT 1.778
-#define WIDTH 1
-#define DEPTH 1
-
-#define GRAVITY -9
-#define ENABLE_FLIGHT false
-#define COLLIDE_DELTA 0.09
 
 void main() {
 	if(gl_GlobalInvocationID.x != 0) {
@@ -83,7 +78,7 @@ void main() {
 		inp.first = true;
 	}
 
-	f32 step_distance = 4;
+	f32 step_distance = HUMAN_FACTOR * mix(0.64, 0.74, f32(random(push_constant.mersenne_id)) / f32(~0u));
 
 	if(distance(inp.last_position, transform.position.xyz) > step_distance && rigidbody.on_ground) {
 		ivec3 diff = region.floating_origin - region.observer_position;
@@ -151,7 +146,33 @@ void main() {
 	
 	f32 move_rate = exp2(1);
 
-	inp.target_lateral_velocity = direction.xz * 20;
+	//TODO make this a game mechanic
+
+	inp.last_forward_time += delta_time;
+
+	if(entity_input.forward) {
+		inp.last_forward_time = 0;
+	} 
+
+	if(entity_input.forward && !inp.was_forward) {
+		inp.forward_counter++;
+	}
+
+	inp.was_forward = entity_input.forward;
+
+	if(!entity_input.forward && inp.last_forward_time > 0.2 || (rigidbody.hit_something && rigidbody.velocity.y <= 0)) {
+		inp.forward_counter = 0;
+	}
+
+	u32 double_tap = 2;
+	u32 triple_tap = 3;
+
+	inp.running = inp.forward_counter >= double_tap;
+	inp.sprinting = inp.forward_counter >= triple_tap;
+
+	float speed = inp.sprinting ? 3.0 : inp.running ? 2.3 : 1.3;
+
+	inp.target_lateral_velocity = direction.xz * speed * HUMAN_FACTOR;
 
 	rigidbody.velocity.xz = mix(rigidbody.velocity.xz, inp.target_lateral_velocity, exp2(-move_rate * delta_time));
 

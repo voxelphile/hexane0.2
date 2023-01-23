@@ -38,7 +38,7 @@ const SMALL_SIZE: usize = 512;
 const REALLY_LARGE_SIZE: usize = 200_000_000;
 
 const REGION_SIZE: usize = 512;
-const CHUNK_SIZE: usize = 128;
+const CHUNK_SIZE: usize = 64;
 const AXIS_MAX_CHUNKS: usize = 4;
 
 pub type Vertex = (f32, f32, f32);

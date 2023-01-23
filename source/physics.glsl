@@ -158,6 +158,7 @@ void main() {
 	Rigidbody rigidbody = rigidbodies.data[0];
 
 	rigidbody.on_ground = false;
+	rigidbody.hit_something = false;
 
 	f32 fixed_time = push_constant.fixed_time;
 	
@@ -290,6 +291,9 @@ void main() {
 
 		if(data[o].normals == vec3(0,1,0)) {
 			rigidbody.on_ground = true;
+		}
+		if(abs(data[o].normals.z) + abs(data[0].normals.x) >= 1) {
+			rigidbody.hit_something = true;
 		}
 
 	}

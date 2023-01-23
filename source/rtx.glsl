@@ -71,7 +71,7 @@ void main() {
 
 	vec3 positional_offset = clamp(offsets[indices[j]], pow(EPSILON, 3), 1 - pow(EPSILON, 3)) * CHUNK_SIZE;
 	
-	positional_offset = clamp(positional_offset, region.chunks[chunk].minimum, region.chunks[chunk].maximum); 
+	positional_offset = clamp(positional_offset, 0, CHUNK_SIZE); 
 
 	internal_position = vec4(positional_offset, 1.0);
 	chunk_position = vec4(positional_offset + ctransform.position.xyz, 1.0);
@@ -147,8 +147,8 @@ void main() {
 	ray.origin = origin;
 	ray.direction = dir;
 	ray.max_distance = sqrt(f32(3)) * CHUNK_SIZE + 1; 
-	ray.minimum = chunk_pos + region.chunks[chunk].minimum - fluff;
-	ray.maximum = chunk_pos + region.chunks[chunk].maximum + fluff;
+	ray.minimum = chunk_pos + 0 - fluff;
+	ray.maximum = chunk_pos + CHUNK_SIZE + fluff;
 
 	RayHit hit;
 
