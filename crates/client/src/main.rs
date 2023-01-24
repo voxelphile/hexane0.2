@@ -339,7 +339,7 @@ fn main() {
     let mut perlin_img = Cell::new(
         device
             .create_image(ImageInfo {
-                extent: ImageExtent::ThreeDim(256, 256, 256),
+                extent: ImageExtent::ThreeDim(128, 128, 128),
                 usage: ImageUsage::TRANSFER_DST,
                 format: Format::R32Uint,
                 ..default()
@@ -350,7 +350,7 @@ fn main() {
     let mut worley_img = Cell::new(
         device
             .create_image(ImageInfo {
-                extent: ImageExtent::ThreeDim(256, 256, 256),
+                extent: ImageExtent::ThreeDim(128, 128, 128),
                 usage: ImageUsage::TRANSFER_DST,
                 format: Format::R32Uint,
                 ..default()
@@ -375,7 +375,7 @@ fn main() {
 
     let general_staging_buffer = device
         .create_buffer(BufferInfo {
-            size: 1000000,
+            size: 100000,
             memory: Memory::HOST_ACCESS,
             debug_name: "Staging Buffer",
             ..default()
@@ -384,7 +384,7 @@ fn main() {
 
     let chunk_staging_buffer = device
         .create_buffer(BufferInfo {
-            size: 1000000,
+            size: 100000,
             memory: Memory::HOST_ACCESS,
             debug_name: "General Buffer",
             ..default()
@@ -393,7 +393,7 @@ fn main() {
 
     let noise_staging_buffer = device
         .create_buffer(BufferInfo {
-            size: 1000000,
+            size: 100000,
             memory: Memory::HOST_ACCESS,
             debug_name: "Staging Buffer",
             ..default()
@@ -402,7 +402,7 @@ fn main() {
 
     let world_buffer = device
         .create_buffer(BufferInfo {
-            size: 1000000,
+            size: 100000,
             debug_name: "General Buffer",
             ..default()
         })
@@ -410,7 +410,7 @@ fn main() {
 
     let mersenne_buffer = device
         .create_buffer(BufferInfo {
-            size: 1000000,
+            size: 100000,
             debug_name: "General Buffer",
             ..default()
         })
@@ -418,7 +418,7 @@ fn main() {
 
     let transform_buffer = device
         .create_buffer(BufferInfo {
-            size: 1000000,
+            size: 100000,
             debug_name: "General Buffer",
             ..default()
         })
@@ -1023,7 +1023,7 @@ fn main() {
                                 to: 1,
                                 src: 0,
                                 dst: 0,
-                                size: 1000000,
+                                size: 100000,
                             })?;
                         }
                         Ok(())
@@ -1052,7 +1052,7 @@ fn main() {
                             const WORK_GROUP_SIZE: usize = 8;
 
                             let dispatch_size =
-                                (size as f64 / WORK_GROUP_SIZE as f64).ceil() as usize;
+                                (16 as f64 / WORK_GROUP_SIZE as f64).ceil() as usize;
 
                             commands.dispatch(dispatch_size, dispatch_size, dispatch_size)?;
                         }
@@ -1080,7 +1080,7 @@ fn main() {
                             const WORK_GROUP_SIZE: usize = 8;
 
                             let dispatch_size =
-                                (2048 as f64 / WORK_GROUP_SIZE as f64).ceil() as usize;
+                                (128 as f64 / WORK_GROUP_SIZE as f64).ceil() as usize;
 
                             commands.dispatch(dispatch_size, dispatch_size, dispatch_size)?;
                         }
@@ -1108,7 +1108,7 @@ fn main() {
                             const WORK_GROUP_SIZE: usize = 8;
 
                             let dispatch_size =
-                                (2048 as f64 / WORK_GROUP_SIZE as f64).ceil() as usize;
+                                (128 as f64 / WORK_GROUP_SIZE as f64).ceil() as usize;
 
                             commands.dispatch(dispatch_size, dispatch_size, dispatch_size)?;
                         }
