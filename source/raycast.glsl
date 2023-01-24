@@ -29,7 +29,7 @@ bool ray_cast(inout Ray ray, out RayHit hit) {
 	
 	f32 dist = 0;
 
-	[[unroll]] for(int i = 0; i < MAX_STEP_COUNT; i++) {
+	for(int i = 0; i < MAX_STEP_COUNT; i++) {
 		bool in_chunk = all(greaterThanEqual(map_pos, vec3(ray.minimum -EPSILON))) && all(lessThan(map_pos, vec3(ray.maximum + EPSILON)));
 
 		if(!in_chunk) {

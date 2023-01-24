@@ -198,7 +198,6 @@ dependencies = [
  "convert_case",
  "gpu",
  "math",
- "net",
  "noise",
  "profiling",
  "rand",

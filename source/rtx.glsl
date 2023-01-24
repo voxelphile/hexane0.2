@@ -7,6 +7,7 @@
 #include "voxel.glsl"
 #include "aabb.glsl"
 #include "raycast.glsl"
+#include "camera.glsl"
 #include "ao.glsl"
 
 #define VERTICES_PER_CUBE 6
@@ -14,24 +15,13 @@
 struct RtxPush {
 	BufferId info_id;
 	BufferId camera_id;
-	BufferId sort_id;
 	BufferId transform_id;
 	BufferId region_id;
 	ImageId perlin_id;
-	ImageId prepass_id;
 };
 
 decl_push_constant(RtxPush)
 
-decl_buffer(
-	Camera,
-	{
-		mat4 projection;
-		mat4 inv_projection;
-		f32 far;
-		vec2 resolution;
-	}
-)
 
 #if defined(volume) && defined(vertex)
 
@@ -117,8 +107,6 @@ void main() {
 	ivec3 diff = region.floating_origin - region.observer_position;
 	region_transform.position.xyz = vec3(REGION_SIZE / 2) - vec3(diff);
 	region_transform.position.xyz += transforms.data[0].position.xyz - region.observer_position;
-
-
 	
 	vec2 screenPos = (gl_FragCoord.xy / camera.resolution.xy) * 2.0 - 1.0;
 	vec4 far = camera.inv_projection * vec4(screenPos, 1, 1);

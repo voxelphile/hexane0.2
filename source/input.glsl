@@ -7,6 +7,8 @@
 #include "sound.glsl"
 #include "region.glsl"
 #include "voxel.glsl"
+#include "camera.glsl"
+#include "raycast.glsl"
 #include "transform.glsl"
 
 struct InputPush {
@@ -17,16 +19,10 @@ struct InputPush {
 	BufferId sound_id;
 	BufferId mersenne_id;
 	BufferId region_id;
+	BufferId camera_id;
 };
 
 decl_push_constant(InputPush)
-
-decl_buffer(
-	Camera,
-	{
-		mat4 projection;
-	}
-)
 
 decl_buffer(
 	Input,
@@ -39,6 +35,7 @@ decl_buffer(
 		bool sprinting;
 		bool jumping;
 		f32 target_rotation_time;
+		f32 last_action_time;
 		f32 last_forward_time;
 		u32 forward_counter;
 		bool was_forward;
@@ -63,6 +60,7 @@ void main() {
 	Buffer(Info) info = get_buffer(Info, push_constant.info_id);
 	Buffer(Input) inp = get_buffer(Input, push_constant.input_id);
 	Buffer(Region) region = get_buffer(Region, push_constant.region_id);
+	Buffer(Camera) camera = get_buffer(Camera, push_constant.camera_id);
 
 	f32 delta_time = info.delta_time;
 
@@ -77,6 +75,53 @@ void main() {
 		inp.target_rotation.xyz = vec3(-3.14 / 2.0 + 0.1, 0, 0);
 		inp.first = true;
 	}
+
+	if(inp.last_action_time > 0.15 && (entity_input.action1 || entity_input.action2)) {
+		Transform region_transform = transform;
+		ivec3 diff = region.floating_origin - region.observer_position;
+		region_transform.position.xyz = vec3(REGION_SIZE / 2) - vec3(diff);
+		region_transform.position.xyz += transforms.data[0].position.xyz - region.observer_position;
+	
+		vec2 screenPos = vec2(0);
+		vec4 far = camera.inv_projection * vec4(screenPos, 1, 1);
+		far /= far.w;
+		vec4 near = camera.inv_projection * vec4(screenPos, 0, 1);
+		near /= near.w;
+		vec3 origin = (compute_transform_matrix(region_transform) * near).xyz;
+		vec3 dir = (compute_transform_matrix(region_transform) * vec4(normalize(far.xyz), 0)).xyz;
+	
+		Ray ray;
+		ray.region = region;
+		ray.origin = origin;
+		ray.direction = dir;
+		ray.max_distance = 10; 
+		ray.minimum = vec3(0);
+		ray.maximum = vec3(REGION_SIZE);
+
+		RayHit hit;
+
+		bool success = ray_cast(ray, hit);
+
+		if(success) {
+			inp.last_action_time = 0;
+
+			VoxelChange change;
+			change.region_data = region.data;
+
+			if(entity_input.action1) {
+				change.id = u16(1);
+				change.position = ivec3(vec3(hit.destination.xyz - vec3(hit.normal.xyz) * 0.5));
+			}
+			if(entity_input.action2) {
+				change.id = u16(3);
+				change.position = ivec3(vec3(hit.destination.xyz + vec3(hit.normal.xyz) * 0.5));
+			}
+
+			voxel_change(change);
+		}
+	}
+	
+	inp.last_action_time += delta_time;
 
 	f32 step_distance = HUMAN_FACTOR * mix(0.64, 0.74, f32(random(push_constant.mersenne_id)) / f32(~0u));
 

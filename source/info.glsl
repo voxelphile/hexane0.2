@@ -5,6 +5,8 @@ struct EntityInput {
 	bool right;
 	bool forward;
 	bool backward;
+	bool action1;
+	bool action2;
 	vec4 look;
 };
 

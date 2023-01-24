@@ -1100,6 +1100,15 @@ impl Device {
         Ok(*format)
     }
 
+    pub fn wait_idle(&self) {
+        let DeviceInner {
+            logical_device,
+            ..
+        } = &*self.inner;
+
+        unsafe { logical_device.device_wait_idle() };
+    }
+
     pub fn create_swapchain(&self, info: SwapchainInfo<'_>) -> Result<Swapchain> {
         let DeviceInner {
             context,
@@ -1198,6 +1207,8 @@ impl Device {
 
             let clipped = true as _;
 
+            let surface = *surface;
+
             let old_swapchain = if let Some(swapchain) = info.old_swapchain {
                 resources
                     .swapchains
@@ -1207,8 +1218,6 @@ impl Device {
             } else {
                 vk::SwapchainKHR::null()
             };
-
-            let surface = *surface;
 
             vk::SwapchainCreateInfoKHR {
                 surface,

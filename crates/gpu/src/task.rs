@@ -420,6 +420,8 @@ impl ops::FnMut<()> for Executable<'_> {
                     Qualifier::Image(image, dst) => {
                         let src = last_image_access.entry(*image).or_default();
 
+                        u32::from(*image);
+
                         barriers.push(PipelineBarrier {
                             src_stage: (*src).into(),
                             dst_stage: (*dst).into(),
@@ -511,6 +513,14 @@ impl ops::FnMut<()> for Executable<'_> {
             let resources = resources.lock().unwrap();
 
             let internal_swapchain = resources.swapchains.get(*swapchain).unwrap();
+                
+            let image_index = internal_swapchain.last_acquisition_index.unwrap();
+
+            let wait_semaphore = resources
+                    .binary_semaphores
+                    .get(present.wait_semaphore)
+                    .unwrap()
+                    .semaphores[current_frame];
 
             let present_info = {
                 let swapchain_count = 1;
@@ -519,13 +529,7 @@ impl ops::FnMut<()> for Executable<'_> {
 
                 let wait_semaphore_count = 1;
 
-                let p_wait_semaphores = &resources
-                    .binary_semaphores
-                    .get(present.wait_semaphore)
-                    .unwrap()
-                    .semaphores[current_frame];
-
-                let image_index = internal_swapchain.last_acquisition_index.unwrap();
+                let p_wait_semaphores = &wait_semaphore;
 
                 let p_image_indices = &image_index;
 

@@ -85,7 +85,7 @@ impl From<u32> for Image {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 pub enum ImageLayout {
     Undefined,
     General,

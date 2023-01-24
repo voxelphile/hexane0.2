@@ -384,7 +384,7 @@ fn main() {
 
     let chunk_staging_buffer = device
         .create_buffer(BufferInfo {
-            size: REALLY_LARGE_SIZE,
+            size: 1000000,
             memory: Memory::HOST_ACCESS,
             debug_name: "General Buffer",
             ..default()
@@ -393,24 +393,16 @@ fn main() {
 
     let noise_staging_buffer = device
         .create_buffer(BufferInfo {
-            size: 100000,
+            size: 1000000,
             memory: Memory::HOST_ACCESS,
             debug_name: "Staging Buffer",
             ..default()
         })
         .expect("failed to create buffer");
 
-    let vertex_buffer = device
-        .create_buffer(BufferInfo {
-            size: REALLY_LARGE_SIZE,
-            debug_name: "General Buffer",
-            ..default()
-        })
-        .expect("failed to create buffer");
-
     let world_buffer = device
         .create_buffer(BufferInfo {
-            size: REALLY_LARGE_SIZE,
+            size: 1000000,
             debug_name: "General Buffer",
             ..default()
         })
@@ -418,7 +410,7 @@ fn main() {
 
     let mersenne_buffer = device
         .create_buffer(BufferInfo {
-            size: 100000,
+            size: 1000000,
             debug_name: "General Buffer",
             ..default()
         })
@@ -535,14 +527,14 @@ fn main() {
 
     let info = Cell::new(Info::default());
 
-    let update = Cell::new(true);
-    let build = Cell::new(true);
+    let basic_update = Cell::new(true);
+    let noise_update = Cell::new(true);
+    let world_update = Cell::new(true);
 
     let physics_time_accum = Cell::new(0.0);
 
     let vertex_count = Cell::new(0);
 
-    let vertex_buffer = || vertex_buffer;
     let input_buffer = || input_buffer;
     let mersenne_buffer = || mersenne_buffer;
     let transform_buffer = || transform_buffer;
@@ -667,6 +659,8 @@ fn main() {
                 profiling::scope!("mouse input", "ev");
                 use winit::event::MouseButton::*;
 
+                let mut entity_input = info.get().entity_input;
+                
                 match button {
                     Left => {
                         cursor_captured = true;
@@ -674,9 +668,18 @@ fn main() {
                         window
                             .set_cursor_grab(winit::window::CursorGrabMode::Confined)
                             .expect("could not grab mouse cursor");
+                        entity_input.action1 = true as _;     
+                    }
+                    Right => {
+                        entity_input.action2 = true as _;
                     }
                     _ => {}
                 }
+
+                info.set(Info {
+                    entity_input,
+                    ..info.get()
+                });
             }
             Event::WindowEvent {
                 event: WindowEvent::KeyboardInput { input, .. },
@@ -761,7 +764,9 @@ fn main() {
 
                 let winit::dpi::PhysicalSize { width, height } = size;
 
-                resolution.set((width, height));
+                if((width, height) == resolution.get()) {
+                    return;
+                }   
 
                 swapchain.set(
                     device
@@ -774,6 +779,8 @@ fn main() {
                         })
                         .expect("failed to create swapchain"),
                 );
+                
+                resolution.set((width, height));
 
                 depth_img.set(
                     device
@@ -833,7 +840,7 @@ fn main() {
                     ]),
                 });
 
-                update.set(true);
+                basic_update.set(true);
 
                 let mut executor = device
                     .create_executor(ExecutorInfo {
@@ -859,6 +866,8 @@ fn main() {
                         info.set(Info {
                             entity_input: EntityInput {
                                 look: default(),
+                                action1: false as _,
+                                action2: false as _,
                                 ..info.get().entity_input
                             },
                             delta_time: default(),
@@ -892,7 +901,7 @@ fn main() {
                         BufferAccess::HostTransferWrite,
                     )],
                     task: |commands| {
-                        if update.get() {
+                        if basic_update.get() {
                             commands.write_buffer(BufferWrite {
                                 buffer: 0,
                                 offset: 8192,
@@ -910,7 +919,7 @@ fn main() {
                         Buffer(&camera_buffer, BufferAccess::TransferWrite),
                     ],
                     task: |commands| {
-                        if update.get() {
+                        if basic_update.get() {
                             commands.copy_buffer_to_buffer(BufferCopy {
                                 from: 0,
                                 to: 1,
@@ -919,6 +928,7 @@ fn main() {
                                 size: mem::size_of::<CameraInfo>(),
                             })?;
                         }
+                        basic_update.set(false);
                         Ok(())
                     },
                 });
@@ -929,7 +939,7 @@ fn main() {
                         BufferAccess::HostTransferWrite,
                     )],
                     task: |commands| {
-                        if update.get() {
+                        if world_update.get() {
                             commands.write_buffer(BufferWrite {
                                 buffer: 0,
                                 offset: 0,
@@ -947,13 +957,13 @@ fn main() {
                         Buffer(&world_buffer, BufferAccess::TransferWrite),
                     ],
                     task: |commands| {
-                        if update.get() {
+                        if world_update.get() {
                             commands.copy_buffer_to_buffer(BufferCopy {
                                 from: 0,
                                 to: 1,
                                 src: 0,
                                 dst: 0,
-                                size: REALLY_LARGE_SIZE,
+                                size: chunk_images.len() * mem::size_of::<gpu::prelude::Image>(),
                             })?;
                         }
                         Ok(())
@@ -966,7 +976,7 @@ fn main() {
                         BufferAccess::HostTransferWrite,
                     )],
                     task: |commands| {
-                        if update.get() {
+                        if noise_update.get() {
                             const W: u32 = 32;
                             const N: u32 = 642;
 
@@ -1007,13 +1017,13 @@ fn main() {
                         Buffer(&mersenne_buffer, BufferAccess::TransferWrite),
                     ],
                     task: |commands| {
-                        if update.get() {
+                        if noise_update.get() {
                             commands.copy_buffer_to_buffer(BufferCopy {
                                 from: 0,
                                 to: 1,
                                 src: 0,
                                 dst: 0,
-                                size: 100000,
+                                size: 1000000,
                             })?;
                         }
                         Ok(())
@@ -1026,7 +1036,7 @@ fn main() {
                         Image(&noise_image, ImageAccess::ComputeShaderReadWrite),
                     ],
                     task: |commands| {
-                        if update.get() {
+                        if noise_update.get() {
                             commands.set_pipeline(&noise_pipeline)?;
 
                             commands.push_constant(PushConstant {
@@ -1056,7 +1066,7 @@ fn main() {
                         Image(&worley_image, ImageAccess::ComputeShaderReadWrite),
                     ],
                     task: |commands| {
-                        if update.get() {
+                        if noise_update.get() {
                             commands.set_pipeline(&worley_pipeline)?;
 
                             commands.push_constant(PushConstant {
@@ -1084,7 +1094,7 @@ fn main() {
                         Image(&perlin_image, ImageAccess::ComputeShaderReadWrite),
                     ],
                     task: |commands| {
-                        if update.get() {
+                        if noise_update.get() {
                             commands.set_pipeline(&perlin_pipeline)?;
 
                             commands.push_constant(PushConstant {
@@ -1102,7 +1112,7 @@ fn main() {
 
                             commands.dispatch(dispatch_size, dispatch_size, dispatch_size)?;
                         }
-                        update.set(false);
+                        noise_update.set(false);
                         Ok(())
                     },
                 });
@@ -1146,6 +1156,7 @@ fn main() {
                                 sound_buffer: (sound_buffer)(),
                                 mersenne_buffer: (mersenne_buffer)(),
                                 world_buffer: (world_buffer)(),
+                                camera_buffer: (camera_buffer)(),
                             },
                             pipeline: &input_pipeline,
                         })?;
@@ -1218,6 +1229,7 @@ fn main() {
                         Image(&perlin_image, ImageAccess::ComputeShaderReadWrite),
                     ],
                     task: |commands| {
+                        if(world_update.get()) {
                         commands.set_pipeline(&box_pipeline)?;
 
                         commands.push_constant(PushConstant {
@@ -1235,6 +1247,8 @@ fn main() {
                         let size = (AXIS_MAX_CHUNKS) / WORK_GROUP_SIZE;
 
                         commands.dispatch(size, size, size)?;
+                        }
+                        world_update.set(false);
                         Ok(())
                     },
                 });
@@ -1306,7 +1320,6 @@ fn main() {
                         Image(&prepass_image, ImageAccess::ColorAttachment),
                         Image(&depth_image, ImageAccess::DepthAttachment),
                         Buffer(&camera_buffer, BufferAccess::FragmentShaderReadOnly),
-                        Buffer(&vertex_buffer, BufferAccess::VertexShaderReadOnly),
                         Buffer(&transform_buffer, BufferAccess::VertexShaderReadOnly),
                         Buffer(&world_buffer, BufferAccess::ShaderReadOnly),
                         Image(&perlin_image, ImageAccess::FragmentShaderReadWrite),
@@ -1343,7 +1356,6 @@ fn main() {
                             data: DrawPush {
                                 info_buffer: (info_buffer)(),
                                 camera_buffer: (camera_buffer)(),
-                                vertex_buffer: (vertex_buffer)(),
                                 transform_buffer: (transform_buffer)(),
                                 world_buffer: (world_buffer)(),
                                 perlin_image: (perlin_image)(),
@@ -1362,7 +1374,6 @@ fn main() {
                         Image(&prepass_image, ImageAccess::ColorAttachment),
                         Image(&depth_image, ImageAccess::DepthAttachment),
                         Buffer(&camera_buffer, BufferAccess::FragmentShaderReadOnly),
-                        Buffer(&vertex_buffer, BufferAccess::VertexShaderReadOnly),
                         Buffer(&transform_buffer, BufferAccess::VertexShaderReadOnly),
                         Buffer(&world_buffer, BufferAccess::ShaderReadOnly),
                         Image(&perlin_image, ImageAccess::FragmentShaderReadWrite),
@@ -1399,7 +1410,6 @@ fn main() {
                             data: DrawPush {
                                 info_buffer: (info_buffer)(),
                                 camera_buffer: (camera_buffer)(),
-                                vertex_buffer: (vertex_buffer)(),
                                 transform_buffer: (transform_buffer)(),
                                 world_buffer: (world_buffer)(),
                                 perlin_image: (perlin_image)(),
@@ -1563,6 +1573,8 @@ struct EntityInput {
     right: u32,
     forward: u32,
     backward: u32,
+    action1: u32,
+    action2: u32,
     look: Vector<f32, 4>,
 }
 
@@ -1582,7 +1594,6 @@ pub struct PrepassPush {
 pub struct DrawPush {
     pub info_buffer: Buffer,
     pub camera_buffer: Buffer,
-    pub vertex_buffer: Buffer,
     pub transform_buffer: Buffer,
     pub world_buffer: Buffer,
     pub perlin_image: Image,
@@ -1605,6 +1616,7 @@ pub struct InputPush {
     pub sound_buffer: Buffer,
     pub mersenne_buffer: Buffer,
     pub world_buffer: Buffer,
+    pub camera_buffer: Buffer,
 }
 #[derive(Clone, Copy)]
 #[repr(C)]
