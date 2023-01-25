@@ -3,6 +3,7 @@
 #include "hexane.glsl"
 #include "region.glsl"
 #include "vertex.glsl"
+#include "noise.glsl"
 #include "transform.glsl"
 #include "voxel.glsl"
 #include "aabb.glsl"
@@ -10,13 +11,14 @@
 #include "camera.glsl"
 #include "ao.glsl"
 
-#define VERTICES_PER_CUBE 6
+#define PI 3.14159265
 
 struct RtxPush {
 	BufferId info_id;
 	BufferId camera_id;
 	BufferId transform_id;
 	BufferId region_id;
+	BufferId mersenne_id;
 	ImageId perlin_id;
 };
 
@@ -93,6 +95,11 @@ layout(location = 2) in flat u32 chunk;
 
 layout(location = 0) out vec4 result;
 
+struct Light {
+	vec3 position;
+	vec4 color;
+};
+
 void main() {
 	Buffer(Camera) camera = get_buffer(Camera, push_constant.camera_id);
 	Buffer(Transforms) transforms = get_buffer(Transforms, push_constant.transform_id);
@@ -144,48 +151,7 @@ void main() {
 
 	RayState ray_state = ray_cast_start(ray);
 
-	f32 master_last_dist = 0;
-	f32 phase_val = 0.74;
-
-	while(ray_cast_drive(ray, ray_state)) {
-		Ray light_ray;
-		light_ray.region = region;
-		light_ray.origin = vec3(ray_state.map_pos);
-		light_ray.direction = normalize(sun_pos - light_ray.origin);
-		light_ray.max_distance = 10; 
-		light_ray.minimum = vec3(0);
-		light_ray.maximum = vec3(REGION_SIZE);
-
-		RayState light_ray_state = ray_cast_start(light_ray);
-	
-		float density = 0.1;
-		float total_density = 0.0;
-		
-		float last_dist = 0;
-
-		while(ray_cast_drive(light_ray, light_ray_state)) {
-			 total_density += max(0, density * (light_ray_state.dist - last_dist));
-			 last_dist = light_ray_state.dist;
-		}
-
-		float darkness_threshold = 0.07;
-		float light_absorption_toward_sun = 0.94;
-		float transmittance1 = exp(-total_density * light_absorption_toward_sun);
-                float light_transmittance1 = darkness_threshold + transmittance * (1-darkness_threshold);
-
-		RayHit light_ray_hit;
-
-		bool success = ray_cast_complete(light_ray, light_ray_state, light_ray_hit);
-
-		float light_absorption_through_cloud = 0.85;
-
-		if(!success) {
-			light_energy += density * (ray_state.dist - master_last_dist) * transmittance1 * phase_val;
-			transmittance *= exp(-density * (ray_state.dist - master_last_dist) * light_absorption_through_cloud);
-		}
-
-		master_last_dist = ray_state.dist;
-	}
+	while(ray_cast_drive(ray, ray_state)) {}
 	
 	RayHit ray_hit;
 
@@ -211,9 +177,6 @@ void main() {
 			color.xyz = mix(vec3(107, 84, 40) / 256, vec3(64, 41, 5) / 256, noise_factor);
 		}
 
-		vec3 fog_color = light_energy * vec3(255, 253, 50) / 255;
-		color.xyz = color.xyz * transmittance + fog_color;
-
 		vec4 ambient = voxel_ao(
 			region.data,
 			ray_hit.back_step, 
@@ -229,11 +192,29 @@ void main() {
 
 		color.xyz = color.xyz - vec3(1 - ao) * 0.25;
 
+		float intensity = 0.3;
+
+		u32 light_count = 1;
+		Light lights[1];
+		lights[0].position = sun_pos;
+		lights[0].color = vec4(0.95, 0.99, 1.0, 1.0);
+
+		for(i32 i = 0; i < light_count; i++) {
+		if(i != 0) {
+			u32 x = random(push_constant.mersenne_id) - (~0u) / 2;
+			u32 y = random(push_constant.mersenne_id) - (~0u) / 2;
+			u32 z = random(push_constant.mersenne_id) - (~0u) / 2;
+		
+					
+			lights[i].position = normalize(vec3(x, y, z)) * 1000000; 
+			lights[i].color = vec4(lights[0].color.xyz, (1 - 0.3) / light_count);
+		}
+
 		Ray shadow_ray;
 		shadow_ray.region = region;
-		shadow_ray.origin = ray_hit.destination + ray_hit.normal * EPSILON;
-		shadow_ray.direction = normalize(sun_pos - ray_hit.destination);
-		shadow_ray.max_distance = 50; 
+		shadow_ray.origin = ray_hit.destination + ray_hit.normal * EPSILON * EPSILON;
+		shadow_ray.direction = normalize(lights[i].position - ray_hit.destination);
+		shadow_ray.max_distance = 100; 
 		shadow_ray.minimum = vec3(0);
 		shadow_ray.maximum = vec3(REGION_SIZE);
 
@@ -244,9 +225,20 @@ void main() {
 		RayHit shadow_ray_hit;
 
 		bool shadow_success = ray_cast_complete(shadow_ray, shadow_ray_state, shadow_ray_hit);
+			
+		if(!shadow_success) {
+			intensity += lights[i].color.a;
 
-		if(shadow_success) {
 		}	
+
+		if(intensity >= 1) {
+			break;
+		}
+
+		color.xyz *= lights[i].color.xyz;
+		}
+
+		color *= min(intensity, 1);
 
 		vec4 v_clip_coord = camera.projection * inverse(compute_transform_matrix(region_transform)) * vec4(ray_hit.destination, 1.0);
 		float f_ndc_depth = v_clip_coord.z / v_clip_coord.w;

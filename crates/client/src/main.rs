@@ -295,7 +295,7 @@ fn main() {
         })
         .expect("failed to create pipeline");
 
-    const PREPASS_SCALE: usize = 2;
+    const PREPASS_SCALE: usize = 8;
 
     let mut depth_img = Cell::new(
         device
@@ -1322,6 +1322,7 @@ fn main() {
                         Buffer(&camera_buffer, BufferAccess::FragmentShaderReadOnly),
                         Buffer(&transform_buffer, BufferAccess::VertexShaderReadOnly),
                         Buffer(&world_buffer, BufferAccess::ShaderReadOnly),
+                        Buffer(&mersenne_buffer, BufferAccess::FragmentShaderReadWrite),
                         Image(&perlin_image, ImageAccess::FragmentShaderReadWrite),
                     ],
                     task: |commands| {
@@ -1358,6 +1359,7 @@ fn main() {
                                 camera_buffer: (camera_buffer)(),
                                 transform_buffer: (transform_buffer)(),
                                 world_buffer: (world_buffer)(),
+                                mersenne_buffer: (mersenne_buffer)(),
                                 perlin_image: (perlin_image)(),
                             },
                             pipeline: &draw2_pipeline,
@@ -1412,6 +1414,7 @@ fn main() {
                                 camera_buffer: (camera_buffer)(),
                                 transform_buffer: (transform_buffer)(),
                                 world_buffer: (world_buffer)(),
+                                mersenne_buffer: (mersenne_buffer)(),
                                 perlin_image: (perlin_image)(),
                             },
                             pipeline: &draw_pipeline,
@@ -1596,6 +1599,7 @@ pub struct DrawPush {
     pub camera_buffer: Buffer,
     pub transform_buffer: Buffer,
     pub world_buffer: Buffer,
+    pub mersenne_buffer: Buffer,
     pub perlin_image: Image,
 }
 
