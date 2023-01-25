@@ -98,9 +98,13 @@ void main() {
 		ray.minimum = vec3(0);
 		ray.maximum = vec3(REGION_SIZE);
 
-		RayHit hit;
+		RayState ray_state = ray_cast_start(ray);
 
-		bool success = ray_cast(ray, hit);
+		while(ray_cast_drive(ray, ray_state)) {}
+	
+		RayHit ray_hit;
+
+		bool success = ray_cast_complete(ray, ray_state, ray_hit);
 
 		if(success) {
 			inp.last_action_time = 0;
@@ -110,11 +114,11 @@ void main() {
 
 			if(entity_input.action1) {
 				change.id = u16(1);
-				change.position = ivec3(vec3(hit.destination.xyz - vec3(hit.normal.xyz) * 0.5));
+				change.position = ivec3(vec3(ray_hit.destination.xyz - vec3(ray_hit.normal.xyz) * 0.5));
 			}
 			if(entity_input.action2) {
 				change.id = u16(3);
-				change.position = ivec3(vec3(hit.destination.xyz + vec3(hit.normal.xyz) * 0.5));
+				change.position = ivec3(vec3(ray_hit.destination.xyz + vec3(ray_hit.normal.xyz) * 0.5));
 			}
 
 			voxel_change(change);

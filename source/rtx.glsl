@@ -125,9 +125,13 @@ void main() {
 	vec3 dir = (compute_transform_matrix(region_transform) * vec4(normalize(far.xyz), 0)).xyz;
 	
 	vec4 color = vec4(0, 0, 0, 1);
+	vec3 light_energy = vec3(0);
+	float transmittance = 1;
 
 	vec3 chunk_pos = transforms.data[1 + chunk].position.xyz - vec3(uvec3(vec3(AXIS_MAX_CHUNKS * CHUNK_SIZE / 2))) + vec3(uvec3(vec3(REGION_SIZE / 2))) - vec3(diff);
 
+	vec3 sun_pos = vec3(10000);
+	
 	u32 fluff = 5;
 
 	Ray ray;
@@ -138,64 +142,113 @@ void main() {
 	ray.minimum = chunk_pos + 0 - fluff;
 	ray.maximum = chunk_pos + CHUNK_SIZE + fluff;
 
-	RayHit hit;
+	RayState ray_state = ray_cast_start(ray);
 
-	bool success = ray_cast(ray, hit);
+	f32 master_last_dist = 0;
+	f32 phase_val = 0.74;
+
+	while(ray_cast_drive(ray, ray_state)) {
+		Ray light_ray;
+		light_ray.region = region;
+		light_ray.origin = vec3(ray_state.map_pos);
+		light_ray.direction = normalize(sun_pos - light_ray.origin);
+		light_ray.max_distance = 10; 
+		light_ray.minimum = vec3(0);
+		light_ray.maximum = vec3(REGION_SIZE);
+
+		RayState light_ray_state = ray_cast_start(light_ray);
+	
+		float density = 0.1;
+		float total_density = 0.0;
+		
+		float last_dist = 0;
+
+		while(ray_cast_drive(light_ray, light_ray_state)) {
+			 total_density += max(0, density * (light_ray_state.dist - last_dist));
+			 last_dist = light_ray_state.dist;
+		}
+
+		float darkness_threshold = 0.07;
+		float light_absorption_toward_sun = 0.94;
+		float transmittance1 = exp(-total_density * light_absorption_toward_sun);
+                float light_transmittance1 = darkness_threshold + transmittance * (1-darkness_threshold);
+
+		RayHit light_ray_hit;
+
+		bool success = ray_cast_complete(light_ray, light_ray_state, light_ray_hit);
+
+		float light_absorption_through_cloud = 0.85;
+
+		if(!success) {
+			light_energy += density * (ray_state.dist - master_last_dist) * transmittance1 * phase_val;
+			transmittance *= exp(-density * (ray_state.dist - master_last_dist) * light_absorption_through_cloud);
+		}
+
+		master_last_dist = ray_state.dist;
+	}
+	
+	RayHit ray_hit;
+
+	bool success = ray_cast_complete(ray, ray_state, ray_hit);
 		
 	if (success) {
-		if(distance(hit.destination, vec3(region_transform.position.xyz)) > VIEW_DISTANCE) {
+		if(distance(ray_hit.destination, vec3(region_transform.position.xyz)) > VIEW_DISTANCE) {
 			discard;
 		}
 
-		f32 noise_factor = f32(imageLoad(perlin_img, i32vec3(abs(round(vec3(region.floating_origin) - vec3(REGION_SIZE / 2) + hit.destination + vec3(0.5)))) % i32vec3(imageSize(perlin_img))).r) / f32(~0u);
-		if(hit.id == 0) {
+		f32 noise_factor = f32(imageLoad(perlin_img, i32vec3(abs(round(vec3(region.floating_origin) - vec3(REGION_SIZE / 2) + ray_hit.destination + vec3(0.5)))) % i32vec3(imageSize(perlin_img))).r) / f32(~0u);
+		if(ray_hit.id == 0) {
 			color.xyz = vec3(1, 0, 1);
 		}
-		if(hit.id == 2) {
+		if(ray_hit.id == 2) {
 			color.xyz = mix(vec3(170, 255, 21) / 256, vec3(34, 139, 34) / 256, noise_factor);
 		}
-		if(hit.id == 3) {
+		if(ray_hit.id == 3) {
 			color.xyz = mix(vec3(135) / 256, vec3(80) / 256, noise_factor);
 		}
 
-		if(hit.id == 4) {
+		if(ray_hit.id == 4) {
 			color.xyz = mix(vec3(107, 84, 40) / 256, vec3(64, 41, 5) / 256, noise_factor);
 		}
 
+		vec3 fog_color = light_energy * vec3(255, 253, 50) / 255;
+		color.xyz = color.xyz * transmittance + fog_color;
+
 		vec4 ambient = voxel_ao(
 			region.data,
-			hit.back_step, 
-			abs(hit.normal.zxy), 
-			abs(hit.normal.yzx)
+			ray_hit.back_step, 
+			abs(ray_hit.normal.zxy), 
+			abs(ray_hit.normal.yzx)
 			);
 
 		float ao = 0;
 
 		if (ENABLE_AO) {
-			ao = mix(mix(ambient.z, ambient.w, hit.uv.x), mix(ambient.y, ambient.x, hit.uv.x), hit.uv.y);
+			ao = mix(mix(ambient.z, ambient.w, ray_hit.uv.x), mix(ambient.y, ambient.x, ray_hit.uv.x), ray_hit.uv.y);
 		}
 
 		color.xyz = color.xyz - vec3(1 - ao) * 0.25;
 
-		vec3 sun_pos = vec3(10000);
 		Ray shadow_ray;
 		shadow_ray.region = region;
-		shadow_ray.origin = hit.destination + hit.normal * EPSILON;
-		shadow_ray.direction = normalize(sun_pos - hit.destination);
+		shadow_ray.origin = ray_hit.destination + ray_hit.normal * EPSILON;
+		shadow_ray.direction = normalize(sun_pos - ray_hit.destination);
 		shadow_ray.max_distance = 50; 
 		shadow_ray.minimum = vec3(0);
 		shadow_ray.maximum = vec3(REGION_SIZE);
 
+		RayState shadow_ray_state = ray_cast_start(shadow_ray);
 
-		RayHit shadow_hit;
+		while(ray_cast_drive(shadow_ray, shadow_ray_state)) {}
+	
+		RayHit shadow_ray_hit;
 
-		bool shadow_success = ray_cast(shadow_ray, shadow_hit);
+		bool shadow_success = ray_cast_complete(shadow_ray, shadow_ray_state, shadow_ray_hit);
 
 		if(shadow_success) {
-			color *= 0.5;
 		}	
 
-		vec4 v_clip_coord = camera.projection * inverse(compute_transform_matrix(region_transform)) * vec4(hit.destination, 1.0);
+		vec4 v_clip_coord = camera.projection * inverse(compute_transform_matrix(region_transform)) * vec4(ray_hit.destination, 1.0);
 		float f_ndc_depth = v_clip_coord.z / v_clip_coord.w;
 		gl_FragDepth = (f_ndc_depth + 1.0) * 0.5;
 	} else {
