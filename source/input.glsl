@@ -62,6 +62,8 @@ void main() {
 	Buffer(Region) region = get_buffer(Region, push_constant.region_id);
 	Buffer(Camera) camera = get_buffer(Camera, push_constant.camera_id);
 
+	region.ray_count = i32(camera.resolution.x) * i32(camera.resolution.y);
+
 	f32 delta_time = info.delta_time;
 
 	Transform transform = transforms.data[0];
@@ -91,20 +93,22 @@ void main() {
 		vec3 dir = (compute_transform_matrix(region_transform) * vec4(normalize(far.xyz), 0)).xyz;
 	
 		Ray ray;
-		ray.region = region;
+		ray.region_id = push_constant.region_id;
 		ray.origin = origin;
 		ray.direction = dir;
 		ray.max_distance = 10; 
 		ray.minimum = vec3(0);
 		ray.maximum = vec3(REGION_SIZE);
 
-		RayState ray_state = ray_cast_start(ray);
+		RayState ray_state;
 
-		while(ray_cast_drive(ray, ray_state)) {}
+		ray_cast_start(ray, ray_state);
+
+		while(ray_cast_drive(ray_state)) {}
 	
 		RayHit ray_hit;
 
-		bool success = ray_cast_complete(ray, ray_state, ray_hit);
+		bool success = ray_cast_complete(ray_state, ray_hit);
 
 		if(success) {
 			inp.last_action_time = 0;

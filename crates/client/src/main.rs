@@ -182,7 +182,7 @@ fn main() {
 
     use ShaderType::*;
 
-    let draw_pipeline = pipeline_compiler
+ /*   let draw_pipeline = pipeline_compiler
         .create_graphics_pipeline(GraphicsPipelineInfo {
             shaders: [
                 Shader(Vertex, "rtx", &["volume"]),
@@ -209,6 +209,13 @@ fn main() {
                 blend: None,
             }],
             depth: Some(default()),
+            ..default()
+        })
+        .expect("failed to create pipeline");
+*/
+    let rtx_pipeline = pipeline_compiler
+        .create_compute_pipeline(ComputePipelineInfo {
+            shader: Shader(Compute, "rtx", &[]),
             ..default()
         })
         .expect("failed to create pipeline");
@@ -295,7 +302,7 @@ fn main() {
         })
         .expect("failed to create pipeline");
 
-    const PREPASS_SCALE: usize = 8;
+    const PREPASS_SCALE: usize = 2;
 
     let mut depth_img = Cell::new(
         device
@@ -719,9 +726,6 @@ fn main() {
                             (input.state == winit::event::ElementState::Pressed) as _
                     }
                     R => {
-                        pipeline_compiler
-                            .refresh_graphics_pipeline(&draw_pipeline)
-                            .unwrap();
                         pipeline_compiler
                             .refresh_compute_pipeline(&input_pipeline)
                             .unwrap();
@@ -1229,7 +1233,6 @@ fn main() {
                         Image(&perlin_image, ImageAccess::ComputeShaderReadWrite),
                     ],
                     task: |commands| {
-                        if(world_update.get()) {
                         commands.set_pipeline(&box_pipeline)?;
 
                         commands.push_constant(PushConstant {
@@ -1247,7 +1250,6 @@ fn main() {
                         let size = (AXIS_MAX_CHUNKS) / WORK_GROUP_SIZE;
 
                         commands.dispatch(size, size, size)?;
-                        }
                         world_update.set(false);
                         Ok(())
                     },
@@ -1314,7 +1316,37 @@ fn main() {
                         Ok(())
                     },
                 });
+                
+               executor.add(Task {
+                    resources: [
+                        Buffer(&camera_buffer, BufferAccess::FragmentShaderReadOnly),
+                        Buffer(&transform_buffer, BufferAccess::VertexShaderReadOnly),
+                        Buffer(&world_buffer, BufferAccess::ShaderReadOnly),
+                        Buffer(&mersenne_buffer, BufferAccess::FragmentShaderReadWrite),
+                        Image(&perlin_image, ImageAccess::FragmentShaderReadWrite),
+                    ],
+                    task: |commands| {
+                        commands.set_pipeline(&rtx_pipeline)?;
 
+                        commands.push_constant(PushConstant {
+                            data: RtxPush {
+                                info_buffer: (info_buffer)(),
+                                camera_buffer: (camera_buffer)(),
+                                transform_buffer: (transform_buffer)(),
+                                world_buffer: (world_buffer)(),
+                                mersenne_buffer: (mersenne_buffer)(),
+                                perlin_image: (perlin_image)(),
+                                prepass_image: (prepass_image)(),
+                            },
+                            pipeline: &rtx_pipeline,
+                        })?;
+
+                        commands.dispatch(30000, 1, 1)?;
+
+                        Ok(())
+                    },
+                });
+                /*
                 executor.add(Task {
                     resources: [
                         Image(&prepass_image, ImageAccess::ColorAttachment),
@@ -1427,6 +1459,7 @@ fn main() {
                         commands.end_rendering()
                     },
                 });
+                */
 
                 executor.add(Task {
                     resources: [
@@ -1594,13 +1627,14 @@ pub struct PrepassPush {
 
 #[derive(Clone, Copy)]
 #[repr(C)]
-pub struct DrawPush {
+pub struct RtxPush {
     pub info_buffer: Buffer,
     pub camera_buffer: Buffer,
     pub transform_buffer: Buffer,
     pub world_buffer: Buffer,
     pub mersenne_buffer: Buffer,
     pub perlin_image: Image,
+    pub prepass_image: Image,
 }
 
 #[derive(Clone, Copy)]

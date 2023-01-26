@@ -1,17 +1,13 @@
 #version 450
+//Credit to Gabe Rundlett, original source from gvox engine
 
 #include "hexane.glsl"
 #include "region.glsl"
-#include "vertex.glsl"
-#include "noise.glsl"
-#include "transform.glsl"
 #include "voxel.glsl"
-#include "aabb.glsl"
-#include "raycast.glsl"
-#include "camera.glsl"
 #include "ao.glsl"
-
-#define PI 3.14159265
+#include "camera.glsl"
+#include "raycast.glsl"
+#include "transform.glsl"
 
 struct RtxPush {
 	BufferId info_id;
@@ -20,149 +16,83 @@ struct RtxPush {
 	BufferId region_id;
 	BufferId mersenne_id;
 	ImageId perlin_id;
+	ImageId prepass_id;
 };
 
 decl_push_constant(RtxPush)
 
+#ifdef compute
 
-#if defined(volume) && defined(vertex)
+#define WARP_SIZE (32)
+#define CACHE_SIZE (WARP_SIZE * 1)
+#define BATCH_SIZE (CACHE_SIZE * 2)
+#define STEPS_UNTIL_REORDER (128)
 
-vec3 offsets[8] = vec3[](
-        vec3(0, 0, 1),
-        vec3(0, 1, 1),
-        vec3(1, 1, 1),
-        vec3(1, 0, 1),
-        vec3(0, 0, 0),
-        vec3(0, 1, 0),
-        vec3(1, 1, 0),
-	vec3(1, 0, 0)
-);
+layout (local_size_x = WARP_SIZE, local_size_y = 1, local_size_z = 1) in;
 
-layout(location = 0) out vec4 internal_position;
-layout(location = 1) out vec4 chunk_position;
-layout(location = 4) out vec4 region_position;
-layout(location = 3) out vec4 clip_position;
-layout(location = 2) out flat u32 chunk;
-
-void main() {
-	Buffer(Transforms) transforms = get_buffer(Transforms, push_constant.transform_id);
-	Buffer(Camera) camera = get_buffer(Camera, push_constant.camera_id);
-	Buffer(Region) region = get_buffer(Region, push_constant.region_id);
-	
-	u32 indices[36] = u32[](1, 0, 3, 1, 3, 2, 4, 5, 6, 4, 6, 7, 2, 3, 7, 2, 7, 6, 5, 4, 0, 5, 0, 1, 6, 5, 1, 6, 1, 2, 3, 0, 4, 3, 4, 7);
-
-	u32 i = gl_VertexIndex / 36;
-	u32 j = gl_VertexIndex % 36;
-
-	chunk = i;
-
-	//magical plus one because player is 0
-	Transform ctransform = transforms.data[chunk + 1];
-	Transform transform = transforms.data[0];
-	transform.position.xyz = vec3(AXIS_MAX_CHUNKS * CHUNK_SIZE / 2);
-
-	vec3 positional_offset = clamp(offsets[indices[j]], pow(EPSILON, 3), 1 - pow(EPSILON, 3)) * CHUNK_SIZE;
-	
-	positional_offset = clamp(positional_offset, 0, CHUNK_SIZE); 
-
-	internal_position = vec4(positional_offset, 1.0);
-	chunk_position = vec4(positional_offset + ctransform.position.xyz, 1.0);
-	ivec3 diff = region.floating_origin - region.observer_position;
-	region_position = vec4(chunk_position.xyz - vec3(AXIS_MAX_CHUNKS * CHUNK_SIZE / 2) + vec3(REGION_SIZE / 2) - vec3(diff) , 1);
-	region_position.xyz += transforms.data[0].position.xyz - region.observer_position;
-
-	clip_position = camera.projection * inverse(compute_transform_matrix(transform)) * chunk_position;
-
-	gl_Position = clip_position;
-
-}
-
-#elif defined fragment
-
-#ifdef volume
-
-layout (depth_greater) out float gl_FragDepth;
-
-layout(location = 0) in vec4 internal_position;
-layout(location = 1) in vec4 chunk_position;
-layout(location = 4) in vec4 region_position;
-layout(location = 3) in vec4 clip_position;
-layout(location = 2) in flat u32 chunk;
-
-#endif
-
-#define ENABLE_AO true
-
-layout(location = 0) out vec4 result;
-
-struct Light {
-	vec3 position;
-	vec4 color;
+struct RayBatchSetupCache {
+	i32 size;
+	i32 start_index;
+	bool need_regeneration;
+	Ray rays[CACHE_SIZE];
 };
 
-void main() {
+struct RayBatch {
+	i32 size;
+	i32 start_index;
+	RayBatchSetupCache setup_cache;
+};
+
+shared RayBatch ray_batch;
+
+u32vec2 get_result_i(u32 result_index) {
+	Image(2D, f32) prepass_image = get_image(2D, f32, push_constant.prepass_id);
+    u32vec2 result;
+
+#if 0
+    result.y = result_index / u32(imageSize(prepass_image).x);
+    result.x = result_index - result.y * u32(imageSize(prepass_image).x);
+#else
+    /*
+    u32 block_index = result_index / 64;
+    u32 block_sub_index = result_index - block_index * 64;
+    u32vec2 block_i;
+    block_i.y = block_index / (GLOBALS.padded_frame_dim.x / 8);
+    block_i.x = block_index - block_i.y * (GLOBALS.padded_frame_dim.x / 8);
+    result.y = block_sub_index / 8;
+    result.x = block_sub_index - result.y * 8;
+    result += block_i * 8;o
+    */
+#endif
+
+    return result;
+}
+
+i32 fast_atomic_decrement(inout i32 a) {
+    u32vec4 exec = subgroupBallot(true);
+    i32 active_thread_count_left_to_me = i32(subgroupBallotExclusiveBitCount(exec));
+    i32 ret = a - active_thread_count_left_to_me;
+    i32 active_thread_count = i32(subgroupBallotBitCount(exec));
+    a = a - active_thread_count;
+    return ret;
+}
+
+void write_ray_result(RayState ray_state) {
 	Buffer(Camera) camera = get_buffer(Camera, push_constant.camera_id);
 	Buffer(Transforms) transforms = get_buffer(Transforms, push_constant.transform_id);
 	Buffer(Region) region = get_buffer(Region, push_constant.region_id);
 	Image(3D, u32) perlin_img = get_image(3D, u32, push_constant.perlin_id);
-
-	Transform transform = transforms.data[0];
-	Transform chunk_transform = transform;
-	chunk_transform.position.xyz = vec3(AXIS_MAX_CHUNKS * CHUNK_SIZE / 2);
-	
-	Transform region_transform = transform;
-	ivec3 diff = region.floating_origin - region.observer_position;
-	region_transform.position.xyz = vec3(REGION_SIZE / 2) - vec3(diff);
-	region_transform.position.xyz += transforms.data[0].position.xyz - region.observer_position;
-	
-	vec2 screenPos = (gl_FragCoord.xy / camera.resolution.xy) * 2.0 - 1.0;
-	vec4 far = camera.inv_projection * vec4(screenPos, 1, 1);
-	far /= far.w;
-#ifdef fx
-	vec4 near = camera.inv_projection * vec4(screenPos, 0, 1);
-	near /= near.w;
-	vec3 chunk_origin = (compute_transform_matrix(chunk_transform) * near).xyz;
-	vec3 origin = (compute_transform_matrix(region_transform) * near).xyz;
-	
-	u32 chunk = u32(chunk_origin.x) / CHUNK_SIZE + u32(chunk_origin.y) / CHUNK_SIZE * AXIS_MAX_CHUNKS + u32(chunk_origin.z) / CHUNK_SIZE * AXIS_MAX_CHUNKS * AXIS_MAX_CHUNKS;
-#elif defined(volume)
-	vec3 origin = region_position.xyz;
-	vec3 chunk_origin = chunk_position.xyz;
-#endif
-	vec3 dir = (compute_transform_matrix(region_transform) * vec4(normalize(far.xyz), 0)).xyz;
-	
-	vec4 color = vec4(0, 0, 0, 1);
-	vec3 light_energy = vec3(0);
-	float transmittance = 1;
-
-	vec3 chunk_pos = transforms.data[1 + chunk].position.xyz - vec3(uvec3(vec3(AXIS_MAX_CHUNKS * CHUNK_SIZE / 2))) + vec3(uvec3(vec3(REGION_SIZE / 2))) - vec3(diff);
-
-	vec3 sun_pos = vec3(10000);
-	
-	u32 fluff = 5;
-
-	Ray ray;
-	ray.region = region;
-	ray.origin = origin;
-	ray.direction = dir;
-	ray.max_distance = sqrt(f32(3)) * CHUNK_SIZE + 1; 
-	ray.minimum = chunk_pos + 0 - fluff;
-	ray.maximum = chunk_pos + CHUNK_SIZE + fluff;
-
-	RayState ray_state = ray_cast_start(ray);
-
-	while(ray_cast_drive(ray, ray_state)) {}
+	Image(2D, f32) prepass_image = get_image(2D, f32, push_constant.prepass_id);
 	
 	RayHit ray_hit;
 
-	bool success = ray_cast_complete(ray, ray_state, ray_hit);
-		
-	if (success) {
-		if(distance(ray_hit.destination, vec3(region_transform.position.xyz)) > VIEW_DISTANCE) {
-			discard;
-		}
+    	bool success = ray_cast_complete(ray_state, ray_hit);
 
-		f32 noise_factor = f32(imageLoad(perlin_img, i32vec3(abs(round(vec3(region.floating_origin) - vec3(REGION_SIZE / 2) + ray_hit.destination + vec3(0.5)))) % i32vec3(imageSize(perlin_img))).r) / f32(~0u);
+	vec4 color = vec4(1, 0, 0, 1);
+
+	if (success) {
+		//f32 noise_factor = f32(imageLoad(perlin_img, i32vec3(abs(round(vec3(region.floating_origin) - vec3(REGION_SIZE / 2) + ray_hit.destination + vec3(0.5)))) % i32vec3(imageSize(perlin_img))).r) / f32(~0u);
+		f32 noise_factor = 0.5;
 		if(ray_hit.id == 0) {
 			color.xyz = vec3(1, 0, 1);
 		}
@@ -186,68 +116,131 @@ void main() {
 
 		float ao = 0;
 
-		if (ENABLE_AO) {
+		if (true) {
 			ao = mix(mix(ambient.z, ambient.w, ray_hit.uv.x), mix(ambient.y, ambient.x, ray_hit.uv.x), ray_hit.uv.y);
 		}
 
 		color.xyz = color.xyz - vec3(1 - ao) * 0.25;
-
-		float intensity = 0.3;
-
-		u32 light_count = 1;
-		Light lights[1];
-		lights[0].position = sun_pos;
-		lights[0].color = vec4(0.95, 0.99, 1.0, 1.0);
-
-		for(i32 i = 0; i < light_count; i++) {
-		if(i != 0) {
-			u32 x = random(push_constant.mersenne_id) - (~0u) / 2;
-			u32 y = random(push_constant.mersenne_id) - (~0u) / 2;
-			u32 z = random(push_constant.mersenne_id) - (~0u) / 2;
-		
-					
-			lights[i].position = normalize(vec3(x, y, z)) * 1000000; 
-			lights[i].color = vec4(lights[0].color.xyz, (1 - 0.3) / light_count);
-		}
-
-		Ray shadow_ray;
-		shadow_ray.region = region;
-		shadow_ray.origin = ray_hit.destination + ray_hit.normal * EPSILON * EPSILON;
-		shadow_ray.direction = normalize(lights[i].position - ray_hit.destination);
-		shadow_ray.max_distance = 100; 
-		shadow_ray.minimum = vec3(0);
-		shadow_ray.maximum = vec3(REGION_SIZE);
-
-		RayState shadow_ray_state = ray_cast_start(shadow_ray);
-
-		while(ray_cast_drive(shadow_ray, shadow_ray_state)) {}
-	
-		RayHit shadow_ray_hit;
-
-		bool shadow_success = ray_cast_complete(shadow_ray, shadow_ray_state, shadow_ray_hit);
-			
-		if(!shadow_success) {
-			intensity += lights[i].color.a;
-
-		}	
-
-		if(intensity >= 1) {
-			break;
-		}
-
-		color.xyz *= lights[i].color.xyz;
-		}
-
-		color *= min(intensity, 1);
-
-		vec4 v_clip_coord = camera.projection * inverse(compute_transform_matrix(region_transform)) * vec4(ray_hit.destination, 1.0);
-		float f_ndc_depth = v_clip_coord.z / v_clip_coord.w;
-		gl_FragDepth = (f_ndc_depth + 1.0) * 0.5;
 	} else {
-		discard;
-	}	
+		color.xyz = vec3(0.1, 0.2, 1.0);
+	}
 
-	result = color;
+	imageStore(prepass_image, i32vec2(ray_state.ray.result_i), f32vec4(color));
+}
+
+void main() {
+	Buffer(Camera) camera = get_buffer(Camera, push_constant.camera_id);
+	Buffer(Transforms) transforms = get_buffer(Transforms, push_constant.transform_id);
+	Buffer(Region) region = get_buffer(Region, push_constant.region_id);
+	Image(3D, u32) perlin_img = get_image(3D, u32, push_constant.perlin_id);
+
+	if(subgroupElect()) {
+		ray_batch.start_index = 0;
+        	ray_batch.size = 0;
+      	  	ray_batch.setup_cache.start_index = 0;
+        	ray_batch.setup_cache.size = 0;
+        	ray_batch.setup_cache.need_regeneration = true;
+	}
+
+	RayState ray_state;
+	ray_state.currently_tracing = false;
+	ray_state.has_ray_result = false;
+    	ray_state.ray.result_i = u32vec2(0, 0);
+	
+	Image(2D, f32) prepass_image = get_image(2D, f32, push_constant.prepass_id);
+
+    	const i32 TOTAL_RAY_COUNT = i32(imageSize(prepass_image).x * imageSize(prepass_image).y);
+
+
+	while(true) {
+		if(subgroupAny(!ray_state.currently_tracing)) {
+			if(!ray_state.currently_tracing) {
+				if(ray_state.has_ray_result) {
+					write_ray_result(ray_state);
+					ray_state.has_ray_result = false;
+				}
+
+				i32 ray_cache_index = CACHE_SIZE - fast_atomic_decrement(ray_batch.setup_cache.size);
+
+				if(ray_cache_index < CACHE_SIZE) {
+					ray_cast_start(ray_batch.setup_cache.rays[ray_cache_index], ray_state);
+					ray_state.currently_tracing = true;
+				}
+
+				if (ray_cache_index >= CACHE_SIZE) {
+                    			if (subgroupElect()) {
+                        			ray_batch.setup_cache.need_regeneration = true;
+                 			}
+               	 		}
+			}
+			subgroupMemoryBarrierShared();
+			if(ray_batch.setup_cache.need_regeneration) {
+				  if (subgroupElect()) {
+			                    ray_batch.setup_cache.need_regeneration = false;
+        			            if (ray_batch.size == 0) {
+                      			    i32 global_remaining_rays = atomicAdd(region.ray_count, -BATCH_SIZE);
+                    			    ray_batch.size = clamp(global_remaining_rays, 0, BATCH_SIZE);
+                        ray_batch.start_index = TOTAL_RAY_COUNT - global_remaining_rays;
+                    }
+                    ray_batch.setup_cache.size = clamp(ray_batch.size, 0, CACHE_SIZE);
+                    ray_batch.size -= ray_batch.setup_cache.size;
+                    ray_batch.setup_cache.start_index = ray_batch.start_index + BATCH_SIZE - ray_batch.size;
+                }
+
+				subgroupMemoryBarrierShared();
+				if (ray_batch.setup_cache.size > 0) {
+					for (u32 i = 0; i < ray_batch.setup_cache.size; i += WARP_SIZE) {
+						u32 ray_cache_index = i + gl_SubgroupInvocationID.x;
+						if (ray_cache_index < ray_batch.setup_cache.size) {
+					Transform region_transform = transforms.data[0];
+					ivec3 diff = region.floating_origin - region.observer_position;
+					region_transform.position.xyz = vec3(REGION_SIZE / 2) - vec3(diff);
+					region_transform.position.xyz += transforms.data[0].position.xyz - region.observer_position;
+					
+					u32 result_index = ray_batch.setup_cache.start_index + ray_cache_index;
+					u32vec2 result_i = get_result_i(result_index);
+
+					vec2 screenPos = (vec2(result_i) / vec2(camera.resolution.xy)) * 2.0 - 1.0;
+					vec4 far = camera.inv_projection * vec4(screenPos, 1, 1);
+					far /= far.w;
+
+					vec3 dir = (compute_transform_matrix(region_transform) * vec4(normalize(far.xyz), 0)).xyz;
+
+					Ray ray;
+					ray.region_id = push_constant.region_id;
+					ray.origin = region_transform.position.xyz;
+					ray.direction = dir;
+					ray.result_i = result_i;
+					ray.max_distance = 100; 
+					ray.minimum = vec3(0);
+					ray.maximum = vec3(REGION_SIZE);
+						ray_batch.setup_cache.rays[ray_cache_index] = ray;
+						}
+					}
+					subgroupMemoryBarrierShared();
+					if (!ray_state.currently_tracing) {
+					i32 ray_cache_index = CACHE_SIZE - fast_atomic_decrement(ray_batch.setup_cache.size);
+
+					ray_cast_start(ray_batch.setup_cache.rays[ray_cache_index], ray_state);
+					ray_state.currently_tracing = true;
+					}
+				}
+			}
+		}
+
+		if (subgroupAll(!ray_state.currently_tracing))
+            		break;
+
+        	[[unroll]] for (u32 i = 0; (i < STEPS_UNTIL_REORDER); ++i) {
+            		if (!ray_state.currently_tracing)
+                		break;
+            		if(!ray_cast_drive(ray_state)) {
+				ray_state.currently_tracing = false;
+				ray_state.has_ray_result = true;
+			}
+        	}
+	}
 }
 
 #endif
+

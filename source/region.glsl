@@ -12,6 +12,7 @@ decl_buffer(
 		ivec3 floating_origin;
 		bool dirty;
 		bool first;
+		i32 ray_count;
 	}
 )
 
