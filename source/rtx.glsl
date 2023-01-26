@@ -49,7 +49,7 @@ u32vec2 get_result_i(u32 result_index) {
 	Image(2D, f32) prepass_image = get_image(2D, f32, push_constant.prepass_id);
     u32vec2 result;
 
-#if 0
+#if 1
     result.y = result_index / u32(imageSize(prepass_image).x);
     result.x = result_index - result.y * u32(imageSize(prepass_image).x);
 #else
