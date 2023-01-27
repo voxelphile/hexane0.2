@@ -93,6 +93,7 @@ void main() {
 		vec3 dir = (compute_transform_matrix(region_transform) * vec4(normalize(far.xyz), 0)).xyz;
 	
 		Ray ray;
+		ray.medium = u16(1);
 		ray.region_id = push_constant.region_id;
 		ray.origin = origin;
 		ray.direction = dir;
@@ -153,7 +154,7 @@ void main() {
 
 	inp.target_rotation.xy -= (entity_input.look.yx) * sens;
 
-	inp.target_rotation.x = clamp(inp.target_rotation.x, -3.14 / 2.0 + 0.1, 3.14 / 2.0 - 0.1);
+	inp.target_rotation.x = clamp(inp.target_rotation.x, -3.14 / 2.0 + EPSILON, 3.14 / 2.0 - EPSILON);
 	if(entity_input.look.xy != vec2(0)) {
 		inp.target_rotation_time = 0;
 	}

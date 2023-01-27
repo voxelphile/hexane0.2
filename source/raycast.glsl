@@ -5,6 +5,7 @@ struct Ray {
 	vec3 origin;
 	vec3 direction;
 	vec3 minimum;
+	u16 medium;
 	vec3 maximum;
 	f32 max_distance;
 	u32vec2 result_i;
@@ -22,8 +23,6 @@ struct RayState {
 	f32 dist;
 	bvec3 mask;	
 	u16 block_id;
-	bool currently_tracing;
-	bool has_ray_result;
 	Ray ray;
 };
 
@@ -34,6 +33,15 @@ struct RayHit {
 	vec3 destination;
 	vec2 uv;
 	u32 id;
+};
+
+struct TraceState {
+	bool currently_tracing;
+	bool has_ray_result;
+	RayState ray_state;
+	u32 len;
+	vec4 color[16];
+	f32 dist[16];
 };
 
 void ray_cast_start(Ray ray, out RayState state) {
@@ -47,8 +55,6 @@ void ray_cast_start(Ray ray, out RayState state) {
 	state.mask = bvec3(false);
 	state.dist = 0;
 	state.block_id = u16(0);
-	state.currently_tracing = true;
-	state.has_ray_result = false;
 	state.ray = ray;
 }
 
@@ -66,6 +72,7 @@ bool ray_cast_complete(inout RayState state, out RayHit hit) {
 		hit.uv = uv;
 		hit.normal = normal;
 		hit.id = state.block_id;
+		hit.dist = state.dist;
 		return true;
 	}
 
@@ -103,7 +110,7 @@ bool ray_cast_drive(inout RayState state) {
 	bool voxel_found = voxel_query(query);
 
 	//1 is air
-	if (voxel_found && query.id != 1) {
+	if (voxel_found && query.id != state.ray.medium) {
 		state.id = RAY_STATE_VOXEL_FOUND;
 		state.block_id = query.id;
 		return false;

@@ -47,9 +47,22 @@ void main() {
 	change.id = u16(0);
 	change.position = local_position;
 	
-	f32 perlin_noise_factor = f32(imageLoad(perlin_image, abs(i32vec3(world_position.x, 32, world_position.z)) % i32vec3(imageSize(perlin_image))).r) / f32(~0u);
+	
+	f32 height = 20;
+	f32 water_height = 30;
 
-	f32 height = perlin_noise_factor * 20 + 128;
+	const int octaves = 1;
+	float lacunarity = 2.0;
+	float gain = 0.5;
+	float amplitude = 0.5;
+	float frequency = 1.;
+	for (int i = 0; i < octaves; i++) {
+		f32 perlin_noise_factor = f32(imageLoad(perlin_image, abs(i32vec3(frequency * world_position.x, 32, frequency * world_position.z)) % i32vec3(imageSize(perlin_image))).r) / f32(~0u);
+		height += amplitude * perlin_noise_factor;
+		frequency *= lacunarity;
+		amplitude *= gain;
+	}
+
 
 	f32 vertical_compression = 4;
 
@@ -62,16 +75,26 @@ void main() {
 
 	//dunno why this is bugged.. if this statement isnt made like this
 	//then grass spawns on chunk corners
+	bool is_cave = false;
 	if(worley_noise_factor > 0.5 && cave_noise_factor > 0.5 - cave_smudge) {
 		change.id = u16(1);
-	} else if(world_position.y > height - 1 && world_position.y < height + 1) {
-		change.id = u16(2);
-	} else if(world_position.y > height - 10 && world_position.y < height) {
-		change.id = u16(4);
-	} else if(world_position.y < height) {
-		change.id = u16(3);
-	} else {
-		change.id = u16(1);
+		is_cave = true;
+	}
+
+	if(change.id == 0) {
+		if(world_position.y > height - 1 && world_position.y < height + 1) {
+			change.id = u16(2);
+		} else if(world_position.y > height - 10 && world_position.y < height) {
+			change.id = u16(4);
+		} else if(world_position.y < height) {
+			change.id = u16(3);
+		} else {
+			change.id = u16(1);
+		}
+	}
+	
+	if(change.id == 1 && world_position.y < water_height && world_position.y >= height) {
+		change.id = u16(5);
 	}
 
 	voxel_change(change);

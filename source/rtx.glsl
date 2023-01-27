@@ -77,18 +77,37 @@ i32 fast_atomic_decrement(inout i32 a) {
     return ret;
 }
 
-void write_ray_result(RayState ray_state) {
+void write_ray_result(inout TraceState trace_state) {
+	Image(2D, f32) prepass_image = get_image(2D, f32, push_constant.prepass_id);
+				
+	vec4 color = vec4(0);
+	for(int j = 0; j < trace_state.len; j++) {
+		vec4 c = trace_state.color[j];
+		color += mix(color, c, trace_state.dist[j + 1] / 10);
+
+		color += c;
+
+		if(color.a >= 1) {
+			break;
+		}
+	}
+	
+	imageStore(prepass_image, i32vec2(trace_state.ray_state.ray.result_i), color);
+}
+
+void determine(inout TraceState trace_state) {
 	Buffer(Camera) camera = get_buffer(Camera, push_constant.camera_id);
 	Buffer(Transforms) transforms = get_buffer(Transforms, push_constant.transform_id);
 	Buffer(Region) region = get_buffer(Region, push_constant.region_id);
 	Image(3D, u32) perlin_img = get_image(3D, u32, push_constant.perlin_id);
-	Image(2D, f32) prepass_image = get_image(2D, f32, push_constant.prepass_id);
 	
 	RayHit ray_hit;
 
-    	bool success = ray_cast_complete(ray_state, ray_hit);
+    	bool success = ray_cast_complete(trace_state.ray_state, ray_hit);
 
-	vec4 color = vec4(1, 0, 0, 1);
+	bool is_water = false;
+
+	vec4 color = vec4(0, 0, 0, 1);
 
 	if (success) {
 		//f32 noise_factor = f32(imageLoad(perlin_img, i32vec3(abs(round(vec3(region.floating_origin) - vec3(REGION_SIZE / 2) + ray_hit.destination + vec3(0.5)))) % i32vec3(imageSize(perlin_img))).r) / f32(~0u);
@@ -106,6 +125,10 @@ void write_ray_result(RayState ray_state) {
 		if(ray_hit.id == 4) {
 			color.xyz = mix(vec3(107, 84, 40) / 256, vec3(64, 41, 5) / 256, noise_factor);
 		}
+		if(ray_hit.id == 5) {
+			color = vec4(0, 0, 1, 0.1);
+			is_water = true;
+		}
 
 		vec4 ambient = voxel_ao(
 			region.data,
@@ -121,11 +144,30 @@ void write_ray_result(RayState ray_state) {
 		}
 
 		color.xyz = color.xyz - vec3(1 - ao) * 0.25;
+
+	if(is_water) {
+		
+		Ray ray;
+		ray.region_id = push_constant.region_id;
+		ray.origin = ray_hit.destination - ray_hit.normal * EPSILON;
+		ray.direction = trace_state.ray_state.ray.direction;
+		ray.medium = u16(5);
+		ray.result_i = trace_state.ray_state.ray.result_i;
+		ray.max_distance = 100;
+		ray.minimum = vec3(0);
+		ray.maximum = vec3(REGION_SIZE);
+		ray_cast_start(ray, trace_state.ray_state);
+		trace_state.has_ray_result = false;
+		trace_state.currently_tracing = true;
+	}
 	} else {
 		color.xyz = vec3(0.1, 0.2, 1.0);
+		ray_hit.dist = 1;
 	}
 
-	imageStore(prepass_image, i32vec2(ray_state.ray.result_i), f32vec4(color));
+	trace_state.color[trace_state.len] = color;
+	trace_state.dist[trace_state.len] = ray_hit.dist; 
+	trace_state.len += 1;
 }
 
 void main() {
@@ -142,10 +184,11 @@ void main() {
         	ray_batch.setup_cache.need_regeneration = true;
 	}
 
-	RayState ray_state;
-	ray_state.currently_tracing = false;
-	ray_state.has_ray_result = false;
-    	ray_state.ray.result_i = u32vec2(0, 0);
+	TraceState trace_state;
+	trace_state.len = 0;
+	trace_state.currently_tracing = false;
+	trace_state.has_ray_result = false;
+    	trace_state.ray_state.ray.result_i = u32vec2(0, 0);
 	
 	Image(2D, f32) prepass_image = get_image(2D, f32, push_constant.prepass_id);
 
@@ -153,18 +196,22 @@ void main() {
 
 
 	while(true) {
-		if(subgroupAny(!ray_state.currently_tracing)) {
-			if(!ray_state.currently_tracing) {
-				if(ray_state.has_ray_result) {
-					write_ray_result(ray_state);
-					ray_state.has_ray_result = false;
+		if(subgroupAny(!trace_state.currently_tracing)) {
+			if(!trace_state.currently_tracing) {
+				if(trace_state.has_ray_result) {
+					write_ray_result(trace_state);
+					trace_state.len = 0;
+					trace_state.currently_tracing = false;
+					trace_state.has_ray_result = false;
+    					trace_state.ray_state.ray.result_i = u32vec2(0, 0);
 				}
 
 				i32 ray_cache_index = CACHE_SIZE - fast_atomic_decrement(ray_batch.setup_cache.size);
 
 				if(ray_cache_index < CACHE_SIZE) {
-					ray_cast_start(ray_batch.setup_cache.rays[ray_cache_index], ray_state);
-					ray_state.currently_tracing = true;
+					ray_cast_start(ray_batch.setup_cache.rays[ray_cache_index], trace_state.ray_state);
+					trace_state.currently_tracing = true;
+					trace_state.has_ray_result = false;
 				}
 
 				if (ray_cache_index >= CACHE_SIZE) {
@@ -210,6 +257,7 @@ void main() {
 					ray.region_id = push_constant.region_id;
 					ray.origin = region_transform.position.xyz;
 					ray.direction = dir;
+					ray.medium = u16(1);
 					ray.result_i = result_i;
 					ray.max_distance = 100; 
 					ray.minimum = vec3(0);
@@ -218,25 +266,40 @@ void main() {
 						}
 					}
 					subgroupMemoryBarrierShared();
-					if (!ray_state.currently_tracing) {
+					if (!trace_state.currently_tracing) {
 					i32 ray_cache_index = CACHE_SIZE - fast_atomic_decrement(ray_batch.setup_cache.size);
 
-					ray_cast_start(ray_batch.setup_cache.rays[ray_cache_index], ray_state);
-					ray_state.currently_tracing = true;
+					ray_cast_start(ray_batch.setup_cache.rays[ray_cache_index], trace_state.ray_state);
+					trace_state.currently_tracing = true;
+					trace_state.has_ray_result = false;
 					}
 				}
 			}
 		}
 
-		if (subgroupAll(!ray_state.currently_tracing))
+		if (subgroupAll(!trace_state.currently_tracing))
             		break;
 
         	[[unroll]] for (u32 i = 0; (i < STEPS_UNTIL_REORDER); ++i) {
-            		if (!ray_state.currently_tracing)
+            		if (!trace_state.currently_tracing)
                 		break;
-            		if(!ray_cast_drive(ray_state)) {
-				ray_state.currently_tracing = false;
-				ray_state.has_ray_result = true;
+            		if(!ray_cast_drive(trace_state.ray_state)) {
+				determine(trace_state);
+				trace_state.dist[trace_state.len + 1] = 10;
+
+				vec4 color = vec4(0);
+				for(int j = 0; j < trace_state.len; j++) {
+					vec4 c = trace_state.color[j];
+					color += mix(color, c, trace_state.dist[j + 1] / 10);
+
+					if(color.a >= 1) {
+						break;
+					}
+				}
+				if(color.a >= 1) {				
+					trace_state.currently_tracing = false;
+					trace_state.has_ray_result = true;
+				}
 			}
         	}
 	}
