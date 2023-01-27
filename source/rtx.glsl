@@ -1,6 +1,8 @@
 #version 450
 //Credit to Gabe Rundlett, original source from gvox engine
 
+#define EULER 2.71828
+
 #include "hexane.glsl"
 #include "region.glsl"
 #include "voxel.glsl"
@@ -80,19 +82,7 @@ i32 fast_atomic_decrement(inout i32 a) {
 void write_ray_result(inout TraceState trace_state) {
 	Image(2D, f32) prepass_image = get_image(2D, f32, push_constant.prepass_id);
 				
-	vec4 color = vec4(0);
-	for(int j = 0; j < trace_state.len; j++) {
-		vec4 c = trace_state.color[j];
-		color += mix(color, c, trace_state.dist[j + 1] / 10);
-
-		color += c;
-
-		if(color.a >= 1) {
-			break;
-		}
-	}
-	
-	imageStore(prepass_image, i32vec2(trace_state.ray_state.ray.result_i), color);
+	imageStore(prepass_image, i32vec2(trace_state.ray_state[trace_state.cursor].ray.result_i), trace_state.color);
 }
 
 void determine(inout TraceState trace_state) {
@@ -103,15 +93,17 @@ void determine(inout TraceState trace_state) {
 	
 	RayHit ray_hit;
 
-    	bool success = ray_cast_complete(trace_state.ray_state, ray_hit);
+    	bool success = ray_cast_complete(trace_state.ray_state[trace_state.cursor], ray_hit);
 
 	bool is_water = false;
 
-	vec4 color = vec4(0, 0, 0, 1);
+	vec4 color = vec4(0, 0, 0, 0);
 
 	if (success) {
 		//f32 noise_factor = f32(imageLoad(perlin_img, i32vec3(abs(round(vec3(region.floating_origin) - vec3(REGION_SIZE / 2) + ray_hit.destination + vec3(0.5)))) % i32vec3(imageSize(perlin_img))).r) / f32(~0u);
 		f32 noise_factor = 0.5;
+
+		color.a = 1;
 		if(ray_hit.id == 0) {
 			color.xyz = vec3(1, 0, 1);
 		}
@@ -126,9 +118,12 @@ void determine(inout TraceState trace_state) {
 			color.xyz = mix(vec3(107, 84, 40) / 256, vec3(64, 41, 5) / 256, noise_factor);
 		}
 		if(ray_hit.id == 5) {
-			color = vec4(0, 0, 1, 0.1);
 			is_water = true;
 		}
+		if(trace_state.ray_state[trace_state.cursor].ray.medium == u16(5)) {
+			color.xyz += vec3(clamp(0.1 * ray_hit.dist, 0, 1 - color.r), clamp(0.1 * ray_hit.dist, 0, 1 - color.g), clamp(0.1 * ray_hit.dist, 0, 1 - color.b));
+		}
+	
 
 		vec4 ambient = voxel_ao(
 			region.data,
@@ -150,24 +145,22 @@ void determine(inout TraceState trace_state) {
 		Ray ray;
 		ray.region_id = push_constant.region_id;
 		ray.origin = ray_hit.destination - ray_hit.normal * EPSILON;
-		ray.direction = trace_state.ray_state.ray.direction;
+		ray.direction = trace_state.ray_state[trace_state.cursor].ray.direction;
 		ray.medium = u16(5);
-		ray.result_i = trace_state.ray_state.ray.result_i;
+		ray.result_i = trace_state.ray_state[trace_state.cursor].ray.result_i;
 		ray.max_distance = 100;
 		ray.minimum = vec3(0);
 		ray.maximum = vec3(REGION_SIZE);
-		ray_cast_start(ray, trace_state.ray_state);
+		ray_cast_start(ray, trace_state.ray_state[trace_state.len]);
 		trace_state.has_ray_result = false;
 		trace_state.currently_tracing = true;
+		trace_state.len += 1;
 	}
+		trace_state.color += color;
 	} else {
-		color.xyz = vec3(0.1, 0.2, 1.0);
-		ray_hit.dist = 1;
+		trace_state.color += vec4(0.1, 0.2, 1.0, 1.0);
 	}
 
-	trace_state.color[trace_state.len] = color;
-	trace_state.dist[trace_state.len] = ray_hit.dist; 
-	trace_state.len += 1;
 }
 
 void main() {
@@ -186,9 +179,10 @@ void main() {
 
 	TraceState trace_state;
 	trace_state.len = 0;
+	trace_state.cursor = 0;
 	trace_state.currently_tracing = false;
 	trace_state.has_ray_result = false;
-    	trace_state.ray_state.ray.result_i = u32vec2(0, 0);
+    	trace_state.ray_state[trace_state.cursor].ray.result_i = u32vec2(0, 0);
 	
 	Image(2D, f32) prepass_image = get_image(2D, f32, push_constant.prepass_id);
 
@@ -201,17 +195,20 @@ void main() {
 				if(trace_state.has_ray_result) {
 					write_ray_result(trace_state);
 					trace_state.len = 0;
+					trace_state.cursor = 0;
+					trace_state.color = vec4(0);
 					trace_state.currently_tracing = false;
 					trace_state.has_ray_result = false;
-    					trace_state.ray_state.ray.result_i = u32vec2(0, 0);
+    					trace_state.ray_state[trace_state.cursor].ray.result_i = u32vec2(0, 0);
 				}
 
 				i32 ray_cache_index = CACHE_SIZE - fast_atomic_decrement(ray_batch.setup_cache.size);
 
 				if(ray_cache_index < CACHE_SIZE) {
-					ray_cast_start(ray_batch.setup_cache.rays[ray_cache_index], trace_state.ray_state);
+					ray_cast_start(ray_batch.setup_cache.rays[ray_cache_index], trace_state.ray_state[trace_state.len]);
 					trace_state.currently_tracing = true;
 					trace_state.has_ray_result = false;
+					trace_state.len += 1;
 				}
 
 				if (ray_cache_index >= CACHE_SIZE) {
@@ -269,9 +266,10 @@ void main() {
 					if (!trace_state.currently_tracing) {
 					i32 ray_cache_index = CACHE_SIZE - fast_atomic_decrement(ray_batch.setup_cache.size);
 
-					ray_cast_start(ray_batch.setup_cache.rays[ray_cache_index], trace_state.ray_state);
+					ray_cast_start(ray_batch.setup_cache.rays[ray_cache_index], trace_state.ray_state[trace_state.len]);
 					trace_state.currently_tracing = true;
 					trace_state.has_ray_result = false;
+					trace_state.len += 1;
 					}
 				}
 			}
@@ -283,23 +281,18 @@ void main() {
         	[[unroll]] for (u32 i = 0; (i < STEPS_UNTIL_REORDER); ++i) {
             		if (!trace_state.currently_tracing)
                 		break;
-            		if(!ray_cast_drive(trace_state.ray_state)) {
+            		if(!ray_cast_drive(trace_state.ray_state[trace_state.cursor])) {
 				determine(trace_state);
-				trace_state.dist[trace_state.len + 1] = 10;
-
-				vec4 color = vec4(0);
-				for(int j = 0; j < trace_state.len; j++) {
-					vec4 c = trace_state.color[j];
-					color += mix(color, c, trace_state.dist[j + 1] / 10);
-
-					if(color.a >= 1) {
-						break;
-					}
-				}
-				if(color.a >= 1) {				
+				
+				trace_state.cursor += 1;
+				
+				if(trace_state.cursor >= trace_state.len) {
 					trace_state.currently_tracing = false;
 					trace_state.has_ray_result = true;
 				}
+
+				
+								
 			}
         	}
 	}

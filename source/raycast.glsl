@@ -38,10 +38,10 @@ struct RayHit {
 struct TraceState {
 	bool currently_tracing;
 	bool has_ray_result;
-	RayState ray_state;
 	u32 len;
-	vec4 color[16];
-	f32 dist[16];
+	u32 cursor;
+	RayState ray_state[16];
+	vec4 color;
 };
 
 void ray_cast_start(Ray ray, out RayState state) {
