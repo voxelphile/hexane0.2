@@ -79,13 +79,13 @@ i32 fast_atomic_decrement(inout i32 a) {
     return ret;
 }
 
-void write_ray_result(inout TraceState trace_state) {
+void write_ray_result(in TraceState trace_state) {
 	Image(2D, f32) prepass_image = get_image(2D, f32, push_constant.prepass_id);
 				
-	imageStore(prepass_image, i32vec2(trace_state.ray_state[trace_state.cursor].ray.result_i), trace_state.color);
+	imageStore(prepass_image, i32vec2(trace_state.ray_state[trace_state.len - 1].ray.result_i), trace_state.color);
 }
 
-void determine(inout TraceState trace_state) {
+void determine(in out TraceState trace_state) {
 	Buffer(Camera) camera = get_buffer(Camera, push_constant.camera_id);
 	Buffer(Transforms) transforms = get_buffer(Transforms, push_constant.transform_id);
 	Buffer(Region) region = get_buffer(Region, push_constant.region_id);
@@ -121,7 +121,7 @@ void determine(inout TraceState trace_state) {
 			is_water = true;
 		}
 		if(trace_state.ray_state[trace_state.cursor].ray.medium == u16(5)) {
-			color.xyz += vec3(clamp(0.1 * ray_hit.dist, 0, 1 - color.r), clamp(0.1 * ray_hit.dist, 0, 1 - color.g), clamp(0.1 * ray_hit.dist, 0, 1 - color.b));
+			color.xyz = vec3(1, 0, 0);
 		}
 	
 
@@ -152,13 +152,11 @@ void determine(inout TraceState trace_state) {
 		ray.minimum = vec3(0);
 		ray.maximum = vec3(REGION_SIZE);
 		ray_cast_start(ray, trace_state.ray_state[trace_state.len]);
-		trace_state.has_ray_result = false;
-		trace_state.currently_tracing = true;
 		trace_state.len += 1;
 	}
 		trace_state.color += color;
 	} else {
-		trace_state.color += vec4(0.1, 0.2, 1.0, 1.0);
+		trace_state.color += vec4(1.0, 0.2, 1.0, 1.0);
 	}
 
 }
@@ -199,16 +197,16 @@ void main() {
 					trace_state.color = vec4(0);
 					trace_state.currently_tracing = false;
 					trace_state.has_ray_result = false;
-    					trace_state.ray_state[trace_state.cursor].ray.result_i = u32vec2(0, 0);
 				}
 
 				i32 ray_cache_index = CACHE_SIZE - fast_atomic_decrement(ray_batch.setup_cache.size);
 
 				if(ray_cache_index < CACHE_SIZE) {
-					ray_cast_start(ray_batch.setup_cache.rays[ray_cache_index], trace_state.ray_state[trace_state.len]);
+					ray_cast_start(ray_batch.setup_cache.rays[ray_cache_index], trace_state.ray_state[0]);
 					trace_state.currently_tracing = true;
 					trace_state.has_ray_result = false;
-					trace_state.len += 1;
+					trace_state.cursor = 0;
+					trace_state.len = 1;
 				}
 
 				if (ray_cache_index >= CACHE_SIZE) {
@@ -266,10 +264,11 @@ void main() {
 					if (!trace_state.currently_tracing) {
 					i32 ray_cache_index = CACHE_SIZE - fast_atomic_decrement(ray_batch.setup_cache.size);
 
-					ray_cast_start(ray_batch.setup_cache.rays[ray_cache_index], trace_state.ray_state[trace_state.len]);
+					ray_cast_start(ray_batch.setup_cache.rays[ray_cache_index], trace_state.ray_state[0]);
 					trace_state.currently_tracing = true;
 					trace_state.has_ray_result = false;
-					trace_state.len += 1;
+					trace_state.cursor = 0;
+					trace_state.len = 1;
 					}
 				}
 			}
