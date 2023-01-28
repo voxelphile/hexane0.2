@@ -21,6 +21,7 @@ struct RayState {
 	vec3 map_pos;
 	vec3 side_dist;
 	f32 dist;
+	f32 initial_dist;
 	bvec3 mask;	
 	u16 block_id;
 	Ray ray;
@@ -28,6 +29,7 @@ struct RayState {
 
 struct RayHit {
 	f32 dist;
+	f32 total_dist;
 	ivec3 normal;
 	ivec3 back_step;
 	vec3 destination;
@@ -35,14 +37,6 @@ struct RayHit {
 	u32 id;
 };
 
-struct TraceState {
-	bool currently_tracing;
-	bool has_ray_result;
-	u32 len;
-	u32 cursor;
-	RayState ray_state[16];
-	vec4 color;
-};
 
 void ray_cast_start(Ray ray, out RayState state) {
 	ray.direction = normalize(ray.direction);
@@ -54,6 +48,7 @@ void ray_cast_start(Ray ray, out RayState state) {
 	state.side_dist = (sign(ray.direction) * (vec3(state.map_pos) - ray.origin) + (sign(ray.direction) * 0.5) + 0.5) * delta_dist;
 	state.mask = bvec3(false);
 	state.dist = 0;
+	state.initial_dist = 0;
 	state.block_id = u16(0);
 	state.ray = ray;
 }
@@ -73,6 +68,7 @@ bool ray_cast_complete(inout RayState state, out RayHit hit) {
 		hit.normal = normal;
 		hit.id = state.block_id;
 		hit.dist = state.dist;
+		hit.total_dist = state.initial_dist + state.dist;
 		return true;
 	}
 
@@ -83,7 +79,7 @@ bool ray_cast_drive(inout RayState state) {
 	vec3 delta_dist = abs(vec3(length(state.ray.direction)) / state.ray.direction);
 	ivec3 ray_step = ivec3(sign(state.ray.direction));
 
-	bool in_chunk = all(greaterThanEqual(state.map_pos, vec3(state.ray.minimum -EPSILON))) && all(lessThan(state.map_pos, vec3(state.ray.maximum + EPSILON)));
+	bool in_chunk = all(greaterThanEqual(state.map_pos, vec3(state.ray.minimum))) && all(lessThan(state.map_pos, vec3(state.ray.maximum)));
 
 	if(!in_chunk) {
 		state.id = RAY_STATE_OUT_OF_BOUNDS;
@@ -94,9 +90,9 @@ bool ray_cast_drive(inout RayState state) {
 			
 	state.side_dist += vec3(state.mask) * delta_dist;
 	state.map_pos += ivec3(vec3(state.mask)) * ray_step;
-	state.dist = length(vec3(state.mask) * (state.side_dist - delta_dist));
+	state.dist =  length(vec3(state.mask) * (state.side_dist - delta_dist));
 
-	if(state.dist > state.ray.max_distance) {
+	if(state.initial_dist + state.dist > state.ray.max_distance) {
 		state.id = RAY_STATE_MAX_DIST_REACHED;
 		return false;	
 	}

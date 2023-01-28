@@ -40,6 +40,7 @@ const REALLY_LARGE_SIZE: usize = 200_000_000;
 const REGION_SIZE: usize = 512;
 const CHUNK_SIZE: usize = 64;
 const AXIS_MAX_CHUNKS: usize = 4;
+const LOD: usize = 4;
 
 pub type Vertex = (f32, f32, f32);
 pub type Color = [f32; 4];
@@ -326,7 +327,7 @@ fn main() {
                     height as usize / PREPASS_SCALE,
                 ),
                 usage: ImageUsage::COLOR,
-                format: device.presentation_format(swapchain.get()).unwrap(),
+                format: Format::Rgba32Sfloat,
                 ..default()
             })
             .expect("failed to create depth image"),
@@ -368,16 +369,19 @@ fn main() {
     let mut chunk_images = vec![];
 
     for _ in 0..2 {
-        chunk_images.push(
-            device
-                .create_image(ImageInfo {
-                    extent: ImageExtent::ThreeDim(REGION_SIZE, REGION_SIZE, REGION_SIZE),
-                    usage: ImageUsage::TRANSFER_DST,
-                    format: Format::R16Uint,
-                    ..default()
-                })
-                .expect("failed to create depth image"),
-        );
+        for lod in 0..LOD {
+            let lod_size = REGION_SIZE / lod;
+            chunk_images.push(
+                device
+                    .create_image(ImageInfo {
+                        extent: ImageExtent::ThreeDim(REGION_SIZE, REGION_SIZE, REGION_SIZE),
+                        usage: ImageUsage::TRANSFER_DST,
+                        format: Format::R16Uint,
+                        ..default()
+                    })
+                   .expect("failed to create depth image"),
+            );
+        }
     }
 
     let general_staging_buffer = device
@@ -808,7 +812,7 @@ fn main() {
                                 height as usize / PREPASS_SCALE,
                             ),
                             usage: ImageUsage::COLOR,
-                            format: device.presentation_format(swapchain.get()).unwrap(),
+                            format: Format::Rgba32Sfloat,
                             ..default()
                         })
                         .expect("failed to create depth image"),

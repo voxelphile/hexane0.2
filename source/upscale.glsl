@@ -18,7 +18,7 @@ layout(location = 0) out vec4 result;
 void main() {
 	Image(2D, f32) perlin_img = get_image(2D, f32, push_constant.from_id);
 	
-	result = imageLoad(perlin_img, i32vec2(gl_FragCoord.xy / push_constant.scale));
+	result = normalize(imageLoad(perlin_img, i32vec2(gl_FragCoord.xy / push_constant.scale)));
 }
 
 #endif
