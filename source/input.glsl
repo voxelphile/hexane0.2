@@ -125,7 +125,8 @@ void main() {
 				change.id = u16(3);
 				change.position = ivec3(vec3(ray_hit.destination.xyz + vec3(ray_hit.normal.xyz) * 0.5));
 			}
-
+				
+			region.rebuild = true;
 			voxel_change(change);
 		}
 	}

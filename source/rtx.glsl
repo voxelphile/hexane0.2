@@ -29,7 +29,7 @@ decl_push_constant(RtxPush)
 #define WARP_SIZE (32)
 #define CACHE_SIZE (WARP_SIZE * 1)
 #define BATCH_SIZE (CACHE_SIZE * 2)
-#define STEPS_UNTIL_REORDER (128)
+#define STEPS_UNTIL_REORDER (32)
 
 layout (local_size_x = WARP_SIZE, local_size_y = 1, local_size_z = 1) in;
 
@@ -111,6 +111,8 @@ void reset_trace_state(in out TraceState trace_state) {
 	trace_state.currently_tracing = false;
 	trace_state.has_ray_result = false;
 	trace_state.color = vec4(0);
+	trace_state.prev_id = u16(0);
+	trace_state.prev_dist = 0;
 	trace_state.rays = 0;
     	trace_state.ray_state.ray.result_i = u32vec2(0, 0);
 }
@@ -133,10 +135,6 @@ bool ray_trace(in out TraceState trace_state) {
 	vec4 color = vec4(0);
 
 	if(trace_state.rays > MAX_TRACE) {
-		return true;
-	}
-
-	if(trace_state.color.a >= 1) {
 		return true;
 	}
 

@@ -40,7 +40,8 @@ const REALLY_LARGE_SIZE: usize = 200_000_000;
 const REGION_SIZE: usize = 512;
 const CHUNK_SIZE: usize = 64;
 const AXIS_MAX_CHUNKS: usize = 4;
-const LOD: usize = 4;
+const LOD: usize = 6;
+const PREPASS_SCALE: usize = 2;
 
 pub type Vertex = (f32, f32, f32);
 pub type Color = [f32; 4];
@@ -246,6 +247,20 @@ fn main() {
             ..default()
         })
         .expect("failed to create pipeline");
+    
+    let build_struct_pipeline = pipeline_compiler
+        .create_compute_pipeline(ComputePipelineInfo {
+            shader: Shader(Compute, "build_struct", &[]),
+            ..default()
+        })
+        .expect("failed to create pipeline");
+    
+    let after_build_struct_pipeline = pipeline_compiler
+        .create_compute_pipeline(ComputePipelineInfo {
+            shader: Shader(Compute, "after_build_struct", &[]),
+            ..default()
+        })
+        .expect("failed to create pipeline");
 
     let world_pipeline = pipeline_compiler
         .create_compute_pipeline(ComputePipelineInfo {
@@ -303,7 +318,6 @@ fn main() {
         })
         .expect("failed to create pipeline");
 
-    const PREPASS_SCALE: usize = 2;
 
     let mut depth_img = Cell::new(
         device
@@ -369,20 +383,31 @@ fn main() {
     let mut chunk_images = vec![];
 
     for _ in 0..2 {
-        for lod in 0..LOD {
-            let lod_size = REGION_SIZE / lod;
+        chunk_images.push(
+            device
+                .create_image(ImageInfo {
+                    extent: ImageExtent::ThreeDim(REGION_SIZE, REGION_SIZE, REGION_SIZE),
+                    usage: ImageUsage::TRANSFER_DST,
+                    format: Format::R16Uint,
+                    ..default()
+                })
+                .expect("failed to create depth image"),
+        );
+    }
+        for lod in 1..=LOD {
+            let lod1 = 2i32.pow(lod as _) as usize;
+            let lod_size = REGION_SIZE / (lod1);
             chunk_images.push(
                 device
                     .create_image(ImageInfo {
-                        extent: ImageExtent::ThreeDim(REGION_SIZE, REGION_SIZE, REGION_SIZE),
+                        extent: ImageExtent::ThreeDim(lod_size, lod_size, lod_size),
                         usage: ImageUsage::TRANSFER_DST,
                         format: Format::R16Uint,
                         ..default()
                     })
-                   .expect("failed to create depth image"),
+                    .expect("failed to create depth image"),
             );
         }
-    }
 
     let general_staging_buffer = device
         .create_buffer(BufferInfo {
@@ -1180,23 +1205,23 @@ fn main() {
                         Image(&perlin_image, ImageAccess::ComputeShaderReadWrite),
                     ],
                     task: |commands| {
-                        commands.set_pipeline(&move_world_pipeline)?;
+                            commands.set_pipeline(&move_world_pipeline)?;
 
-                        commands.push_constant(PushConstant {
-                            data: BuildWorldPush {
-                                worley_image: (worley_image)(),
-                                perlin_image: (perlin_image)(),
-                                transform_buffer: (transform_buffer)(),
-                                world_buffer: (world_buffer)(),
-                            },
-                            pipeline: &move_world_pipeline,
-                        })?;
+                            commands.push_constant(PushConstant {
+                                data: BuildWorldPush {
+                                    worley_image: (worley_image)(),
+                                    perlin_image: (perlin_image)(),
+                                    transform_buffer: (transform_buffer)(),
+                                    world_buffer: (world_buffer)(),
+                                },
+                                pipeline: &move_world_pipeline,
+                            })?;
 
-                        const WORK_GROUP_SIZE: usize = 8;
+                            const WORK_GROUP_SIZE: usize = 8;
 
-                        let size = REGION_SIZE / WORK_GROUP_SIZE;
+                            let size = REGION_SIZE / WORK_GROUP_SIZE;
 
-                        commands.dispatch(size, size, size)?;
+                            commands.dispatch(size, size, size)?;
                         Ok(())
                     },
                 });
@@ -1209,23 +1234,23 @@ fn main() {
                         Image(&worley_image, ImageAccess::ComputeShaderReadWrite),
                     ],
                     task: |commands| {
-                        commands.set_pipeline(&world_pipeline)?;
+                            commands.set_pipeline(&world_pipeline)?;
 
-                        commands.push_constant(PushConstant {
-                            data: BuildWorldPush {
-                                perlin_image: (perlin_image)(),
-                                worley_image: (worley_image)(),
-                                transform_buffer: (transform_buffer)(),
-                                world_buffer: (world_buffer)(),
-                            },
-                            pipeline: &world_pipeline,
-                        })?;
+                            commands.push_constant(PushConstant {
+                                data: BuildWorldPush {
+                                    perlin_image: (perlin_image)(),
+                                    worley_image: (worley_image)(),
+                                    transform_buffer: (transform_buffer)(),
+                                    world_buffer: (world_buffer)(),
+                                },
+                                pipeline: &world_pipeline,
+                            })?;
 
-                        const WORK_GROUP_SIZE: usize = 8;
+                            const WORK_GROUP_SIZE: usize = 8;
 
-                        let size = REGION_SIZE / WORK_GROUP_SIZE;
+                            let size = REGION_SIZE / WORK_GROUP_SIZE;
 
-                        commands.dispatch(size, size, size)?;
+                            commands.dispatch(size, size, size)?;
                         Ok(())
                     },
                 });
@@ -1276,6 +1301,59 @@ fn main() {
                                 world_buffer: (world_buffer)(),
                             },
                             pipeline: &after_world_pipeline,
+                        })?;
+
+                        commands.dispatch(1, 1, 1)?;
+                        Ok(())
+                    },
+                });
+
+                executor.add(Task {
+                    resources: [
+                        Buffer(&world_buffer, BufferAccess::ComputeShaderReadWrite),
+                        Buffer(&transform_buffer, BufferAccess::ComputeShaderReadWrite),
+                        Image(&perlin_image, ImageAccess::ComputeShaderReadWrite),
+                    ],
+                    task: |commands| {
+                        for lod in 1..=LOD {
+                            let lod1 = 2i32.pow(lod as _) as usize;
+                            commands.set_pipeline(&build_struct_pipeline)?;
+
+                            commands.push_constant(PushConstant {
+                                data: BuildStructPush {
+                                    world_buffer: (world_buffer)(),
+                                    lod: lod1 as _,
+                                },
+                                pipeline: &build_struct_pipeline,
+                            })?;
+                            
+                        const WORK_GROUP_SIZE: usize = 8;
+                        
+                        let size = REGION_SIZE / (lod1)  / WORK_GROUP_SIZE;
+
+                            commands.dispatch(size, size, size)?;
+                        }
+                        Ok(())
+                    },
+                });
+                
+                executor.add(Task {
+                    resources: [
+                        Buffer(&world_buffer, BufferAccess::ComputeShaderReadWrite),
+                        Buffer(&transform_buffer, BufferAccess::ComputeShaderReadWrite),
+                        Image(&perlin_image, ImageAccess::ComputeShaderReadWrite),
+                    ],
+                    task: |commands| {
+                        commands.set_pipeline(&after_build_struct_pipeline)?;
+
+                        commands.push_constant(PushConstant {
+                            data: BuildWorldPush {
+                                perlin_image: (perlin_image)(),
+                                transform_buffer: (transform_buffer)(),
+                                worley_image: (worley_image)(),
+                                world_buffer: (world_buffer)(),
+                            },
+                            pipeline: &after_build_struct_pipeline,
                         })?;
 
                         commands.dispatch(1, 1, 1)?;
@@ -1682,6 +1760,13 @@ pub struct BuildWorldPush {
     pub transform_buffer: Buffer,
     pub perlin_image: Image,
     pub worley_image: Image,
+}
+
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct BuildStructPush {
+    pub world_buffer: Buffer,
+    pub lod: u32,
 }
 #[derive(Clone, Copy)]
 #[repr(C)]

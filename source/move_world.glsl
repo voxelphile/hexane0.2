@@ -9,6 +9,7 @@ struct BuildRegionPush {
 	BufferId region_id;
 	BufferId transform_id;
 	ImageId perlin_id;
+	ImageId worley_id;
 };
 
 decl_push_constant(BuildRegionPush)
