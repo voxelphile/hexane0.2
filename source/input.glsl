@@ -77,7 +77,6 @@ void main() {
 		
 	VoxelQuery query;
 	query.region_data = region.data;
-	query.position = ivec3(region_transform.position.xyz) + ivec3(0, -1, 0);
 
 	if(!inp.first){
 		transform.position.xyz = vec3(128, 50, 128);
@@ -97,10 +96,21 @@ void main() {
 		vec3 origin = (compute_transform_matrix(region_transform) * near).xyz;
 		vec3 dir = (compute_transform_matrix(region_transform) * vec4(normalize(far.xyz), 0)).xyz;
 	
+		query.position = ivec3(region_transform.position.xyz);
+
+		voxel_query(query);
+
+		RayHit ray_hit;
+		ray_hit.destination = origin;
+		ray_hit.id = u16(query.id);
+		bool success;
+		
+		do {
 		Ray ray;
 		ray.medium = u16(query.id);
 		ray.region_id = push_constant.region_id;
-		ray.origin = origin;
+		ray.origin = ray_hit.destination;
+		ray.medium = u16(ray_hit.id);
 		ray.direction = dir;
 		ray.max_distance = 10; 
 		ray.minimum = vec3(0);
@@ -111,10 +121,9 @@ void main() {
 		ray_cast_start(ray, ray_state);
 
 		while(ray_cast_drive(ray_state)) {}
-	
-		RayHit ray_hit;
 
-		bool success = ray_cast_complete(ray_state, ray_hit);
+		success = ray_cast_complete(ray_state, ray_hit);
+		} while(success && !is_solid(u16(ray_hit.id)));
 
 		if(success) {
 			inp.last_action_time = 0;
@@ -144,6 +153,8 @@ void main() {
 		ivec3 diff = region.floating_origin - region.observer_position;
 		vec3 region_position = vec3(REGION_SIZE / 2) - vec3(diff);
 		region_position += transforms.data[0].position.xyz - region.observer_position;
+
+		query.position = ivec3(region_transform.position.xyz) - ivec3(0, 2, 0);
 
 		if(voxel_query(query)) {
 			play_sound_for_block_id(push_constant.sound_id, push_constant.mersenne_id, query.id);
@@ -241,6 +252,9 @@ void main() {
 	} else {
 		inp.coyote_counter += delta_time;
 	}
+	
+	query.position = ivec3(region_transform.position.xyz);
+	voxel_query(query);
 
 	bool in_water = query.id == BLOCK_ID_WATER;
 

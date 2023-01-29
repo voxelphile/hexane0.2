@@ -114,7 +114,8 @@ void reset_trace_state(in out TraceState trace_state) {
 	trace_state.prev_id = u16(0);
 	trace_state.prev_dist = 0;
 	trace_state.rays = 0;
-    	trace_state.ray_state.ray.result_i = u32vec2(0, 0);
+	RayState state;
+    	trace_state.ray_state = state;
 }
 
 bool ray_trace(in out TraceState trace_state) {
@@ -176,7 +177,7 @@ bool ray_trace(in out TraceState trace_state) {
 			trace_state.color.xyz *= mix(vec3(107, 84, 40) / 256, vec3(64, 41, 5) / 256, noise_factor);
 		}
 		if(traveling_through_water) {
-			trace_state.color.xyz *= vec3(0.42, 0.95, 10.0) * exp(-trace_state.prev_dist * 0.05 + 0.0);;
+			trace_state.color.xyz *= vec3(0.42, 0.95, 1.0) * exp(-ray_hit.dist * 0.05 + 0.0);;
 		}
 	
 
@@ -197,7 +198,7 @@ bool ray_trace(in out TraceState trace_state) {
 	} else {
 
 		if(traveling_through_water) {
-			trace_state.color = vec4(0.42, 0.95, 1.0, 1);
+			trace_state.color.xyz *= vec3(0.42, 0.95, 1.0) * exp(-10000 * 0.05 + 0.0);;
 		} else {
 			trace_state.color += vec4(1.0, 0.2, 1.0, 1.0);
 		}
@@ -230,6 +231,16 @@ void main() {
 
     	const i32 TOTAL_RAY_COUNT = i32(imageSize(prepass_image).x * imageSize(prepass_image).y);
 
+	Transform region_transform = transforms.data[0];
+	ivec3 diff = region.floating_origin - region.observer_position;
+	region_transform.position.xyz = vec3(REGION_SIZE / 2) - vec3(diff);
+	region_transform.position.xyz += transforms.data[0].position.xyz - region.observer_position;
+
+	VoxelQuery query;
+	query.region_data = region.data;
+	query.position = ivec3(region_transform.position.xyz);
+
+	voxel_query(query);
 
 	while(true) {
 		if(subgroupAny(!trace_state.currently_tracing)) {
@@ -273,10 +284,6 @@ void main() {
 					for (u32 i = 0; i < ray_batch.setup_cache.size; i += WARP_SIZE) {
 						u32 ray_cache_index = i + gl_SubgroupInvocationID.x;
 						if (ray_cache_index < ray_batch.setup_cache.size) {
-					Transform region_transform = transforms.data[0];
-					ivec3 diff = region.floating_origin - region.observer_position;
-					region_transform.position.xyz = vec3(REGION_SIZE / 2) - vec3(diff);
-					region_transform.position.xyz += transforms.data[0].position.xyz - region.observer_position;
 					
 					u32 result_index = ray_batch.setup_cache.start_index + ray_cache_index;
 					u32vec2 result_i = get_result_i(result_index);
@@ -291,7 +298,7 @@ void main() {
 					ray.region_id = push_constant.region_id;
 					ray.origin = region_transform.position.xyz;
 					ray.direction = dir;
-					ray.medium = u16(BLOCK_ID_AIR);
+					ray.medium = query.id;
 					ray.result_i = result_i;
 					ray.max_distance = 100; 
 					ray.minimum = vec3(0);
