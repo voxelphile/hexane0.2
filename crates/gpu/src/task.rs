@@ -513,14 +513,14 @@ impl ops::FnMut<()> for Executable<'_> {
             let resources = resources.lock().unwrap();
 
             let internal_swapchain = resources.swapchains.get(*swapchain).unwrap();
-                
+
             let image_index = internal_swapchain.last_acquisition_index.unwrap();
 
             let wait_semaphore = resources
-                    .binary_semaphores
-                    .get(present.wait_semaphore)
-                    .unwrap()
-                    .semaphores[current_frame];
+                .binary_semaphores
+                .get(present.wait_semaphore)
+                .unwrap()
+                .semaphores[current_frame];
 
             let present_info = {
                 let swapchain_count = 1;

@@ -29,6 +29,7 @@ void main() {
 
 	if(!region.first || length(vec3(diff)) > f32(VIEW_DISTANCE)) {
 		region.dirty = true;
+		region.rebuild = true;
 	} else{
 		return;
 	}

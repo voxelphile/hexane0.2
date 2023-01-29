@@ -1101,10 +1101,7 @@ impl Device {
     }
 
     pub fn wait_idle(&self) {
-        let DeviceInner {
-            logical_device,
-            ..
-        } = &*self.inner;
+        let DeviceInner { logical_device, .. } = &*self.inner;
 
         unsafe { logical_device.device_wait_idle() };
     }

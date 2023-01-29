@@ -1086,7 +1086,7 @@ fn main() {
 
                             let dispatch_size =
                                 (16 as f64 / WORK_GROUP_SIZE as f64).ceil() as usize;
-
+                        
                             commands.dispatch(dispatch_size, dispatch_size, dispatch_size)?;
                         }
                         Ok(())
@@ -1313,10 +1313,10 @@ fn main() {
                         Buffer(&world_buffer, BufferAccess::ComputeShaderReadWrite),
                     ],
                     task: |commands| {
+                        commands.set_pipeline(&build_struct_pipeline)?;
+                        
                         for lod in 1..=LOD {
                             let lod1 = 2i32.pow(lod as _) as usize;
-                            commands.set_pipeline(&build_struct_pipeline)?;
-
                             commands.push_constant(PushConstant {
                                 data: BuildStructPush {
                                     world_buffer: (world_buffer)(),

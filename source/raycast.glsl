@@ -98,7 +98,7 @@ bool ray_cast_drive(inout RayState state) {
 			query.region_data = region.lod[lod - 1];
 		}
 		voxel = exp2(lod);
-		query.position = ivec3(state.map_pos) / i32(voxel);
+		query.position = ivec3(state.map_pos / voxel);
 
 		voxel_found = voxel_query(query);
 
@@ -106,12 +106,9 @@ bool ray_cast_drive(inout RayState state) {
 			break;
 		}
 		if(lod > 0 && query.id == u16(false)) {
-			lod--;
-			voxel = exp2(lod);
 			break;
 		}
 	}
-
 
 	vec3 t_max = ird * (voxel * s01 - mod(state.map_pos, voxel));
 
