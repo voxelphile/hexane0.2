@@ -1,3 +1,29 @@
+#define BLOCK_ID_AIR 1
+#define BLOCK_ID_WATER 5
+
+f32 terminal_velocity(u16 id) {
+	switch(u32(id)) {
+		case BLOCK_ID_AIR:
+			return 54;
+		case BLOCK_ID_WATER:
+			return 10;
+	}
+
+	return 0;
+
+}
+
+bool is_solid(u16 id) {
+	switch(u32(id)) {
+		case BLOCK_ID_AIR:
+		case BLOCK_ID_WATER:
+			return false;
+	}
+
+	return true;
+
+}
+
 struct VoxelQuery {
 	//input
 	ImageId region_data;

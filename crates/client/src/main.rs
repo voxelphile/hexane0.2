@@ -41,7 +41,7 @@ const REGION_SIZE: usize = 512;
 const CHUNK_SIZE: usize = 64;
 const AXIS_MAX_CHUNKS: usize = 4;
 const LOD: usize = 6;
-const PREPASS_SCALE: usize = 2;
+const PREPASS_SCALE: usize = 4;
 
 pub type Vertex = (f32, f32, f32);
 pub type Color = [f32; 4];
@@ -1311,8 +1311,6 @@ fn main() {
                 executor.add(Task {
                     resources: [
                         Buffer(&world_buffer, BufferAccess::ComputeShaderReadWrite),
-                        Buffer(&transform_buffer, BufferAccess::ComputeShaderReadWrite),
-                        Image(&perlin_image, ImageAccess::ComputeShaderReadWrite),
                     ],
                     task: |commands| {
                         for lod in 1..=LOD {
@@ -1327,9 +1325,9 @@ fn main() {
                                 pipeline: &build_struct_pipeline,
                             })?;
                             
-                        const WORK_GROUP_SIZE: usize = 8;
+                            const WORK_GROUP_SIZE: usize = 8;
                         
-                        let size = REGION_SIZE / (lod1)  / WORK_GROUP_SIZE;
+                            let size = REGION_SIZE / (lod1)  / WORK_GROUP_SIZE;
 
                             commands.dispatch(size, size, size)?;
                         }

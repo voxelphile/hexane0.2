@@ -69,6 +69,15 @@ void main() {
 	Transform transform = transforms.data[0];
 	Rigidbody rigidbody = rigidbodies.data[0];
 	EntityInput entity_input = info.entity_input;
+		
+	Transform region_transform = transform;
+	ivec3 diff = region.floating_origin - region.observer_position;
+	region_transform.position.xyz = vec3(REGION_SIZE / 2) - vec3(diff);
+	region_transform.position.xyz += transforms.data[0].position.xyz - region.observer_position;
+		
+	VoxelQuery query;
+	query.region_data = region.data;
+	query.position = ivec3(region_transform.position.xyz) + ivec3(0, -1, 0);
 
 	if(!inp.first){
 		transform.position.xyz = vec3(128, 50, 128);
@@ -79,10 +88,6 @@ void main() {
 	}
 
 	if(inp.last_action_time > 0.15 && (entity_input.action1 || entity_input.action2)) {
-		Transform region_transform = transform;
-		ivec3 diff = region.floating_origin - region.observer_position;
-		region_transform.position.xyz = vec3(REGION_SIZE / 2) - vec3(diff);
-		region_transform.position.xyz += transforms.data[0].position.xyz - region.observer_position;
 	
 		vec2 screenPos = vec2(0);
 		vec4 far = camera.inv_projection * vec4(screenPos, 1, 1);
@@ -93,7 +98,7 @@ void main() {
 		vec3 dir = (compute_transform_matrix(region_transform) * vec4(normalize(far.xyz), 0)).xyz;
 	
 		Ray ray;
-		ray.medium = u16(1);
+		ray.medium = u16(query.id);
 		ray.region_id = push_constant.region_id;
 		ray.origin = origin;
 		ray.direction = dir;
@@ -139,9 +144,6 @@ void main() {
 		ivec3 diff = region.floating_origin - region.observer_position;
 		vec3 region_position = vec3(REGION_SIZE / 2) - vec3(diff);
 		region_position += transforms.data[0].position.xyz - region.observer_position;
-		VoxelQuery query;
-		query.region_data = region.data;
-		query.position = ivec3(region_position) + ivec3(0, -2, 0);
 
 		if(voxel_query(query)) {
 			play_sound_for_block_id(push_constant.sound_id, push_constant.mersenne_id, query.id);
@@ -151,7 +153,6 @@ void main() {
 	}
 
 	f32 sens = 0.002;
-	f32 rot_rate = exp2(0.01);
 
 	inp.target_rotation.xy -= (entity_input.look.yx) * sens;
 
@@ -159,6 +160,9 @@ void main() {
 	if(entity_input.look.xy != vec2(0)) {
 		inp.target_rotation_time = 0;
 	}
+	
+	f32 rot_rate = exp2(0.01);
+	
 	transform.rotation = mix(transform.rotation, inp.target_rotation, exp2(-rot_rate * delta_time));
 
 	vec3 direction = vec3(0);
@@ -238,9 +242,11 @@ void main() {
 		inp.coyote_counter += delta_time;
 	}
 
+	bool in_water = query.id == BLOCK_ID_WATER;
+
 	f32 coyote_time = 0.3;
 
-	if(input_axis.y == 1 && !inp.jumping && inp.coyote_counter < coyote_time) {
+	if(input_axis.y == 1 && ((!inp.jumping && inp.coyote_counter < coyote_time) || in_water)) {
 		rigidbody.velocity.y += 10;
 		inp.jumping = true;
 	}

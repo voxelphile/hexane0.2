@@ -22,12 +22,14 @@ decl_push_constant(PhysicsPush)
 
 layout (local_size_x = 256) in;
 
+#define DIMENSIONS 3
 
 struct CollisionResponse {
 	vec3 normal;
 	f32 entry_time;
 	f32 exit_time;
 };
+
 
 bool swept_aabb(Box a, Box b, vec3 velocity, inout CollisionResponse response) {
 	Buffer(Info) info = get_buffer(Info, push_constant.info_id);
@@ -214,7 +216,7 @@ void main() {
 		bool voxel_found = voxel_query(query);
 
 		//1 is air
-		if (!voxel_found || query.id == 1) {
+		if (!voxel_found || !is_solid(query.id)) {
 			continue;
 		}
 		
@@ -229,7 +231,7 @@ void main() {
 			query.position = ivec3(query.position) + ivec3(response.normal);
 			bool voxel_found = voxel_query(query);
 
-			if(voxel_found && query.id != 1) {
+			if(voxel_found && is_solid(query.id)) {
 				continue;
 			}
 			if(response.entry_time > fixed_time) {
@@ -258,7 +260,7 @@ void main() {
 	if(data[1].entry_time < data[2].entry_time) swap(order[1], order[2]);
 	if(data[0].entry_time < data[1].entry_time) swap(order[0], order[1]);
 
-	for(i32 i = 2; i >= 0; i--) {
+	for(i32 i = DIMENSIONS - 1; i >= 0; i--) {
 		i32 o = order[i];
 
 		if(data[o].colliding) {
@@ -299,6 +301,16 @@ void main() {
 	}
 
 	rigidbody.acceleration.y -= 4;
+
+	VoxelQuery query;
+	query.region_data = region.data;
+	query.position = i32vec3(player.position.xyz);
+
+	voxel_query(query);
+
+	f32 rot_rate = exp2(1);
+	
+	rigidbody.velocity.xyz = mix(rigidbody.velocity.xyz, min(rigidbody.velocity.xyz, vec3(terminal_velocity(query.id))), exp2(-rot_rate * push_constant.fixed_time));
 
 	transforms.data[0] = transform;
 	rigidbodies.data[0] = rigidbody;

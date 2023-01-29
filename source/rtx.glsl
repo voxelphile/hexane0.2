@@ -110,7 +110,7 @@ void write_ray_result(in out TraceState trace_state) {
 void reset_trace_state(in out TraceState trace_state) {
 	trace_state.currently_tracing = false;
 	trace_state.has_ray_result = false;
-	trace_state.color = vec4(0);
+	trace_state.color = vec4(1);
 	trace_state.prev_id = u16(0);
 	trace_state.prev_dist = 0;
 	trace_state.rays = 0;
@@ -132,8 +132,6 @@ bool ray_trace(in out TraceState trace_state) {
 
     	bool success = ray_cast_complete(trace_state.ray_state, ray_hit);
 
-	vec4 color = vec4(0);
-
 	if(trace_state.rays > MAX_TRACE) {
 		return true;
 	}
@@ -144,7 +142,7 @@ bool ray_trace(in out TraceState trace_state) {
 	if (success) {
 		if(is_transparent(u16(ray_hit.id))) {
 			Ray ray;
-			ray.direction = refract(normalize(trace_state.ray_state.ray.direction), vec3(0, 1, 0), refraction_index(u16(ray_hit.id)));
+			ray.direction = refract(normalize(trace_state.ray_state.ray.direction), ray_hit.normal, refraction_index(u16(ray_hit.id)));
 			if(ray.direction != vec3(0)) {
 				ray.region_id = push_constant.region_id;
 				ray.origin = ray_hit.destination;
@@ -164,22 +162,21 @@ bool ray_trace(in out TraceState trace_state) {
 		//f32 noise_factor = f32(imageLoad(perlin_img, i32vec3(abs(round(vec3(region.floating_origin) - vec3(REGION_SIZE / 2) + ray_hit.destination + vec3(0.5)))) % i32vec3(imageSize(perlin_img))).r) / f32(~0u);
 		f32 noise_factor = 0.5;
 
-		color.a = 1;
 		if(ray_hit.id == 0) {
-			color.xyz = vec3(1, 0, 1);
+			trace_state.color.xyz = vec3(1, 0, 1);
 		}
 		if(ray_hit.id == 2) {
-			color.xyz += mix(vec3(170, 255, 21) / 256, vec3(34, 139, 34) / 256, noise_factor);
+			trace_state.color.xyz *= mix(vec3(170, 255, 21) / 256, vec3(34, 139, 34) / 256, noise_factor);
 		}
 		if(ray_hit.id == 3) {
-			color.xyz += mix(vec3(135) / 256, vec3(80) / 256, noise_factor);
+			trace_state.color.xyz *= mix(vec3(135) / 256, vec3(80) / 256, noise_factor);
 		}
 
 		if(ray_hit.id == 4) {
-			color.xyz += mix(vec3(107, 84, 40) / 256, vec3(64, 41, 5) / 256, noise_factor);
+			trace_state.color.xyz *= mix(vec3(107, 84, 40) / 256, vec3(64, 41, 5) / 256, noise_factor);
 		}
 		if(traveling_through_water) {
-			color.xyz *= vec3(0.42, 0.95, 1.0) * exp(-trace_state.prev_dist * 0.05 + 0.0);;
+			trace_state.color.xyz *= vec3(0.42, 0.95, 10.0) * exp(-trace_state.prev_dist * 0.05 + 0.0);;
 		}
 	
 
@@ -196,14 +193,11 @@ bool ray_trace(in out TraceState trace_state) {
 			ao = mix(mix(ambient.z, ambient.w, ray_hit.uv.x), mix(ambient.y, ambient.x, ray_hit.uv.x), ray_hit.uv.y);
 		}
 
-		color.xyz = color.xyz - vec3(1 - ao) * 0.25;
-
-		trace_state.color += color;
+		trace_state.color.xyz = trace_state.color.xyz - vec3(1 - ao) * 0.25;
 	} else {
 
 		if(traveling_through_water) {
-			color.xyz += vec3(0.42, 0.95, 1.0) * exp(100000 * 0.05 + 0.0);;
-			trace_state.color = vec4(normalize(color.rgb), 1);
+			trace_state.color = vec4(0.42, 0.95, 1.0, 1);
 		} else {
 			trace_state.color += vec4(1.0, 0.2, 1.0, 1.0);
 		}
@@ -297,7 +291,7 @@ void main() {
 					ray.region_id = push_constant.region_id;
 					ray.origin = region_transform.position.xyz;
 					ray.direction = dir;
-					ray.medium = u16(1);
+					ray.medium = u16(BLOCK_ID_AIR);
 					ray.result_i = result_i;
 					ray.max_distance = 100; 
 					ray.minimum = vec3(0);

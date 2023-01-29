@@ -17,8 +17,18 @@ layout(location = 0) out vec4 result;
 
 void main() {
 	Image(2D, f32) perlin_img = get_image(2D, f32, push_constant.from_id);
-	
-	result = normalize(imageLoad(perlin_img, i32vec2(gl_FragCoord.xy / push_constant.scale)));
+
+	float exposure = 1.0;
+
+	const float gamma = 2.2;
+    	vec3 hdrColor = imageLoad(perlin_img, i32vec2(gl_FragCoord.xy / push_constant.scale)).rgb;
+  
+    	// exposure tone mapping
+    	vec3 mapped = vec3(1.0) - exp(-hdrColor * exposure);
+    	// gamma correction 
+    	mapped = pow(mapped, vec3(1.0 / gamma));
+
+	result = vec4(mapped, 1);
 }
 
 #endif
