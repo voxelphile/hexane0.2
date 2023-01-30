@@ -32,6 +32,10 @@ decl_push_constant(RtxPush)
 #define STEPS_UNTIL_REORDER (32)
 #define STALL_LIMIT 100
 
+#define TRACE_STATE_CAMERA 0
+#define TRACE_STATE_LIGHT_SETUP 1
+#define TRACE_STATE_LIGHT 2
+
 layout (local_size_x = WARP_SIZE, local_size_y = 1, local_size_z = 1) in;
 
 struct RayBatchSetupCache {
@@ -87,9 +91,11 @@ struct TraceState {
 	bool currently_tracing;
 	bool has_ray_result;
 	u32 rays;
+	u32 id;
 	vec4 color;
 	u16 prev_id;
 	f32 prev_dist;
+	RayHit initial_hit;
 	RayState ray_state;
 };
 
@@ -115,11 +121,17 @@ void reset_trace_state(in out TraceState trace_state) {
 	trace_state.prev_id = u16(0);
 	trace_state.prev_dist = 0;
 	trace_state.rays = 0;
+	trace_state.id = TRACE_STATE_CAMERA;
 	RayState state;
     	trace_state.ray_state = state;
+	RayHit hit;
+	trace_state.initial_hit = hit;
 }
 
 bool ray_trace(in out TraceState trace_state) {
+	if(trace_state.rays > MAX_TRACE) {
+		return true;
+	}
 	
 	Buffer(Camera) camera = get_buffer(Camera, push_constant.camera_id);
 	Buffer(Transforms) transforms = get_buffer(Transforms, push_constant.transform_id);
@@ -129,19 +141,16 @@ bool ray_trace(in out TraceState trace_state) {
 
 ;
 	
-	if(!ray_cast_drive(trace_state.ray_state)) {
-	RayHit ray_hit;
-
-    	bool success = ray_cast_complete(trace_state.ray_state, ray_hit);
-
-	if(trace_state.rays > MAX_TRACE) {
-		return true;
-	}
-
+	
 	bool traveling_through_water = trace_state.prev_id == u16(5) || trace_state.ray_state.ray.medium == u16(5);
-		
+	
+	if(trace_state.id == TRACE_STATE_CAMERA && !ray_cast_drive(trace_state.ray_state)) {	
+	RayHit ray_hit;
+    	
+	bool success = ray_cast_complete(trace_state.ray_state, ray_hit);
 
 	if (success) {
+		trace_state.initial_hit = ray_hit;
 		if(is_transparent(u16(ray_hit.id))) {
 			Ray ray;
 			ray.direction = refract(normalize(trace_state.ray_state.ray.direction), ray_hit.normal, refraction_index(u16(ray_hit.id)));
@@ -179,7 +188,7 @@ bool ray_trace(in out TraceState trace_state) {
 			trace_state.color.xyz *= mix(vec3(107, 84, 40) / 256, vec3(64, 41, 5) / 256, noise_factor);
 		}
 		if(traveling_through_water) {
-			trace_state.color.xyz *= vec3(0.42, 0.95, 1.0) * exp(-ray_hit.dist * 0.05 + 0.0);;
+			trace_state.color.xyz *= vec3(0.42, 0.95, 1.0) * exp(-trace_state.prev_dist * 0.05);
 		}
 	
 
@@ -197,15 +206,74 @@ bool ray_trace(in out TraceState trace_state) {
 		}
 
 		trace_state.color.xyz = trace_state.color.xyz - vec3(1 - ao) * 0.25;
-	} else {
+		
+		trace_state.id = TRACE_STATE_LIGHT_SETUP;
 
+		return false;
+	
+	} else {
 		if(traveling_through_water) {
-			trace_state.color.xyz *= vec3(0.42, 0.95, 1.0) * exp(-10000 * 0.05 + 0.0);;
+			trace_state.color.xyz *= vec3(0.42, 0.95, 1.0) * exp(-10000 * 0.05 + 500);;
 		} else {
 			trace_state.color += vec4(1.0, 0.2, 1.0, 1.0);
 		}
-	}
 		
+		return true;
+	}
+	}
+
+	vec3 sun_pos = vec3(10000);
+	vec3 sun_color = vec3(0.8, 0.9, 1.0);
+
+	if(trace_state.id == TRACE_STATE_LIGHT_SETUP) {
+		Ray ray;
+		ray.direction = normalize(sun_pos - trace_state.initial_hit.destination); 
+		ray.region_id = push_constant.region_id;
+		ray.origin = trace_state.initial_hit.destination + trace_state.initial_hit.normal * EPSILON;
+		ray.result_i = trace_state.ray_state.ray.result_i;
+		ray.medium = u16(trace_state.ray_state.ray.medium);
+		ray.max_distance = 10000;
+		ray.minimum = vec3(0);
+		ray.maximum = vec3(REGION_SIZE);
+		trace_state.prev_id = u16(trace_state.ray_state.ray.medium);
+		trace_state.prev_dist = trace_state.initial_hit.dist;
+		ray_cast_start(ray, trace_state.ray_state);
+		trace_state.rays++;
+		trace_state.id = TRACE_STATE_LIGHT;
+		return false;
+	}
+
+	if(trace_state.id == TRACE_STATE_LIGHT && !ray_cast_drive(trace_state.ray_state)) {
+		RayHit ray_hit;
+
+    		bool success = ray_cast_complete(trace_state.ray_state, ray_hit);
+
+		if(trace_state.ray_state.id == RAY_STATE_VOXEL_FOUND && !is_solid(u16(ray_hit.id))) {
+			Ray ray;
+			ray.direction = trace_state.ray_state.ray.direction; 
+			ray.region_id = push_constant.region_id;
+			ray.origin = trace_state.ray_state.map_pos;
+			ray.result_i = trace_state.ray_state.ray.result_i;
+			ray.medium = u16(ray_hit.id);
+			ray.max_distance = 10000;
+			ray.minimum = vec3(0);
+			ray.maximum = vec3(REGION_SIZE);
+			trace_state.prev_id = u16(trace_state.ray_state.ray.medium);
+			trace_state.prev_dist = ray_hit.dist;
+			ray_cast_start(ray, trace_state.ray_state);
+			trace_state.rays++;
+			trace_state.id = TRACE_STATE_LIGHT;
+			return false;
+		}
+
+		bool in_light = trace_state.ray_state.id != RAY_STATE_VOXEL_FOUND;
+		
+		if(in_light) {	
+			trace_state.color.xyz *= (10 - 0.1) * dot(trace_state.ray_state.ray.direction, trace_state.initial_hit.normal) + 0.1;
+		} else {
+			trace_state.color.xyz *= 0.1;
+		}
+
 		return true;
 	}
 
