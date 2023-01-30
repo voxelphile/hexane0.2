@@ -30,6 +30,7 @@ decl_push_constant(RtxPush)
 #define CACHE_SIZE (WARP_SIZE * 1)
 #define BATCH_SIZE (CACHE_SIZE * 2)
 #define STEPS_UNTIL_REORDER (32)
+#define STALL_LIMIT 100
 
 layout (local_size_x = WARP_SIZE, local_size_y = 1, local_size_z = 1) in;
 
@@ -144,7 +145,9 @@ bool ray_trace(in out TraceState trace_state) {
 		if(is_transparent(u16(ray_hit.id))) {
 			Ray ray;
 			ray.direction = refract(normalize(trace_state.ray_state.ray.direction), ray_hit.normal, refraction_index(u16(ray_hit.id)));
-			if(ray.direction != vec3(0)) {
+			if(ray.direction == vec3(0)) {
+				ray.direction = reflect(normalize(trace_state.ray_state.ray.direction), ray_hit.normal);
+			}
 				ray.region_id = push_constant.region_id;
 				ray.origin = ray_hit.destination;
 				ray.result_i = trace_state.ray_state.ray.result_i;
@@ -158,10 +161,9 @@ bool ray_trace(in out TraceState trace_state) {
 				trace_state.ray_state.initial_dist = ray_hit.total_dist;
 				trace_state.rays++;
 				return false;
-			}
+			
 		}
-		//f32 noise_factor = f32(imageLoad(perlin_img, i32vec3(abs(round(vec3(region.floating_origin) - vec3(REGION_SIZE / 2) + ray_hit.destination + vec3(0.5)))) % i32vec3(imageSize(perlin_img))).r) / f32(~0u);
-		f32 noise_factor = 0.5;
+		f32 noise_factor = f32(imageLoad(perlin_img, i32vec3(abs(round(vec3(region.floating_origin) - vec3(REGION_SIZE / 2) + ray_hit.destination + vec3(0.5)))) % i32vec3(imageSize(perlin_img))).r) / f32(~0u);
 
 		if(ray_hit.id == 0) {
 			trace_state.color.xyz = vec3(1, 0, 1);
@@ -242,7 +244,10 @@ void main() {
 
 	voxel_query(query);
 
-	while(true) {
+	int count = 0;
+
+	while(count < STALL_LIMIT) {
+		count++;
 		if(subgroupAny(!trace_state.currently_tracing)) {
 			if(!trace_state.currently_tracing) {
 				if(trace_state.has_ray_result) {
