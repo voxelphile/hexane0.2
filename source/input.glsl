@@ -106,23 +106,22 @@ void main() {
 		bool success;
 		
 		do {
-		Ray ray;
-		ray.medium = u16(query.id);
-		ray.region_id = push_constant.region_id;
-		ray.origin = ray_hit.destination;
-		ray.medium = u16(ray_hit.id);
-		ray.direction = dir;
-		ray.max_distance = 10; 
-		ray.minimum = vec3(0);
-		ray.maximum = vec3(REGION_SIZE);
+			Ray ray;
+			ray.region_id = push_constant.region_id;
+			ray.origin = ray_hit.destination;
+			ray.medium = u16(ray_hit.id);
+			ray.direction = dir;
+			ray.max_distance = 10; 
+			ray.minimum = vec3(0);
+			ray.maximum = vec3(REGION_SIZE);
 
-		RayState ray_state;
+			RayState ray_state;
 
-		ray_cast_start(ray, ray_state);
+			ray_cast_start(ray, ray_state);
 
-		while(ray_cast_drive(ray_state)) {}
+			while(ray_cast_drive(ray_state)) {}
 
-		success = ray_cast_complete(ray_state, ray_hit);
+			success = ray_cast_complete(ray_state, ray_hit);
 		} while(success && !is_solid(u16(ray_hit.id)));
 
 		if(success) {

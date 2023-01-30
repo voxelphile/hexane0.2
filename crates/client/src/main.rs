@@ -758,10 +758,9 @@ fn main() {
                         pipeline_compiler
                             .refresh_compute_pipeline(&input_pipeline)
                             .unwrap();
-                        /*pipeline_compiler
-                            .refresh_compute_pipeline(&vertex_pipeline)
+                        pipeline_compiler
+                            .refresh_compute_pipeline(&rtx_pipeline)
                             .unwrap();
-                        */
                         pipeline_compiler
                             .refresh_compute_pipeline(&noise_pipeline)
                             .unwrap();

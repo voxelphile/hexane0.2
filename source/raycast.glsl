@@ -22,6 +22,7 @@ struct RayState {
 	f32 dist;
 	f32 initial_dist;
 	bvec3 mask;	
+	u32 lod;
 	u16 block_id;
 	Ray ray;
 };
@@ -91,24 +92,17 @@ bool ray_cast_drive(inout RayState state) {
 	float voxel = 1;
 	VoxelQuery query;
 	bool voxel_found = false;
-	for(lod = 0; lod <= LOD; lod++) {
-		if(lod == 0) {
-			query.region_data = region.data;
-		} else {
-			query.region_data = region.lod[lod - 1];
-		}
-		voxel = exp2(lod);
+	for(lod = LOD; lod >= 1; lod--) {
+		query.region_data = region.lod[lod - 1];
+		voxel = pow(2, lod);
 		query.position = ivec3(state.map_pos / voxel);
 
-		voxel_found = voxel_query(query);
-
-		if(lod == 0 && query.id != state.ray.medium) {
-			break;
-		}
-		if(lod > 0 && query.id == u16(false)) {
+		if(voxel_query(query)) {
 			break;
 		}
 	}
+		
+	voxel = pow(2, lod);
 
 	vec3 t_max = ird * (voxel * s01 - mod(state.map_pos, voxel));
 

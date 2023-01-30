@@ -48,7 +48,7 @@ bool voxel_query(inout VoxelQuery query) {
 		return false;
 	}
 	
-	if(any(greaterThanEqual(query.position, ivec3(REGION_SIZE)))) {
+	if(any(greaterThanEqual(query.position, imageSize(region_data)))) {
 		return false;
 	}
 
@@ -73,7 +73,7 @@ void voxel_change(inout VoxelChange change) {
 		return;
 	}
 	
-	if(any(greaterThanEqual(change.position, ivec3(REGION_SIZE)))) {
+	if(any(greaterThanEqual(change.position, imageSize(region_data)))) {
 		return;
 	}
 
