@@ -148,7 +148,7 @@ fn main() {
     let sound_asset_path = asset_path.join("audio");
 
     let context = Context::new(ContextInfo {
-        enable_validation: true,
+        enable_validation: false,
         application_name: "Hexane",
         engine_name: "Hexane",
         ..default()
@@ -176,7 +176,7 @@ fn main() {
 
     let mut pipeline_compiler = device.create_pipeline_compiler(PipelineCompilerInfo {
         //default language for shader compiler is glsl
-        compiler: ShaderCompiler::glslc(default()),
+        //compiler: ShaderCompiler::glslc(default()),
         source_path: &source_path,
         asset_path: &shader_asset_path,
         ..default()
@@ -184,37 +184,6 @@ fn main() {
 
     use ShaderType::*;
 
- /*   let draw_pipeline = pipeline_compiler
-        .create_graphics_pipeline(GraphicsPipelineInfo {
-            shaders: [
-                Shader(Vertex, "rtx", &["volume"]),
-                Shader(Fragment, "rtx", &["volume"]),
-            ],
-            color: [gpu::prelude::Color {
-                format: device.presentation_format(swapchain.get()).unwrap(),
-                blend: None,
-            }],
-            depth: Some(default()),
-            raster: Raster {
-                face_cull: FaceCull::BACK,
-                ..default()
-            },
-            ..default()
-        })
-        .expect("failed to create pipeline");
-
-    let draw2_pipeline = pipeline_compiler
-        .create_graphics_pipeline(GraphicsPipelineInfo {
-            shaders: [Shader(Vertex, "fx", &[]), Shader(Fragment, "rtx", &["fx"])],
-            color: [gpu::prelude::Color {
-                format: device.presentation_format(swapchain.get()).unwrap(),
-                blend: None,
-            }],
-            depth: Some(default()),
-            ..default()
-        })
-        .expect("failed to create pipeline");
-*/
     let rtx_pipeline = pipeline_compiler
         .create_compute_pipeline(ComputePipelineInfo {
             shader: Shader(Compute, "rtx", &[]),
@@ -230,6 +199,27 @@ fn main() {
                 blend: None,
             }],
             depth: None,
+            ..default()
+        })
+        .expect("failed to create pipeline");
+    
+    let before_luminosity_pipeline = pipeline_compiler
+        .create_compute_pipeline(ComputePipelineInfo {
+            shader: Shader(Compute, "before_luminosity", &[]),
+            ..default()
+        })
+        .expect("failed to create pipeline");
+    
+    let after_luminosity_pipeline = pipeline_compiler
+        .create_compute_pipeline(ComputePipelineInfo {
+            shader: Shader(Compute, "after_luminosity", &[]),
+            ..default()
+        })
+        .expect("failed to create pipeline");
+    
+    let luminosity_pipeline = pipeline_compiler
+        .create_compute_pipeline(ComputePipelineInfo {
+            shader: Shader(Compute, "build_luminosity", &[]),
             ..default()
         })
         .expect("failed to create pipeline");
@@ -262,13 +252,13 @@ fn main() {
         })
         .expect("failed to create pipeline");
 
-    let world_pipeline = pipeline_compiler
+    let build_world_pipeline = pipeline_compiler
         .create_compute_pipeline(ComputePipelineInfo {
             shader: Shader(Compute, "build_world", &[]),
             ..default()
         })
         .expect("failed to create pipeline");
-
+    
     let move_world_pipeline = pipeline_compiler
         .create_compute_pipeline(ComputePipelineInfo {
             shader: Shader(Compute, "move_world", &[]),
@@ -382,7 +372,7 @@ fn main() {
 
     let mut chunk_images = vec![];
 
-    for _ in 0..2 {
+    for _ in 0..3 {
         chunk_images.push(
             device
                 .create_image(ImageInfo {
@@ -417,6 +407,23 @@ fn main() {
             ..default()
         })
         .expect("failed to create buffer");
+    
+    let entity_buffer = device
+        .create_buffer(BufferInfo {
+            size: 100000,
+            debug_name: "Staging Buffer",
+            ..default()
+        })
+        .expect("failed to create buffer");
+    
+    let luminosity_buffer = device
+        .create_buffer(BufferInfo {
+            size: 10000,
+            debug_name: "Staging Buffer",
+            ..default()
+        })
+        .expect("failed to create buffer");
+
 
     let chunk_staging_buffer = device
         .create_buffer(BufferInfo {
@@ -572,6 +579,7 @@ fn main() {
     let vertex_count = Cell::new(0);
 
     let input_buffer = || input_buffer;
+    let luminosity_buffer = || luminosity_buffer;
     let mersenne_buffer = || mersenne_buffer;
     let transform_buffer = || transform_buffer;
     let sound_buffer = || sound_buffer;
@@ -768,7 +776,7 @@ fn main() {
                             .refresh_compute_pipeline(&perlin_pipeline)
                             .unwrap();
                         pipeline_compiler
-                            .refresh_compute_pipeline(&world_pipeline)
+                            .refresh_compute_pipeline(&build_world_pipeline)
                             .unwrap();
                         pipeline_compiler
                             .refresh_compute_pipeline(&physics_pipeline)
@@ -1233,7 +1241,7 @@ fn main() {
                         Image(&worley_image, ImageAccess::ComputeShaderReadWrite),
                     ],
                     task: |commands| {
-                            commands.set_pipeline(&world_pipeline)?;
+                            commands.set_pipeline(&build_world_pipeline)?;
 
                             commands.push_constant(PushConstant {
                                 data: BuildWorldPush {
@@ -1242,7 +1250,7 @@ fn main() {
                                     transform_buffer: (transform_buffer)(),
                                     world_buffer: (world_buffer)(),
                                 },
-                                pipeline: &world_pipeline,
+                                pipeline: &build_world_pipeline,
                             })?;
 
                             const WORK_GROUP_SIZE: usize = 8;
@@ -1398,11 +1406,13 @@ fn main() {
                 
                executor.add(Task {
                     resources: [
-                        Buffer(&camera_buffer, BufferAccess::FragmentShaderReadOnly),
-                        Buffer(&transform_buffer, BufferAccess::VertexShaderReadOnly),
+                        Buffer(&camera_buffer, BufferAccess::ComputeShaderReadOnly),
+                        Buffer(&info_buffer, BufferAccess::ComputeShaderReadOnly),
+                        Buffer(&transform_buffer, BufferAccess::ComputeShaderReadOnly),
                         Buffer(&world_buffer, BufferAccess::ShaderReadOnly),
-                        Buffer(&mersenne_buffer, BufferAccess::FragmentShaderReadWrite),
-                        Image(&perlin_image, ImageAccess::FragmentShaderReadWrite),
+                        Buffer(&mersenne_buffer, BufferAccess::ComputeShaderReadWrite),
+                        Image(&perlin_image, ImageAccess::ComputeShaderReadWrite),
+                        Image(&prepass_image, ImageAccess::ComputeShaderReadWrite),
                     ],
                     task: |commands| {
                         commands.set_pipeline(&rtx_pipeline)?;
@@ -1425,125 +1435,89 @@ fn main() {
                         Ok(())
                     },
                 });
-                /*
+
                 executor.add(Task {
                     resources: [
-                        Image(&prepass_image, ImageAccess::ColorAttachment),
-                        Image(&depth_image, ImageAccess::DepthAttachment),
-                        Buffer(&camera_buffer, BufferAccess::FragmentShaderReadOnly),
-                        Buffer(&transform_buffer, BufferAccess::VertexShaderReadOnly),
-                        Buffer(&world_buffer, BufferAccess::ShaderReadOnly),
-                        Buffer(&mersenne_buffer, BufferAccess::FragmentShaderReadWrite),
-                        Image(&perlin_image, ImageAccess::FragmentShaderReadWrite),
+                        Buffer(&luminosity_buffer, BufferAccess::ComputeShaderReadWrite),
+                        Image(&prepass_image, ImageAccess::ComputeShaderReadWrite),
+                        Buffer(&info_buffer, BufferAccess::ComputeShaderReadOnly),
                     ],
                     task: |commands| {
-                        let (width, height) = resolution.get();
-
-                        let resolution =
-                            (width / PREPASS_SCALE as u32, height / PREPASS_SCALE as u32);
-
-                        commands.set_resolution(resolution)?;
-
-                        commands.set_pipeline(&draw2_pipeline)?;
-
-                        commands.start_rendering(Render {
-                            color: [Attachment {
-                                image: 0,
-                                load_op: LoadOp::Clear,
-                                clear: Clear::Color(0.2, 0.3, 1.0, 1.0),
-                            }],
-                            depth: Some(Attachment {
-                                image: 1,
-                                load_op: LoadOp::Clear,
-                                clear: Clear::Depth(1.0),
-                            }),
-                            render_area: RenderArea {
-                                width: width / PREPASS_SCALE as u32,
-                                height: height / PREPASS_SCALE as u32,
-                                ..default()
-                            },
-                        })?;
+                        commands.set_pipeline(&before_luminosity_pipeline)?;
 
                         commands.push_constant(PushConstant {
-                            data: DrawPush {
+                            data: LuminosityPush {
+                                luminosity_buffer: (luminosity_buffer)(),
+                                prepass_image: (prepass_image)(),
                                 info_buffer: (info_buffer)(),
-                                camera_buffer: (camera_buffer)(),
-                                transform_buffer: (transform_buffer)(),
-                                world_buffer: (world_buffer)(),
-                                mersenne_buffer: (mersenne_buffer)(),
-                                perlin_image: (perlin_image)(),
                             },
-                            pipeline: &draw2_pipeline,
+                            pipeline: &before_luminosity_pipeline,
                         })?;
 
-                        commands.draw(gpu::prelude::Draw { vertex_count: 3 })?;
+                        commands.dispatch(1, 1, 1)?;
 
-                        commands.end_rendering()
+                        Ok(())
+                    },
+                });
+                
+                executor.add(Task {
+                    resources: [
+                        Buffer(&luminosity_buffer, BufferAccess::ComputeShaderReadWrite),
+                        Image(&prepass_image, ImageAccess::ComputeShaderReadWrite),
+                        Buffer(&info_buffer, BufferAccess::ComputeShaderReadOnly),
+                    ],
+                    task: |commands| {
+                        commands.set_pipeline(&luminosity_pipeline)?;
+
+                        commands.push_constant(PushConstant {
+                            data: LuminosityPush {
+                                luminosity_buffer: (luminosity_buffer)(),
+                                prepass_image: (prepass_image)(),
+                                info_buffer: (info_buffer)(),
+                            },
+                            pipeline: &luminosity_pipeline,
+                        })?;
+
+                        const WORK_GROUP_SIZE: usize = 16;
+
+                        let group_x = (resolution.get().0 as f32 / WORK_GROUP_SIZE as f32).ceil() as usize;
+                        let group_y = (resolution.get().1 as f32 / WORK_GROUP_SIZE as f32).ceil() as usize;
+
+                        commands.dispatch(group_x, group_y, 1)?;
+
+                        Ok(())
                     },
                 });
 
                 executor.add(Task {
                     resources: [
-                        Image(&prepass_image, ImageAccess::ColorAttachment),
-                        Image(&depth_image, ImageAccess::DepthAttachment),
-                        Buffer(&camera_buffer, BufferAccess::FragmentShaderReadOnly),
-                        Buffer(&transform_buffer, BufferAccess::VertexShaderReadOnly),
-                        Buffer(&world_buffer, BufferAccess::ShaderReadOnly),
-                        Image(&perlin_image, ImageAccess::FragmentShaderReadWrite),
+                        Buffer(&luminosity_buffer, BufferAccess::ComputeShaderReadWrite),
+                        Image(&prepass_image, ImageAccess::ComputeShaderReadWrite),
+                        Buffer(&info_buffer, BufferAccess::ComputeShaderReadOnly),
                     ],
                     task: |commands| {
-                        let (width, height) = resolution.get();
-
-                        let resolution =
-                            (width / PREPASS_SCALE as u32, height / PREPASS_SCALE as u32);
-
-                        commands.set_resolution(resolution)?;
-
-                        commands.set_pipeline(&draw_pipeline)?;
-
-                        commands.start_rendering(Render {
-                            color: [Attachment {
-                                image: 0,
-                                load_op: LoadOp::Load,
-                                clear: Clear::Color(1.0, 0.0, 1.0, 1.0),
-                            }],
-                            depth: Some(Attachment {
-                                image: 1,
-                                load_op: LoadOp::Load,
-                                clear: Clear::Depth(1.0),
-                            }),
-                            render_area: RenderArea {
-                                width: width / PREPASS_SCALE as u32,
-                                height: height / PREPASS_SCALE as u32,
-                                ..default()
-                            },
-                        })?;
+                        commands.set_pipeline(&after_luminosity_pipeline)?;
 
                         commands.push_constant(PushConstant {
-                            data: DrawPush {
+                            data: LuminosityPush {
+                                luminosity_buffer: (luminosity_buffer)(),
+                                prepass_image: (prepass_image)(),
                                 info_buffer: (info_buffer)(),
-                                camera_buffer: (camera_buffer)(),
-                                transform_buffer: (transform_buffer)(),
-                                world_buffer: (world_buffer)(),
-                                mersenne_buffer: (mersenne_buffer)(),
-                                perlin_image: (perlin_image)(),
                             },
-                            pipeline: &draw_pipeline,
+                            pipeline: &after_luminosity_pipeline,
                         })?;
 
-                        commands.draw(gpu::prelude::Draw {
-                            vertex_count: AXIS_MAX_CHUNKS.pow(3) as usize * 36,
-                        })?;
+                        commands.dispatch(1, 1, 1)?;
 
-                        commands.end_rendering()
+                        Ok(())
                     },
                 });
-                */
 
                 executor.add(Task {
                     resources: [
                         Image(&present_image, ImageAccess::ColorAttachment),
                         Image(&prepass_image, ImageAccess::FragmentShaderReadOnly),
+                        Buffer(&luminosity_buffer, BufferAccess::ComputeShaderReadOnly),
                     ],
                     task: |commands| {
                         let (width, height) = resolution.get();
@@ -1570,6 +1544,7 @@ fn main() {
                             data: UpscalePush {
                                 from_image: (prepass_image)(),
                                 scale: PREPASS_SCALE as u32,
+                                luminosity_buffer: (luminosity_buffer)(),
                             },
                             pipeline: &upscale_pipeline,
                         })?;
@@ -1706,6 +1681,13 @@ pub struct PrepassPush {
 
 #[derive(Clone, Copy)]
 #[repr(C)]
+pub struct LuminosityPush {
+    pub luminosity_buffer: Buffer,
+    pub info_buffer: Buffer,
+    pub prepass_image: Image,
+}
+#[derive(Clone, Copy)]
+#[repr(C)]
 pub struct RtxPush {
     pub info_buffer: Buffer,
     pub camera_buffer: Buffer,
@@ -1721,6 +1703,7 @@ pub struct RtxPush {
 pub struct UpscalePush {
     pub from_image: Image,
     pub scale: u32,
+    pub luminosity_buffer: Buffer,
 }
 
 #[derive(Clone, Copy)]

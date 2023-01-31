@@ -11,6 +11,7 @@
 #extension GL_EXT_control_flow_attributes : require
 #extension GL_KHR_shader_subgroup_ballot : require
 #extension GL_KHR_shader_subgroup_vote : require
+#extension GL_EXT_shader_atomic_float : require
 
 #define EPSILON 1e-2
 

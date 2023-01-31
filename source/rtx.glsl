@@ -199,14 +199,8 @@ bool ray_trace(in out TraceState trace_state) {
 			abs(ray_hit.normal.yzx)
 			);
 
-		float ao = 0;
+		trace_state.color.a = 0.75 + 0.25 * mix(mix(ambient.z, ambient.w, ray_hit.uv.x), mix(ambient.y, ambient.x, ray_hit.uv.x), ray_hit.uv.y);
 
-		if (true) {
-			ao = mix(mix(ambient.z, ambient.w, ray_hit.uv.x), mix(ambient.y, ambient.x, ray_hit.uv.x), ray_hit.uv.y);
-		}
-
-		trace_state.color.xyz = trace_state.color.xyz - vec3(1 - ao) * 0.25;
-		
 		trace_state.id = TRACE_STATE_LIGHT_SETUP;
 
 		return false;
@@ -269,9 +263,9 @@ bool ray_trace(in out TraceState trace_state) {
 		bool in_light = trace_state.ray_state.id != RAY_STATE_VOXEL_FOUND;
 		
 		if(in_light) {	
-			trace_state.color.xyz *= (10 - 0.1) * dot(trace_state.ray_state.ray.direction, trace_state.initial_hit.normal) + 0.1;
+			trace_state.color.xyz *= 20 * (0.5 + 0.5 * dot(trace_state.ray_state.ray.direction, trace_state.initial_hit.normal));
 		} else {
-			trace_state.color.xyz *= 0.1;
+			trace_state.color.xyz *= 0.3;
 		}
 
 		return true;

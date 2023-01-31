@@ -9,6 +9,7 @@ decl_buffer(
 	{
 		ImageId data;
 		ImageId reserve;
+		ImageId block_entity;
 		ImageId lod[LOD];
 		ivec3 observer_position;
 		ivec3 floating_origin;
