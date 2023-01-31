@@ -23,7 +23,7 @@ void main() {
 
 	u32 pixels = imageSize(prepass_image).x * imageSize(prepass_image).y;
 
-	f32 avg_lum = f32(luminosity.lum) / f32(pixels);
+	f32 avg_lum = f32(luminosity.lum) / f32(MAX_LUMINOSITY_LEVELS) / f32(pixels);
 
 	luminosity.target_exposure = 1 / max(avg_lum, 0.00001);
 

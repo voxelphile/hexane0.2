@@ -1,7 +1,9 @@
+#define MAX_LUMINOSITY_LEVELS 100
+
 decl_buffer(
 	Luminosity,
 	{
-		f32 lum;
+		u32 lum;
 		f32 exposure;
 		f32 target_exposure;
 	}

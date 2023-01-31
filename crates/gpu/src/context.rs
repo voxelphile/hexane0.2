@@ -282,22 +282,10 @@ impl Context {
             });
         }
 
-        let shader_atomic_float = 
-               unsafe { ffi::CStr::from_bytes_with_nul_unchecked(b"VK_EXT_shader_atomic_float\0") };
-
-        let extensions = [khr::Swapchain::name(), shader_atomic_float];
-
-        let mut shader_atomic_float_features = vk::PhysicalDeviceShaderAtomicFloatFeaturesEXT {
-            shader_buffer_float32_atomics: true as _,
-            shader_buffer_float32_atomic_add: true as _,
-            ..default()
-        };
+        let extensions = [khr::Swapchain::name()];
 
         let mut maintenance4_features = {
-            let p_next = &mut shader_atomic_float_features as *mut _ as *mut _;
-
             vk::PhysicalDeviceMaintenance4Features {
-                p_next,
                 maintenance4: true as _,
                 ..default()
             }

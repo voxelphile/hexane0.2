@@ -176,7 +176,7 @@ fn main() {
 
     let mut pipeline_compiler = device.create_pipeline_compiler(PipelineCompilerInfo {
         //default language for shader compiler is glsl
-        //compiler: ShaderCompiler::glslc(default()),
+        compiler: ShaderCompiler::glslc(default()),
         source_path: &source_path,
         asset_path: &shader_asset_path,
         ..default()
@@ -223,7 +223,7 @@ fn main() {
             ..default()
         })
         .expect("failed to create pipeline");
-
+    
     let input_pipeline = pipeline_compiler
         .create_compute_pipeline(ComputePipelineInfo {
             shader: Shader(Compute, "input", &[]),

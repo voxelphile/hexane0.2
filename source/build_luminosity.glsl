@@ -28,8 +28,11 @@ void main() {
 	vec3 rgb = imageLoad(prepass_image, i32vec2(gl_GlobalInvocationID)).rgb;
 	vec3 lum = vec3(0.2126, 0.7152, 0.0722);
 	vec3 rgb_lum = rgb * lum;
+
+	f32 max_lum = max(rgb_lum.x, max(rgb_lum.y, rgb_lum.z));
+	u32 lum_level = u32(MAX_LUMINOSITY_LEVELS * max_lum); 
 	
-	atomicAdd(luminosity.lum, max(rgb_lum.x, max(rgb_lum.y, rgb_lum.z)));
+	atomicAdd(luminosity.lum, lum_level);
 }
 
 #endif
