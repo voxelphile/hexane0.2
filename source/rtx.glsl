@@ -87,6 +87,13 @@ f32 refraction_index(u16 id) {
 	return 1.0;
 }
 
+vec3 medium_color(u16 id) {
+	if(id == u16(BLOCK_ID_WATER)) {
+		return vec3(0, 0, 1);
+	}
+	return vec3(1);
+}
+
 struct TraceState {
 	bool currently_tracing;
 	bool has_ray_result;
@@ -148,8 +155,12 @@ bool ray_trace(in out TraceState trace_state) {
 	RayHit ray_hit;
     	
 	bool success = ray_cast_complete(trace_state.ray_state, ray_hit);
-
+	
+	f32 normalized_dist = 1;
+		
 	if (success) {
+		normalized_dist = (1 - exp(-1 / sqrt(f32(VIEW_DISTANCE)) * ray_hit.dist));
+		
 		trace_state.initial_hit = ray_hit;
 		if(is_transparent(u16(ray_hit.id))) {
 			Ray ray;
@@ -187,10 +198,6 @@ bool ray_trace(in out TraceState trace_state) {
 		if(ray_hit.id == 4) {
 			trace_state.color.xyz *= mix(vec3(107, 84, 40) / 256, vec3(64, 41, 5) / 256, noise_factor);
 		}
-		if(traveling_through_water) {
-			trace_state.color.xyz *= vec3(0.42, 0.95, 1.0) * exp(-trace_state.prev_dist * 0.05);
-		}
-	
 
 		vec4 ambient = voxel_ao(
 			region.data,
@@ -199,21 +206,19 @@ bool ray_trace(in out TraceState trace_state) {
 			abs(ray_hit.normal.yzx)
 			);
 
-		trace_state.color.a = 0.75 + 0.25 * mix(mix(ambient.z, ambient.w, ray_hit.uv.x), mix(ambient.y, ambient.x, ray_hit.uv.x), ray_hit.uv.y);
+		trace_state.color.a = 0.5 + 0.25 * mix(mix(ambient.z, ambient.w, ray_hit.uv.x), mix(ambient.y, ambient.x, ray_hit.uv.x), ray_hit.uv.y);
+
 
 		trace_state.id = TRACE_STATE_LIGHT_SETUP;
+	}
 
-		return false;
-	
-	} else {
-		if(traveling_through_water) {
-			trace_state.color.xyz *= vec3(0.42, 0.95, 1.0) * exp(-10000 * 0.05 + 500);;
-		} else {
-			trace_state.color += vec4(1.0, 0.2, 1.0, 1.0);
-		}
-		
+
+	trace_state.color.rgb = mix(trace_state.color.rgb, medium_color(trace_state.ray_state.ray.medium), normalized_dist);
+
+	if(!success) {
 		return true;
 	}
+
 	}
 
 	vec3 sun_pos = vec3(10000);
