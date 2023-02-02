@@ -11,6 +11,8 @@
 #include "camera.glsl"
 #include "raycast.glsl"
 #include "transform.glsl"
+#include "noise.glsl"
+#include "luminosity.glsl"
 
 struct RtxPush {
 	BufferId info_id;
@@ -20,6 +22,7 @@ struct RtxPush {
 	BufferId mersenne_id;
 	ImageId perlin_id;
 	ImageId prepass_id;
+	BufferId luminosity_id;
 };
 
 decl_push_constant(RtxPush)
@@ -135,7 +138,11 @@ i32 fast_atomic_decrement(inout i32 a) {
 void write_ray_result(in out TraceState trace_state) {
 	Image(2D, f32) prepass_image = get_image(2D, f32, push_constant.prepass_id);
 				
-	imageStore(prepass_image, i32vec2(trace_state.ray_state.ray.result_i), trace_state.color);
+	i32vec2 pos = i32vec2(trace_state.ray_state.ray.result_i);
+
+	pos = imageSize(prepass_image) - pos;
+
+	imageStore(prepass_image, pos, trace_state.color);
 }
 
 void reset_trace_state(in out TraceState trace_state) {
@@ -216,7 +223,7 @@ bool ray_trace(in out TraceState trace_state) {
 			abs(ray_hit.normal.yzx)
 			);
 
-		//trace_state.color.a = 0.5 + 0.25 * mix(mix(ambient.z, ambient.w, ray_hit.uv.x), mix(ambient.y, ambient.x, ray_hit.uv.x), ray_hit.uv.y);
+		trace_state.color.xyz *= 0.75 + 0.25 * mix(mix(ambient.z, ambient.w, ray_hit.uv.x), mix(ambient.y, ambient.x, ray_hit.uv.x), ray_hit.uv.y);
 		
 		trace_state.color.a = ray_hit.dist;
 
@@ -392,10 +399,58 @@ void main() {
 
 					vec3 dir = (compute_transform_matrix(region_transform) * vec4(normalize(far.xyz), 0)).xyz;
 
+					Buffer(Luminosity) luminosity = get_buffer(Luminosity, push_constant.luminosity_id);
+					f32 c_pi = 3.1415;
+					f32 DOFApertureRadius = 0.1;
+					f32 DOFFocalLength = luminosity.focal_depth;
+
+					vec3 fwdVector = dir;
+        				vec3 rightVector = (vec4(1, 0, 0, 0) * inverse(compute_transform_matrix(region_transform))).xyz;
+        				vec3 upVector = (vec4(0, 1, 0, 0) * inverse(compute_transform_matrix(region_transform))).xyz;
+        				vec3 cameraForward = (vec4(0, 0, 1, 0) * inverse(compute_transform_matrix(region_transform))).xyz;
+
+					float f01 = f32(random(push_constant.mersenne_id)) / f32(~0u);
+					float f02 = f32(random(push_constant.mersenne_id)) / f32(~0u);
+					float angle = f01 * 2.0f * c_pi;
+            				float radius = sqrt(f02);
+            				vec2 off = vec2(cos(angle), sin(angle)) * radius * DOFApertureRadius;
+            				float shapeArea = c_pi * DOFApertureRadius * DOFApertureRadius;
+					f32 lightMultiplier = shapeArea; 
+					vec3 sensorPos;
+					vec4 sensorPlane = vec4(cameraForward, 0);
+					vec3 cameraSensorPlanePoint = region_transform.position.xyz - fwdVector;
+					sensorPlane.w = -(sensorPlane.x * cameraSensorPlanePoint.x + sensorPlane.y * cameraSensorPlanePoint.y + sensorPlane.z * cameraSensorPlanePoint.z);
+        				{
+            					float t = -(dot( region_transform.position.xyz, sensorPlane.xyz) + sensorPlane.w) / dot(dir, sensorPlane.xyz);
+            					sensorPos = region_transform.position.xyz + dir * t;
+
+            					vec3 cameraSpacePos = (vec4(sensorPos, 1.0f) * inverse(compute_transform_matrix(region_transform))).xyz;
+
+            					cameraSpacePos.z *= DOFFocalLength;
+
+            					sensorPos = (vec4(cameraSpacePos, 1.0f) * compute_transform_matrix(region_transform)).xyz;
+        				}
+
+					vec3 aperturePos = region_transform.position.xyz + rightVector * off.x + upVector.xyz * off.y;
+
+					vec3 cameraPos = region_transform.position.xyz;
+
+					vec3 cameraFocalPlanePoint = cameraPos + vec3(cameraForward) * DOFFocalLength;
+
+            vec4 focalPlane = vec4(-cameraForward, 0);
+
+            focalPlane.w = -(focalPlane.x * cameraFocalPlanePoint.x + focalPlane.y * cameraFocalPlanePoint.y + focalPlane.z * cameraFocalPlanePoint.z);
+
+
+					 vec3 rstart = cameraPos;
+            				vec3 rdir = -dir;
+            				float t = -(dot(rstart, focalPlane.xyz) + focalPlane.w) / dot(rdir, focalPlane.xyz);
+            				vec3 focusPos = rstart + rdir * t;
+
 					Ray ray;
 					ray.region_id = push_constant.region_id;
-					ray.origin = region_transform.position.xyz;
-					ray.direction = dir;
+					ray.origin = aperturePos.xyz;
+					ray.direction = normalize(focusPos - aperturePos);
 					ray.medium = query.id;
 					ray.result_i = result_i;
 					ray.max_distance = VIEW_DISTANCE; 

@@ -107,6 +107,7 @@ void main() {
 		RayHit ray_hit;
 		ray_hit.destination = origin;
 		ray_hit.id = u16(query.id);
+		ray_hit.dist = 0;
 		bool success;
 		
 		do {
@@ -114,14 +115,15 @@ void main() {
 			ray.region_id = push_constant.region_id;
 			ray.origin = ray_hit.destination;
 			ray.medium = u16(ray_hit.id);
-			ray.direction = dir;
-			ray.max_distance = 100; 
+			ray.direction = -dir;
+			ray.max_distance = VIEW_DISTANCE; 
 			ray.minimum = vec3(0);
 			ray.maximum = vec3(REGION_SIZE);
 
 			RayState ray_state;
 
 			ray_cast_start(ray, ray_state);
+			ray_state.initial_dist = ray_hit.dist;
 
 			while(ray_cast_drive(ray_state)) {}
 
@@ -129,10 +131,12 @@ void main() {
 		} while(success && !is_solid(u16(ray_hit.id)));
 	
 
-		if(success) {
-	Buffer(Luminosity) luminosity = get_buffer(Luminosity, push_constant.luminosity_id);
+		Buffer(Luminosity) luminosity = get_buffer(Luminosity, push_constant.luminosity_id);
 
+		if(success) {
 			luminosity.target_focal_depth = ray_hit.dist;
+		} else {
+			luminosity.target_focal_depth = VIEW_DISTANCE;
 		}
 	}
 
@@ -140,7 +144,6 @@ void main() {
 
 	if(inp.last_action_time > 0.15 && (entity_input.action1 || entity_input.action2)) {
 		
-		inp.ray_cast_counter = 0;
 		vec2 screenPos = vec2(0);
 		vec4 far = camera.inv_projection * vec4(screenPos, 1, 1);
 		far /= far.w;
@@ -162,7 +165,7 @@ void main() {
 			ray.region_id = push_constant.region_id;
 			ray.origin = ray_hit.destination;
 			ray.medium = u16(ray_hit.id);
-			ray.direction = dir;
+			ray.direction = -dir;
 			ray.max_distance = 10; 
 			ray.minimum = vec3(0);
 			ray.maximum = vec3(REGION_SIZE);
@@ -218,7 +221,7 @@ void main() {
 
 	f32 sens = 0.002;
 
-	inp.target_rotation.xy -= (entity_input.look.yx) * sens;
+	inp.target_rotation.xy -= -(entity_input.look.yx) * sens;
 
 	inp.target_rotation.x = clamp(inp.target_rotation.x, -3.14 / 2.0 + EPSILON, 3.14 / 2.0 - EPSILON);
 	if(entity_input.look.xy != vec2(0)) {
@@ -235,7 +238,7 @@ void main() {
 
 	input_axis.x = i32(entity_input.left) - i32(entity_input.right);
 	input_axis.y = i32(entity_input.up) - i32(entity_input.down);
-	input_axis.z = i32(entity_input.forward) - i32(entity_input.backward);
+	input_axis.z = i32(entity_input.backward) - i32(entity_input.forward);
 
 	mat4 orientation = mat4(
 			cos(transform.rotation.y),
