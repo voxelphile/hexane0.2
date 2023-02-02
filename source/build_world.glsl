@@ -94,7 +94,7 @@ void main() {
 	}
 	
 	if(change.id == 1 && world_position.y < water_height && world_position.y >= height) {
-		//change.id = u16(5);
+		change.id = u16(5);
 	}
 
 	voxel_change(change);

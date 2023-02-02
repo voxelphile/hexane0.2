@@ -89,9 +89,26 @@ f32 refraction_index(u16 id) {
 
 vec3 medium_color(u16 id) {
 	if(id == u16(BLOCK_ID_WATER)) {
-		return vec3(0, 0, 1);
+		return vec3(.1, .2, .9);
+	}
+	if(id == u16(BLOCK_ID_AIR)) {
+		return vec3(.2, .4, .6);
 	}
 	return vec3(1);
+}
+
+f32 medium_absorption(u16 id) {
+	if(id == u16(BLOCK_ID_WATER)) {
+		return 0.1;
+	}
+	return 0;
+}
+
+f32 medium_scatter(u16 id) {
+	if(id == u16(BLOCK_ID_WATER)) {
+		return 0.0003;
+	}
+	return 0;
 }
 
 struct TraceState {
@@ -156,33 +173,26 @@ bool ray_trace(in out TraceState trace_state) {
     	
 	bool success = ray_cast_complete(trace_state.ray_state, ray_hit);
 	
-	f32 normalized_dist = 1;
+	f32 extinction_coef = medium_absorption(trace_state.ray_state.ray.medium)
+		+ medium_scatter(trace_state.ray_state.ray.medium);
+	
+	f32 dist = VIEW_DISTANCE;
+	if (success) {
+		dist = ray_hit.dist;
+	}
+	
+
+	trace_state.color.rgb = mix(trace_state.color.rgb, medium_color(trace_state.ray_state.ray.medium), 1 - exp(-dist * extinction_coef));
+
+
+	if(!success) {
+		return true;
+	}
 		
 	if (success) {
-		normalized_dist = (1 - exp(-1 / sqrt(f32(VIEW_DISTANCE)) * ray_hit.dist));
-		
 		trace_state.initial_hit = ray_hit;
-		if(is_transparent(u16(ray_hit.id))) {
-			Ray ray;
-			ray.direction = refract(normalize(trace_state.ray_state.ray.direction), ray_hit.normal, refraction_index(u16(ray_hit.id)));
-			if(ray.direction == vec3(0)) {
-				ray.direction = reflect(normalize(trace_state.ray_state.ray.direction), ray_hit.normal);
-			}
-				ray.region_id = push_constant.region_id;
-				ray.origin = ray_hit.destination;
-				ray.result_i = trace_state.ray_state.ray.result_i;
-				ray.medium = u16(ray_hit.id);
-				ray.max_distance = 100;
-				ray.minimum = vec3(0);
-				ray.maximum = vec3(REGION_SIZE);
-				trace_state.prev_id = u16(trace_state.ray_state.ray.medium);
-				trace_state.prev_dist = ray_hit.dist;
-				ray_cast_start(ray, trace_state.ray_state);
-				trace_state.ray_state.initial_dist = ray_hit.total_dist;
-				trace_state.rays++;
-				return false;
-			
-		}
+	
+		
 		f32 noise_factor = f32(imageLoad(perlin_img, i32vec3(abs(round(vec3(region.floating_origin) - vec3(REGION_SIZE / 2) + ray_hit.destination + vec3(0.5)))) % i32vec3(imageSize(perlin_img))).r) / f32(~0u);
 
 		if(ray_hit.id == 0) {
@@ -206,19 +216,35 @@ bool ray_trace(in out TraceState trace_state) {
 			abs(ray_hit.normal.yzx)
 			);
 
-		trace_state.color.a = 0.5 + 0.25 * mix(mix(ambient.z, ambient.w, ray_hit.uv.x), mix(ambient.y, ambient.x, ray_hit.uv.x), ray_hit.uv.y);
+		//trace_state.color.a = 0.5 + 0.25 * mix(mix(ambient.z, ambient.w, ray_hit.uv.x), mix(ambient.y, ambient.x, ray_hit.uv.x), ray_hit.uv.y);
+		
+		trace_state.color.a = ray_hit.dist;
 
+
+		if(is_transparent(u16(ray_hit.id))) {
+			Ray ray;
+			ray.direction = refract(normalize(trace_state.ray_state.ray.direction), ray_hit.normal, refraction_index(u16(ray_hit.id)));
+			if(ray.direction == vec3(0)) {
+				ray.direction = reflect(normalize(trace_state.ray_state.ray.direction), ray_hit.normal);
+			}
+				ray.region_id = push_constant.region_id;
+				ray.origin = ray_hit.destination;
+				ray.result_i = trace_state.ray_state.ray.result_i;
+				ray.medium = u16(ray_hit.id);
+				ray.max_distance = VIEW_DISTANCE;
+				ray.minimum = vec3(0);
+				ray.maximum = vec3(REGION_SIZE);
+				trace_state.prev_id = u16(trace_state.ray_state.ray.medium);
+				trace_state.prev_dist = ray_hit.dist;
+				ray_cast_start(ray, trace_state.ray_state);
+				trace_state.ray_state.initial_dist = ray_hit.total_dist;
+				trace_state.rays++;
+				return false;
+			
+		}
 
 		trace_state.id = TRACE_STATE_LIGHT_SETUP;
 	}
-
-
-	trace_state.color.rgb = mix(trace_state.color.rgb, medium_color(trace_state.ray_state.ray.medium), normalized_dist);
-
-	if(!success) {
-		return true;
-	}
-
 	}
 
 	vec3 sun_pos = vec3(10000);
@@ -372,7 +398,7 @@ void main() {
 					ray.direction = dir;
 					ray.medium = query.id;
 					ray.result_i = result_i;
-					ray.max_distance = 100; 
+					ray.max_distance = VIEW_DISTANCE; 
 					ray.minimum = vec3(0);
 					ray.maximum = vec3(REGION_SIZE);
 						ray_batch.setup_cache.rays[ray_cache_index] = ray;

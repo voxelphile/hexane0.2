@@ -35,6 +35,7 @@ struct RayHit {
 	vec3 destination;
 	vec2 uv;
 	u32 id;
+	Ray ray;
 };
 
 
@@ -68,6 +69,7 @@ bool ray_cast_complete(inout RayState state, out RayHit hit) {
 		hit.id = state.block_id;
 		hit.dist = state.dist;
 		hit.total_dist = state.initial_dist + state.dist;
+		hit.ray = state.ray;
 		return true;
 	}
 

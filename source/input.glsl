@@ -10,6 +10,7 @@
 #include "camera.glsl"
 #include "raycast.glsl"
 #include "transform.glsl"
+#include "luminosity.glsl"
 
 struct InputPush {
 	BufferId info_id;
@@ -20,6 +21,7 @@ struct InputPush {
 	BufferId mersenne_id;
 	BufferId region_id;
 	BufferId camera_id;
+	BufferId luminosity_id;
 };
 
 decl_push_constant(InputPush)
@@ -40,6 +42,8 @@ decl_buffer(
 		u32 forward_counter;
 		bool was_forward;
 		f32 coyote_counter;
+		RayHit hit;
+		f32 ray_cast_counter;
 	}
 )
 	
@@ -85,9 +89,9 @@ void main() {
 		inp.target_rotation.xyz = vec3(-3.14 / 2.0 + 0.1, 0, 0);
 		inp.first = true;
 	}
-
-	if(inp.last_action_time > 0.15 && (entity_input.action1 || entity_input.action2)) {
 	
+	if(inp.ray_cast_counter > 0.1) {
+		inp.ray_cast_counter = 0;
 		vec2 screenPos = vec2(0);
 		vec4 far = camera.inv_projection * vec4(screenPos, 1, 1);
 		far /= far.w;
@@ -111,6 +115,54 @@ void main() {
 			ray.origin = ray_hit.destination;
 			ray.medium = u16(ray_hit.id);
 			ray.direction = dir;
+			ray.max_distance = 100; 
+			ray.minimum = vec3(0);
+			ray.maximum = vec3(REGION_SIZE);
+
+			RayState ray_state;
+
+			ray_cast_start(ray, ray_state);
+
+			while(ray_cast_drive(ray_state)) {}
+
+			success = ray_cast_complete(ray_state, ray_hit);
+		} while(success && !is_solid(u16(ray_hit.id)));
+	
+
+		if(success) {
+	Buffer(Luminosity) luminosity = get_buffer(Luminosity, push_constant.luminosity_id);
+
+			luminosity.target_focal_depth = ray_hit.dist;
+		}
+	}
+
+	inp.ray_cast_counter += delta_time;
+
+	if(inp.last_action_time > 0.15 && (entity_input.action1 || entity_input.action2)) {
+		
+		inp.ray_cast_counter = 0;
+		vec2 screenPos = vec2(0);
+		vec4 far = camera.inv_projection * vec4(screenPos, 1, 1);
+		far /= far.w;
+		vec4 near = camera.inv_projection * vec4(screenPos, 0, 1);
+		near /= near.w;
+		vec3 origin = (compute_transform_matrix(region_transform) * near).xyz;
+		vec3 dir = (compute_transform_matrix(region_transform) * vec4(normalize(far.xyz), 0)).xyz;
+	
+		query.position = ivec3(region_transform.position.xyz);
+
+		voxel_query(query);
+
+		RayHit ray_hit;
+		ray_hit.destination = origin;
+		ray_hit.id = u16(query.id);
+		bool success;
+		do {
+			Ray ray;
+			ray.region_id = push_constant.region_id;
+			ray.origin = ray_hit.destination;
+			ray.medium = u16(ray_hit.id);
+			ray.direction = dir;
 			ray.max_distance = 10; 
 			ray.minimum = vec3(0);
 			ray.maximum = vec3(REGION_SIZE);
@@ -125,6 +177,7 @@ void main() {
 		} while(success && !is_solid(u16(ray_hit.id)));
 
 		if(success) {
+
 			inp.last_action_time = 0;
 
 			VoxelChange change;
@@ -142,6 +195,7 @@ void main() {
 			region.rebuild = true;
 			voxel_change(change);
 		}
+		
 	}
 	
 	inp.last_action_time += delta_time;

@@ -1183,6 +1183,7 @@ fn main() {
                         Buffer(&sound_buffer, BufferAccess::ComputeShaderReadWrite),
                         Buffer(&mersenne_buffer, BufferAccess::ComputeShaderReadWrite),
                         Buffer(&world_buffer, BufferAccess::ComputeShaderReadWrite),
+                        Buffer(&luminosity_buffer, BufferAccess::ComputeShaderReadWrite),
                     ],
                     task: |commands| {
                         commands.set_pipeline(&input_pipeline)?;
@@ -1197,6 +1198,7 @@ fn main() {
                                 mersenne_buffer: (mersenne_buffer)(),
                                 world_buffer: (world_buffer)(),
                                 camera_buffer: (camera_buffer)(),
+                                luminosity_buffer: (luminosity_buffer)(),
                             },
                             pipeline: &input_pipeline,
                         })?;
@@ -1413,6 +1415,7 @@ fn main() {
                         Buffer(&mersenne_buffer, BufferAccess::ComputeShaderReadWrite),
                         Image(&perlin_image, ImageAccess::ComputeShaderReadWrite),
                         Image(&prepass_image, ImageAccess::ComputeShaderReadWrite),
+                        Buffer(&luminosity_buffer, BufferAccess::ComputeShaderReadWrite),
                     ],
                     task: |commands| {
                         commands.set_pipeline(&rtx_pipeline)?;
@@ -1426,6 +1429,7 @@ fn main() {
                                 mersenne_buffer: (mersenne_buffer)(),
                                 perlin_image: (perlin_image)(),
                                 prepass_image: (prepass_image)(),
+                                luminosity_buffer: (luminosity_buffer)(),
                             },
                             pipeline: &rtx_pipeline,
                         })?;
@@ -1696,6 +1700,7 @@ pub struct RtxPush {
     pub mersenne_buffer: Buffer,
     pub perlin_image: Image,
     pub prepass_image: Image,
+    pub luminosity_buffer: Buffer,
 }
 
 #[derive(Clone, Copy)]
@@ -1717,6 +1722,7 @@ pub struct InputPush {
     pub mersenne_buffer: Buffer,
     pub world_buffer: Buffer,
     pub camera_buffer: Buffer,
+    pub luminosity_buffer: Buffer,
 }
 #[derive(Clone, Copy)]
 #[repr(C)]

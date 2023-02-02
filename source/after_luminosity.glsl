@@ -30,6 +30,8 @@ void main() {
 	f32 rate = exp2(1);
 	
 	luminosity.exposure = mix(luminosity.exposure, luminosity.target_exposure, exp2(-rate * info.delta_time));
+	
+	luminosity.focal_depth = mix(luminosity.focal_depth, luminosity.target_focal_depth, exp2(-rate * info.delta_time));
 }
 
 #endif
