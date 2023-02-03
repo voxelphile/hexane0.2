@@ -4,7 +4,10 @@ struct Ray {
 	BufferId region_id;
 	vec3 origin;
 	vec3 direction;
+	vec3 true_dir;
 	vec3 minimum;
+	f32 t;
+	vec3 aperture_pos;
 	u16 medium;
 	vec3 maximum;
 	f32 max_distance;

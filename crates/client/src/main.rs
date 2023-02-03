@@ -41,7 +41,7 @@ const REGION_SIZE: usize = 512;
 const CHUNK_SIZE: usize = 64;
 const AXIS_MAX_CHUNKS: usize = 4;
 const LOD: usize = 6;
-const PREPASS_SCALE: usize = 1;
+const PREPASS_SCALE: usize = 8;
 
 pub type Vertex = (f32, f32, f32);
 pub type Color = [f32; 4];
@@ -190,6 +190,18 @@ fn main() {
             ..default()
         })
         .expect("failed to create pipeline");
+    let resolve_pipeline = pipeline_compiler
+        .create_compute_pipeline(ComputePipelineInfo {
+            shader: Shader(Compute, "resolve", &[]),
+            ..default()
+        })
+        .expect("failed to create pipeline");
+    let history_pipeline = pipeline_compiler
+        .create_compute_pipeline(ComputePipelineInfo {
+            shader: Shader(Compute, "history", &[]),
+            ..default()
+        })
+        .expect("failed to create pipeline");
 
     let upscale_pipeline = pipeline_compiler
         .create_graphics_pipeline(GraphicsPipelineInfo {
@@ -324,6 +336,103 @@ fn main() {
     );
 
     let mut prepass_img = Cell::new(
+        device
+            .create_image(ImageInfo {
+                extent: ImageExtent::TwoDim(
+                    width as usize / PREPASS_SCALE,
+                    height as usize / PREPASS_SCALE,
+                ),
+                usage: ImageUsage::COLOR,
+                format: Format::Rgba32Sfloat,
+                ..default()
+            })
+            .expect("failed to create depth image"),
+    );
+    
+    let mut dir_img = Cell::new(
+        device
+            .create_image(ImageInfo {
+                extent: ImageExtent::TwoDim(
+                    width as usize / PREPASS_SCALE,
+                    height as usize / PREPASS_SCALE,
+                ),
+                usage: ImageUsage::COLOR,
+                format: Format::Rgba32Sfloat,
+                ..default()
+            })
+            .expect("failed to create depth image"),
+    );
+    
+    let mut pos_img = Cell::new(
+        device
+            .create_image(ImageInfo {
+                extent: ImageExtent::TwoDim(
+                    width as usize / PREPASS_SCALE,
+                    height as usize / PREPASS_SCALE,
+                ),
+                usage: ImageUsage::COLOR,
+                format: Format::Rgba32Sfloat,
+                ..default()
+            })
+            .expect("failed to create depth image"),
+    );
+    
+    let mut history_img = Cell::new(
+        device
+            .create_image(ImageInfo {
+                extent: ImageExtent::TwoDim(
+                    width as usize / PREPASS_SCALE,
+                    height as usize / PREPASS_SCALE,
+                ),
+                usage: ImageUsage::COLOR,
+                format: Format::Rgba32Sfloat,
+                ..default()
+            })
+            .expect("failed to create depth image"),
+    );
+    
+    let mut history_dir_img = Cell::new(
+        device
+            .create_image(ImageInfo {
+                extent: ImageExtent::TwoDim(
+                    width as usize / PREPASS_SCALE,
+                    height as usize / PREPASS_SCALE,
+                ),
+                usage: ImageUsage::COLOR,
+                format: Format::Rgba32Sfloat,
+                ..default()
+            })
+            .expect("failed to create depth image"),
+    );
+    let mut history_pos_img = Cell::new(
+        device
+            .create_image(ImageInfo {
+                extent: ImageExtent::TwoDim(
+                    width as usize / PREPASS_SCALE,
+                    height as usize / PREPASS_SCALE,
+                ),
+                usage: ImageUsage::COLOR,
+                format: Format::Rgba32Sfloat,
+                ..default()
+            })
+            .expect("failed to create depth image"),
+    );
+    
+    let mut resolve_img = Cell::new(
+        device
+            .create_image(ImageInfo {
+                extent: ImageExtent::TwoDim(
+                    width as usize / PREPASS_SCALE,
+                    height as usize / PREPASS_SCALE,
+                ),
+                usage: ImageUsage::COLOR,
+                format: Format::Rgba32Sfloat,
+                ..default()
+            })
+            .expect("failed to create depth image"),
+    );
+
+    let mut resolve_dir_img = Cell::new(
         device
             .create_image(ImageInfo {
                 extent: ImageExtent::TwoDim(
@@ -594,6 +703,13 @@ fn main() {
     let noise_staging_buffer = || noise_staging_buffer;
     let depth_image = || depth_img.get();
     let prepass_image = || prepass_img.get();
+    let dir_image = || dir_img.get();
+    let pos_image = || pos_img.get();
+    let history_image = || history_img.get();
+    let history_dir_image = || history_dir_img.get();
+    let history_pos_image = || history_pos_img.get();
+    let resolve_image = || resolve_img.get();
+    let resolve_dir_image = || resolve_dir_img.get();
     let noise_image = || noise_img.get();
     let perlin_image = || perlin_img.get();
     let worley_image = || worley_img.get();
@@ -837,6 +953,89 @@ fn main() {
                 );
 
                 prepass_img.set(
+                    device
+                        .create_image(ImageInfo {
+                            extent: ImageExtent::TwoDim(
+                                width as usize / PREPASS_SCALE,
+                                height as usize / PREPASS_SCALE,
+                            ),
+                            usage: ImageUsage::COLOR,
+                            format: Format::Rgba32Sfloat,
+                            ..default()
+                        })
+                        .expect("failed to create depth image"),
+                );
+
+                dir_img.set(
+                    device
+                        .create_image(ImageInfo {
+                            extent: ImageExtent::TwoDim(
+                                width as usize / PREPASS_SCALE,
+                                height as usize / PREPASS_SCALE,
+                            ),
+                            usage: ImageUsage::COLOR,
+                            format: Format::Rgba32Sfloat,
+                            ..default()
+                        })
+                        .expect("failed to create depth image"),
+                );
+                
+                history_img.set(
+                    device
+                        .create_image(ImageInfo {
+                            extent: ImageExtent::TwoDim(
+                                width as usize / PREPASS_SCALE,
+                                height as usize / PREPASS_SCALE,
+                            ),
+                            usage: ImageUsage::COLOR,
+                            format: Format::Rgba32Sfloat,
+                            ..default()
+                        })
+                        .expect("failed to create depth image"),
+                );
+                
+                history_dir_img.set(
+                    device
+                        .create_image(ImageInfo {
+                            extent: ImageExtent::TwoDim(
+                                width as usize / PREPASS_SCALE,
+                                height as usize / PREPASS_SCALE,
+                            ),
+                            usage: ImageUsage::COLOR,
+                            format: Format::Rgba32Sfloat,
+                            ..default()
+                        })
+                        .expect("failed to create depth image"),
+                );
+                history_pos_img.set(
+                    device
+                        .create_image(ImageInfo {
+                            extent: ImageExtent::TwoDim(
+                                width as usize / PREPASS_SCALE,
+                                height as usize / PREPASS_SCALE,
+                            ),
+                            usage: ImageUsage::COLOR,
+                            format: Format::Rgba32Sfloat,
+                            ..default()
+                        })
+                        .expect("failed to create depth image"),
+                );
+                
+                resolve_img.set(
+                    device
+                        .create_image(ImageInfo {
+                            extent: ImageExtent::TwoDim(
+                                width as usize / PREPASS_SCALE,
+                                height as usize / PREPASS_SCALE,
+                            ),
+                            usage: ImageUsage::COLOR,
+                            format: Format::Rgba32Sfloat,
+                            ..default()
+                        })
+                        .expect("failed to create depth image"),
+                );
+                
+                resolve_dir_img.set(
                     device
                         .create_image(ImageInfo {
                             extent: ImageExtent::TwoDim(
@@ -1429,12 +1628,75 @@ fn main() {
                                 mersenne_buffer: (mersenne_buffer)(),
                                 perlin_image: (perlin_image)(),
                                 prepass_image: (prepass_image)(),
+                                dir_image: (dir_image)(),
+                                pos_image: (pos_image)(),
                                 luminosity_buffer: (luminosity_buffer)(),
                             },
                             pipeline: &rtx_pipeline,
                         })?;
 
                         commands.dispatch(30000, 1, 1)?;
+
+                        Ok(())
+                    },
+                });
+               
+               executor.add(Task {
+                    resources: [
+                        Image(&prepass_image, ImageAccess::ComputeShaderReadWrite),
+                        Image(&resolve_image, ImageAccess::ComputeShaderReadWrite),
+                        Buffer(&rigidbody_buffer, BufferAccess::ComputeShaderReadWrite),
+                    ],
+                    task: |commands| {
+                        commands.set_pipeline(&resolve_pipeline)?;
+
+                        commands.push_constant(PushConstant {
+                            data: ResolvePush {
+                                prepass_image: (prepass_image)(),
+                                history_image: (history_image)(),
+                                resolve_image: (resolve_image)(),
+                                dir_image: (dir_image)(),
+                                pos_image: (pos_image)(),
+                                history_dir_image: (history_dir_image)(),
+                                history_pos_image: (history_pos_image)(),
+                                rigidbody_buffer: (rigidbody_buffer)(),
+                            },
+                            pipeline: &resolve_pipeline,
+                        })?;
+
+                        const WORK_GROUP_SIZE: usize = 16;
+
+                        let group_x = (resolution.get().0 as f32 / PREPASS_SCALE as f32 / WORK_GROUP_SIZE as f32).ceil() as usize;
+                        let group_y = (resolution.get().1 as f32 / PREPASS_SCALE as f32 / WORK_GROUP_SIZE as f32).ceil() as usize;
+
+                        commands.dispatch(group_x, group_y, 1)?;
+
+                        Ok(())
+                    },
+                });
+               
+               executor.add(Task {
+                    resources: [
+                        Image(&resolve_image, ImageAccess::ComputeShaderReadWrite),
+                        Image(&history_image, ImageAccess::ComputeShaderReadWrite),
+                    ],
+                    task: |commands| {
+                        commands.set_pipeline(&history_pipeline)?;
+
+                        commands.push_constant(PushConstant {
+                            data: HistoryPush {
+                                resolve_image: (resolve_image)(),
+                                history_image: (history_image)(),
+                            },
+                            pipeline: &history_pipeline,
+                        })?;
+
+                        const WORK_GROUP_SIZE: usize = 16;
+
+                        let group_x = (resolution.get().0 as f32 / PREPASS_SCALE as f32 / WORK_GROUP_SIZE as f32).ceil() as usize;
+                        let group_y = (resolution.get().1 as f32 / PREPASS_SCALE as f32 / WORK_GROUP_SIZE as f32).ceil() as usize;
+
+                        commands.dispatch(group_x, group_y, 1)?;
 
                         Ok(())
                     },
@@ -1452,7 +1714,7 @@ fn main() {
                         commands.push_constant(PushConstant {
                             data: LuminosityPush {
                                 luminosity_buffer: (luminosity_buffer)(),
-                                prepass_image: (prepass_image)(),
+                                prepass_image: (resolve_image)(),
                                 info_buffer: (info_buffer)(),
                             },
                             pipeline: &before_luminosity_pipeline,
@@ -1476,7 +1738,7 @@ fn main() {
                         commands.push_constant(PushConstant {
                             data: LuminosityPush {
                                 luminosity_buffer: (luminosity_buffer)(),
-                                prepass_image: (prepass_image)(),
+                                prepass_image: (resolve_image)(),
                                 info_buffer: (info_buffer)(),
                             },
                             pipeline: &luminosity_pipeline,
@@ -1484,8 +1746,8 @@ fn main() {
 
                         const WORK_GROUP_SIZE: usize = 16;
 
-                        let group_x = (resolution.get().0 as f32 / WORK_GROUP_SIZE as f32).ceil() as usize;
-                        let group_y = (resolution.get().1 as f32 / WORK_GROUP_SIZE as f32).ceil() as usize;
+                        let group_x = (resolution.get().0 as f32 / PREPASS_SCALE as f32 / WORK_GROUP_SIZE as f32).ceil() as usize;
+                        let group_y = (resolution.get().1 as f32 / PREPASS_SCALE as f32 / WORK_GROUP_SIZE as f32).ceil() as usize;
 
                         commands.dispatch(group_x, group_y, 1)?;
 
@@ -1505,7 +1767,7 @@ fn main() {
                         commands.push_constant(PushConstant {
                             data: LuminosityPush {
                                 luminosity_buffer: (luminosity_buffer)(),
-                                prepass_image: (prepass_image)(),
+                                prepass_image: (resolve_image)(),
                                 info_buffer: (info_buffer)(),
                             },
                             pipeline: &after_luminosity_pipeline,
@@ -1546,7 +1808,7 @@ fn main() {
 
                         commands.push_constant(PushConstant {
                             data: UpscalePush {
-                                from_image: (prepass_image)(),
+                                from_image: (resolve_image)(),
                                 scale: PREPASS_SCALE as u32,
                                 luminosity_buffer: (luminosity_buffer)(),
                             },
@@ -1672,16 +1934,6 @@ struct EntityInput {
     look: Vector<f32, 4>,
 }
 
-#[derive(Clone, Copy)]
-#[repr(C)]
-pub struct PrepassPush {
-    pub info_buffer: Buffer,
-    pub camera_buffer: Buffer,
-    pub vertex_buffer: Buffer,
-    pub transform_buffer: Buffer,
-    pub world_buffer: Buffer,
-    pub perlin_image: Image,
-}
 
 #[derive(Clone, Copy)]
 #[repr(C)]
@@ -1700,7 +1952,28 @@ pub struct RtxPush {
     pub mersenne_buffer: Buffer,
     pub perlin_image: Image,
     pub prepass_image: Image,
+    pub dir_image: Image,
+    pub pos_image: Image,
     pub luminosity_buffer: Buffer,
+}
+
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct ResolvePush {
+    pub prepass_image: Image,
+    pub history_image: Image,
+    pub resolve_image: Image,
+    pub dir_image: Image,
+    pub pos_image: Image,
+    pub history_dir_image: Image,
+    pub history_pos_image: Image,
+    pub rigidbody_buffer: Buffer,
+}
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct HistoryPush {
+    pub resolve_image: Image,
+    pub history_image: Image,
 }
 
 #[derive(Clone, Copy)]

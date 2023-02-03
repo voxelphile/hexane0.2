@@ -22,6 +22,8 @@ struct RtxPush {
 	BufferId mersenne_id;
 	ImageId perlin_id;
 	ImageId prepass_id;
+	ImageId dir_id;
+	ImageId pos_id;
 	BufferId luminosity_id;
 };
 
@@ -120,6 +122,8 @@ struct TraceState {
 	u32 rays;
 	u32 id;
 	vec4 color;
+	vec3 true_dir;
+	vec3 aperture_pos;
 	u16 prev_id;
 	f32 prev_dist;
 	RayHit initial_hit;
@@ -137,12 +141,16 @@ i32 fast_atomic_decrement(inout i32 a) {
 
 void write_ray_result(in out TraceState trace_state) {
 	Image(2D, f32) prepass_image = get_image(2D, f32, push_constant.prepass_id);
+	Image(2D, f32) dir_image = get_image(2D, f32, push_constant.dir_id);
+	Image(2D, f32) pos_image = get_image(2D, f32, push_constant.pos_id);
 				
 	i32vec2 pos = i32vec2(trace_state.ray_state.ray.result_i);
 
 	pos = imageSize(prepass_image) - pos;
 
 	imageStore(prepass_image, pos, trace_state.color);
+	imageStore(dir_image, pos, vec4(trace_state.true_dir, 0));
+	imageStore(pos_image, pos, vec4(trace_state.aperture_pos, 1));
 }
 
 void reset_trace_state(in out TraceState trace_state) {
@@ -152,6 +160,8 @@ void reset_trace_state(in out TraceState trace_state) {
 	trace_state.prev_id = u16(0);
 	trace_state.prev_dist = 0;
 	trace_state.rays = 0;
+	trace_state.true_dir = vec3(0);
+	trace_state.aperture_pos = vec3(0);
 	trace_state.id = TRACE_STATE_CAMERA;
 	RayState state;
     	trace_state.ray_state = state;
@@ -231,14 +241,21 @@ bool ray_trace(in out TraceState trace_state) {
 		if(is_transparent(u16(ray_hit.id))) {
 			Ray ray;
 			ray.direction = refract(normalize(trace_state.ray_state.ray.direction), ray_hit.normal, refraction_index(u16(ray_hit.id)));
-			if(ray.direction == vec3(0)) {
+			f32 prod = dot(trace_state.ray_state.ray.direction, ray_hit.normal);
+			bool should_reflect = 
+				ray.direction == vec3(0)
+				|| f32(random(push_constant.mersenne_id)) / f32(~0u) > 1 - exp(min(1 * prod, 0)) + f32(ray_hit.id != u16(BLOCK_ID_WATER));
+			if(should_reflect) {
 				ray.direction = reflect(normalize(trace_state.ray_state.ray.direction), ray_hit.normal);
+				trace_state.color.xyz *= medium_color(u16(ray_hit.id));
 			}
 				ray.region_id = push_constant.region_id;
 				ray.origin = ray_hit.destination;
 				ray.result_i = trace_state.ray_state.ray.result_i;
 				ray.medium = u16(ray_hit.id);
 				ray.max_distance = VIEW_DISTANCE;
+				ray.true_dir = trace_state.ray_state.ray.true_dir;
+				ray.aperture_pos = trace_state.ray_state.ray.aperture_pos;
 				ray.minimum = vec3(0);
 				ray.maximum = vec3(REGION_SIZE);
 				trace_state.prev_id = u16(trace_state.ray_state.ray.medium);
@@ -359,6 +376,8 @@ void main() {
 
 				if(ray_cache_index < CACHE_SIZE) {
 					ray_cast_start(ray_batch.setup_cache.rays[ray_cache_index], trace_state.ray_state);
+					trace_state.true_dir = ray_batch.setup_cache.rays[ray_cache_index].true_dir;
+					trace_state.aperture_pos = ray_batch.setup_cache.rays[ray_cache_index].aperture_pos;
 					trace_state.currently_tracing = true;
 					trace_state.has_ray_result = false;
 					trace_state.rays = 1;
@@ -451,6 +470,8 @@ void main() {
 					ray.region_id = push_constant.region_id;
 					ray.origin = aperturePos.xyz;
 					ray.direction = normalize(focusPos - aperturePos);
+					ray.true_dir = dir;
+					ray.aperture_pos = aperturePos;
 					ray.medium = query.id;
 					ray.result_i = result_i;
 					ray.max_distance = VIEW_DISTANCE; 
@@ -464,6 +485,8 @@ void main() {
 					i32 ray_cache_index = CACHE_SIZE - fast_atomic_decrement(ray_batch.setup_cache.size);
 
 					ray_cast_start(ray_batch.setup_cache.rays[ray_cache_index], trace_state.ray_state);
+					trace_state.true_dir = ray_batch.setup_cache.rays[ray_cache_index].true_dir;
+					trace_state.aperture_pos = ray_batch.setup_cache.rays[ray_cache_index].aperture_pos;
 					trace_state.currently_tracing = true;
 					trace_state.has_ray_result = false;
 					trace_state.rays = 1;
