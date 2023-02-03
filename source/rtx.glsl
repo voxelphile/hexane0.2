@@ -38,8 +38,10 @@ decl_push_constant(RtxPush)
 #define STALL_LIMIT 100
 
 #define TRACE_STATE_CAMERA 0
-#define TRACE_STATE_LIGHT_SETUP 1
-#define TRACE_STATE_LIGHT 2
+#define TRACE_STATE_TRUE_SETUP 1
+#define TRACE_STATE_TRUE 2
+#define TRACE_STATE_LIGHT_SETUP 3
+#define TRACE_STATE_LIGHT 4
 
 layout (local_size_x = WARP_SIZE, local_size_y = 1, local_size_z = 1) in;
 
@@ -124,9 +126,12 @@ struct TraceState {
 	vec4 color;
 	vec3 true_dir;
 	vec3 aperture_pos;
+	bool reject;
 	u16 prev_id;
 	f32 prev_dist;
-	RayHit initial_hit;
+	RayHit final_hit;
+	RayHit true_hit;
+	Ray initial_ray;
 	RayState ray_state;
 };
 
@@ -144,13 +149,13 @@ void write_ray_result(in out TraceState trace_state) {
 	Image(2D, f32) dir_image = get_image(2D, f32, push_constant.dir_id);
 	Image(2D, f32) pos_image = get_image(2D, f32, push_constant.pos_id);
 				
-	i32vec2 pos = i32vec2(trace_state.ray_state.ray.result_i);
+	i32vec2 pos = i32vec2(trace_state.initial_ray.result_i);
 
 	pos = imageSize(prepass_image) - pos;
 
 	imageStore(prepass_image, pos, trace_state.color);
 	imageStore(dir_image, pos, vec4(trace_state.true_dir, 0));
-	imageStore(pos_image, pos, vec4(trace_state.aperture_pos, 1));
+	imageStore(pos_image, pos, vec4(trace_state.true_hit.destination, 1));
 }
 
 void reset_trace_state(in out TraceState trace_state) {
@@ -163,10 +168,20 @@ void reset_trace_state(in out TraceState trace_state) {
 	trace_state.true_dir = vec3(0);
 	trace_state.aperture_pos = vec3(0);
 	trace_state.id = TRACE_STATE_CAMERA;
+
 	RayState state;
     	trace_state.ray_state = state;
+	{
 	RayHit hit;
-	trace_state.initial_hit = hit;
+	trace_state.final_hit = hit;
+	}
+	{
+	RayHit hit;
+	trace_state.true_hit = hit;
+	}
+	Ray ray;
+	trace_state.initial_ray = ray;
+	trace_state.reject = false;
 }
 
 bool ray_trace(in out TraceState trace_state) {
@@ -201,13 +216,15 @@ bool ray_trace(in out TraceState trace_state) {
 
 	trace_state.color.rgb = mix(trace_state.color.rgb, medium_color(trace_state.ray_state.ray.medium), 1 - exp(-dist * extinction_coef));
 
-
 	if(!success) {
-		return true;
-	}
+		trace_state.id = TRACE_STATE_TRUE_SETUP;
+		trace_state.reject = true;
+		return false;
 		
+	}
+
 	if (success) {
-		trace_state.initial_hit = ray_hit;
+		trace_state.final_hit = ray_hit;
 	
 		
 		f32 noise_factor = f32(imageLoad(perlin_img, i32vec3(abs(round(vec3(region.floating_origin) - vec3(REGION_SIZE / 2) + ray_hit.destination + vec3(0.5)))) % i32vec3(imageSize(perlin_img))).r) / f32(~0u);
@@ -267,8 +284,63 @@ bool ray_trace(in out TraceState trace_state) {
 			
 		}
 
-		trace_state.id = TRACE_STATE_LIGHT_SETUP;
 	}
+		trace_state.id = TRACE_STATE_TRUE_SETUP;
+		return false;
+	}
+	
+	if(trace_state.id == TRACE_STATE_TRUE_SETUP) {
+		Ray ray = trace_state.initial_ray;
+		ray.direction = -ray.true_dir; 
+		ray.region_id = push_constant.region_id;
+		ray.max_distance = 10000;
+		ray.minimum = vec3(0);
+		ray.maximum = vec3(REGION_SIZE);
+		ray_cast_start(ray, trace_state.ray_state);
+		trace_state.id = TRACE_STATE_TRUE;
+		return false;
+	}
+	
+	if(trace_state.id == TRACE_STATE_TRUE && !ray_cast_drive(trace_state.ray_state)) {	
+	RayHit ray_hit;
+    	
+	bool success = ray_cast_complete(trace_state.ray_state, ray_hit);
+	
+	if (success) {
+		trace_state.true_hit = ray_hit;
+
+		if(is_transparent(u16(ray_hit.id))) {
+			Ray ray;
+			ray.direction = refract(normalize(trace_state.ray_state.ray.direction), ray_hit.normal, refraction_index(u16(ray_hit.id)));
+			f32 prod = dot(trace_state.ray_state.ray.direction, ray_hit.normal);
+			bool should_reflect = 
+				ray.direction == vec3(0);
+			if(should_reflect) {
+				ray.direction = reflect(normalize(trace_state.ray_state.ray.direction), ray_hit.normal);
+			}
+				ray.region_id = push_constant.region_id;
+				ray.origin = ray_hit.destination;
+				ray.medium = u16(ray_hit.id);
+				ray.max_distance = VIEW_DISTANCE;
+				ray.true_dir = trace_state.ray_state.ray.true_dir;
+				ray.minimum = vec3(0);
+				ray.maximum = vec3(REGION_SIZE);
+				trace_state.prev_id = u16(trace_state.ray_state.ray.medium);
+				trace_state.prev_dist = ray_hit.dist;
+				ray_cast_start(ray, trace_state.ray_state);
+				trace_state.ray_state.initial_dist = ray_hit.total_dist;
+				return false;
+			
+		}
+
+	}
+
+	if(trace_state.reject) {
+		return true;
+	}
+
+	trace_state.id = TRACE_STATE_LIGHT_SETUP;
+	return false;
 	}
 
 	vec3 sun_pos = vec3(10000);
@@ -276,16 +348,16 @@ bool ray_trace(in out TraceState trace_state) {
 
 	if(trace_state.id == TRACE_STATE_LIGHT_SETUP) {
 		Ray ray;
-		ray.direction = normalize(sun_pos - trace_state.initial_hit.destination); 
+		ray.direction = normalize(sun_pos - trace_state.final_hit.destination); 
 		ray.region_id = push_constant.region_id;
-		ray.origin = trace_state.initial_hit.destination + trace_state.initial_hit.normal * EPSILON;
-		ray.result_i = trace_state.ray_state.ray.result_i;
+		ray.origin = trace_state.final_hit.destination + trace_state.final_hit.normal * EPSILON;
+		ray.result_i = trace_state.initial_ray.result_i;
 		ray.medium = u16(trace_state.ray_state.ray.medium);
 		ray.max_distance = 10000;
 		ray.minimum = vec3(0);
 		ray.maximum = vec3(REGION_SIZE);
 		trace_state.prev_id = u16(trace_state.ray_state.ray.medium);
-		trace_state.prev_dist = trace_state.initial_hit.dist;
+		trace_state.prev_dist = trace_state.final_hit.dist;
 		ray_cast_start(ray, trace_state.ray_state);
 		trace_state.rays++;
 		trace_state.id = TRACE_STATE_LIGHT;
@@ -318,7 +390,7 @@ bool ray_trace(in out TraceState trace_state) {
 		bool in_light = trace_state.ray_state.id != RAY_STATE_VOXEL_FOUND;
 		
 		if(in_light) {	
-			trace_state.color.xyz *= 20 * (0.5 + 0.5 * dot(trace_state.ray_state.ray.direction, trace_state.initial_hit.normal));
+			trace_state.color.xyz *= 20 * (0.5 + 0.5 * dot(trace_state.ray_state.ray.direction, trace_state.final_hit.normal));
 		} else {
 			trace_state.color.xyz *= 0.3;
 		}
@@ -377,6 +449,7 @@ void main() {
 				if(ray_cache_index < CACHE_SIZE) {
 					ray_cast_start(ray_batch.setup_cache.rays[ray_cache_index], trace_state.ray_state);
 					trace_state.true_dir = ray_batch.setup_cache.rays[ray_cache_index].true_dir;
+					trace_state.initial_ray = ray_batch.setup_cache.rays[ray_cache_index];
 					trace_state.aperture_pos = ray_batch.setup_cache.rays[ray_cache_index].aperture_pos;
 					trace_state.currently_tracing = true;
 					trace_state.has_ray_result = false;
@@ -486,6 +559,7 @@ void main() {
 
 					ray_cast_start(ray_batch.setup_cache.rays[ray_cache_index], trace_state.ray_state);
 					trace_state.true_dir = ray_batch.setup_cache.rays[ray_cache_index].true_dir;
+					trace_state.initial_ray = ray_batch.setup_cache.rays[ray_cache_index];
 					trace_state.aperture_pos = ray_batch.setup_cache.rays[ray_cache_index].aperture_pos;
 					trace_state.currently_tracing = true;
 					trace_state.has_ray_result = false;
