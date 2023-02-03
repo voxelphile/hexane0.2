@@ -62,7 +62,7 @@ void main() {
 
 	vec4 color;
 
-	if(dir == history_dir && distance(position.xyz, history_position.xyz) < 2 * 0.1 && all(lessThan(rigidbody.velocity, vec3(0.1)))) {
+	if(dir == history_dir && distance(position.xyz, history_position.xyz) < 2 * 0.1 && all(lessThan(rigidbody.velocity, vec3(0.5))) && all(greaterThan(rigidbody.velocity, vec3(-0.5)))) {
 		color = mix(current_color, history_color, 0.9); 
 	} else {
 		color = current_color;

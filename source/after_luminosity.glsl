@@ -25,7 +25,7 @@ void main() {
 
 	f32 avg_lum = f32(luminosity.lum) / f32(MAX_LUMINOSITY_LEVELS) / f32(pixels);
 
-	luminosity.target_exposure = 1 / max(avg_lum, 0.00001);
+	luminosity.target_exposure = 1 / max(avg_lum, 0.1);
 
 	f32 rate = exp2(1);
 	
