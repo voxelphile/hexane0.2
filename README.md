@@ -10,11 +10,12 @@ The goal of this project is to build a specialized game engine for use in future
 
 - [x] A RTX engine.
 - [x] Vulkan support.
+- [x] Physics (only for player, atm).
 - [x] Support for Windows and Linux.
 - [ ] Support for OS X.
 - [ ] Path traced audio.
-- [ ] Dynamic simulation of objects.
 - [ ] Multiplayer.
+
 
 
 
