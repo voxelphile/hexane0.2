@@ -41,7 +41,7 @@ const REGION_SIZE: usize = 512;
 const CHUNK_SIZE: usize = 64;
 const AXIS_MAX_CHUNKS: usize = 4;
 const LOD: usize = 6;
-const PREPASS_SCALE: usize = 1;
+const PREPASS_SCALE: usize = 8;
 
 pub type Vertex = (f32, f32, f32);
 pub type Color = [f32; 4];

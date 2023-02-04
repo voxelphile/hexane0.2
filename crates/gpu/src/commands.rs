@@ -150,10 +150,10 @@ pub enum Barrier {
     },
 }
 
-pub struct PipelineBarrier<const N: usize> {
+pub struct PipelineBarrier {
     pub src_stage: PipelineStage,
     pub dst_stage: PipelineStage,
-    pub barriers: [Barrier; N],
+    pub barriers: Vec<Barrier>,
 }
 
 pub struct PushConstant<'a, T: Copy, const S: usize, const C: usize> {
@@ -812,9 +812,9 @@ impl Commands<'_> {
         Ok(())
     }
 
-    pub fn pipeline_barrier<const N: usize>(
+    pub fn pipeline_barrier(
         &mut self,
-        pipeline_barrier: PipelineBarrier<N>,
+        pipeline_barrier: PipelineBarrier,
     ) -> Result<()> {
         let PipelineBarrier {
             src_stage,

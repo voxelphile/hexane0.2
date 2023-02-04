@@ -388,7 +388,7 @@ impl ops::FnMut<()> for Executable<'_> {
                 .map(|resource| resource.resolve())
                 .collect::<Vec<_>>();
 
-            let mut barriers = vec![];
+            let mut naive_barriers = vec![];
 
             for (i, qualifier) in qualifiers.iter().enumerate() {
                 match qualifier {
@@ -403,10 +403,10 @@ impl ops::FnMut<()> for Executable<'_> {
                             resources.buffers.get(*buffer).unwrap().size
                         };
 
-                        barriers.push(PipelineBarrier {
+                        naive_barriers.push(PipelineBarrier {
                             src_stage: (*src).into(),
                             dst_stage: (*dst).into(),
-                            barriers: [Barrier::Buffer {
+                            barriers: vec![Barrier::Buffer {
                                 buffer: i,
                                 offset,
                                 size,
@@ -422,10 +422,10 @@ impl ops::FnMut<()> for Executable<'_> {
 
                         u32::from(*image);
 
-                        barriers.push(PipelineBarrier {
+                        naive_barriers.push(PipelineBarrier {
                             src_stage: (*src).into(),
                             dst_stage: (*dst).into(),
-                            barriers: [Barrier::Image {
+                            barriers: vec![Barrier::Image {
                                 image: i,
                                 old_layout: (*src).into(),
                                 new_layout: (*dst).into(),
@@ -439,6 +439,18 @@ impl ops::FnMut<()> for Executable<'_> {
                 }
             }
 
+            let mut smart_barriers = HashMap::<(PipelineStage, PipelineStage), PipelineBarrier>::new();
+
+            for new_barrier in naive_barriers {
+                let key = (new_barrier.src_stage, new_barrier.dst_stage);
+
+                if smart_barriers.contains_key(&key) {
+                    smart_barriers.get_mut(&key).unwrap().barriers.extend(new_barrier.barriers);
+                } else {
+                    smart_barriers.insert(key, new_barrier);
+                }
+            }
+
             let mut commands = Commands {
                 device: &device,
                 qualifiers: &qualifiers,
@@ -447,7 +459,7 @@ impl ops::FnMut<()> for Executable<'_> {
                 present: &mut present,
             };
 
-            for barrier in barriers {
+            for (_, barrier) in smart_barriers {
                 commands.pipeline_barrier(barrier).unwrap();
             }
 
