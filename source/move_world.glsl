@@ -25,7 +25,7 @@ void main() {
 	
 	region.observer_position = ivec3(vec3(transforms.data[0].position.xyz));
 
-	if(distance(region.floating_origin, region.observer_position) > VIEW_DISTANCE) {
+	if(distance(vec3(region.floating_origin), vec3(region.observer_position)) > f32(VIEW_DISTANCE)) {
 		region.dirty = true;
 		region.rebuild = true;
 	} else{

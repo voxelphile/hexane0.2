@@ -53,14 +53,15 @@ void main() {
 	f32 height = 20;
 	f32 water_height = 30;
 
-	const int octaves = 1;
+	const int octaves = 8;
 	float lacunarity = 2.0;
 	float gain = 0.5;
-	float amplitude = 0.5;
-	float frequency = 1.;
+	float amplitude = 100;
+	float frequency = 0.1;
 	for (int i = 0; i < octaves; i++) {
 		f32 perlin_noise_factor = f32(imageLoad(perlin_image, abs(i32vec3(frequency * world_position.x, 32, frequency * world_position.z)) % i32vec3(imageSize(perlin_image))).r) / f32(~0u);
 		height += amplitude * perlin_noise_factor;
+		water_height += amplitude * 0.45;
 		frequency *= lacunarity;
 		amplitude *= gain;
 	}
@@ -78,7 +79,7 @@ void main() {
 	//dunno why this is bugged.. if this statement isnt made like this
 	//then grass spawns on chunk corners
 	bool is_cave = false;
-	if(worley_noise_factor > 0.5 && cave_noise_factor > 0.5 - cave_smudge) {
+	if(worley_noise_factor > 0.5 && cave_noise_factor > 0.5 - cave_smudge && height < water_height) {
 		change.id = u16(1);
 		is_cave = true;
 	}

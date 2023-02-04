@@ -41,7 +41,7 @@ const REGION_SIZE: usize = 512;
 const CHUNK_SIZE: usize = 64;
 const AXIS_MAX_CHUNKS: usize = 4;
 const LOD: usize = 6;
-const PREPASS_SCALE: usize = 8;
+const PREPASS_SCALE: usize = 2;
 
 pub type Vertex = (f32, f32, f32);
 pub type Color = [f32; 4];
@@ -176,7 +176,7 @@ fn main() {
 
     let mut pipeline_compiler = device.create_pipeline_compiler(PipelineCompilerInfo {
         //default language for shader compiler is glsl
-        //compiler: ShaderCompiler::glslc(default()),
+        compiler: ShaderCompiler::glslc(default()),
         source_path: &source_path,
         asset_path: &shader_asset_path,
         ..default()

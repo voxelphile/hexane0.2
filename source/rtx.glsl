@@ -38,10 +38,8 @@ decl_push_constant(RtxPush)
 #define STALL_LIMIT 100
 
 #define TRACE_STATE_CAMERA 0
-#define TRACE_STATE_TRUE_SETUP 1
-#define TRACE_STATE_TRUE 2
-#define TRACE_STATE_LIGHT_SETUP 3
-#define TRACE_STATE_LIGHT 4
+#define TRACE_STATE_LIGHT_SETUP 1
+#define TRACE_STATE_LIGHT 2
 
 layout (local_size_x = WARP_SIZE, local_size_y = 1, local_size_z = 1) in;
 
@@ -89,7 +87,7 @@ bool is_transparent(u16 id) {
 
 f32 refraction_index(u16 id) {
 	if(id == u16(5)) {
-		return 1.001;
+		return 1.01;
 	}
 	return 1.0;
 }
@@ -217,9 +215,7 @@ bool ray_trace(in out TraceState trace_state) {
 	trace_state.color.rgb = mix(trace_state.color.rgb, medium_color(trace_state.ray_state.ray.medium), 1 - exp(-dist * extinction_coef));
 
 	if(!success) {
-		trace_state.id = TRACE_STATE_TRUE_SETUP;
-		trace_state.reject = true;
-		return false;
+		return true;
 		
 	}
 
@@ -263,6 +259,9 @@ bool ray_trace(in out TraceState trace_state) {
 			return false;
 			
 		}
+		if(trace_state.ray_state.ray.medium == u16(BLOCK_ID_WATER)) {
+			trace_state.color.xyz *= medium_color(u16(BLOCK_ID_WATER));
+		}
 		vec4 ambient = voxel_ao(
 			region.data,
 			ray_hit.back_step, 
@@ -284,7 +283,6 @@ bool ray_trace(in out TraceState trace_state) {
 				|| f32(random(push_constant.mersenne_id)) / f32(~0u) > 1 - exp(min(1 * prod, 0)) + f32(ray_hit.id != u16(BLOCK_ID_WATER));
 			if(should_reflect) {
 				ray.direction = reflect(normalize(trace_state.ray_state.ray.direction), ray_hit.normal);
-				trace_state.color.xyz *= medium_color(u16(ray_hit.id));
 			}
 				ray.region_id = push_constant.region_id;
 				ray.origin = ray_hit.destination;
@@ -305,63 +303,10 @@ bool ray_trace(in out TraceState trace_state) {
 		}
 
 	}
-		trace_state.id = TRACE_STATE_TRUE_SETUP;
+		trace_state.id = TRACE_STATE_LIGHT_SETUP;
 		return false;
 	}
 	
-	if(trace_state.id == TRACE_STATE_TRUE_SETUP) {
-		Ray ray = trace_state.initial_ray;
-		ray.direction = -ray.true_dir; 
-		ray.region_id = push_constant.region_id;
-		ray.max_distance = 10000;
-		ray.minimum = vec3(0);
-		ray.maximum = vec3(REGION_SIZE);
-		ray_cast_start(ray, trace_state.ray_state);
-		trace_state.id = TRACE_STATE_TRUE;
-		return false;
-	}
-	
-	if(trace_state.id == TRACE_STATE_TRUE && !ray_cast_drive(trace_state.ray_state)) {	
-	RayHit ray_hit;
-    	
-	bool success = ray_cast_complete(trace_state.ray_state, ray_hit);
-	
-	if (success) {
-		trace_state.true_hit = ray_hit;
-
-		if(is_transparent(u16(ray_hit.id))) {
-			Ray ray;
-			ray.direction = refract(normalize(trace_state.ray_state.ray.direction), ray_hit.normal, refraction_index(u16(ray_hit.id)));
-			f32 prod = dot(trace_state.ray_state.ray.direction, ray_hit.normal);
-			bool should_reflect = 
-				ray.direction == vec3(0);
-			if(should_reflect) {
-				ray.direction = reflect(normalize(trace_state.ray_state.ray.direction), ray_hit.normal);
-			}
-				ray.region_id = push_constant.region_id;
-				ray.origin = ray_hit.destination;
-				ray.medium = u16(ray_hit.id);
-				ray.max_distance = VIEW_DISTANCE;
-				ray.true_dir = trace_state.ray_state.ray.true_dir;
-				ray.minimum = vec3(0);
-				ray.maximum = vec3(REGION_SIZE);
-				trace_state.prev_id = u16(trace_state.ray_state.ray.medium);
-				trace_state.prev_dist = ray_hit.dist;
-				ray_cast_start(ray, trace_state.ray_state);
-				trace_state.ray_state.initial_dist = ray_hit.total_dist;
-				return false;
-			
-		}
-
-	}
-
-	if(trace_state.reject) {
-		return true;
-	}
-
-	trace_state.id = TRACE_STATE_LIGHT_SETUP;
-	return false;
-	}
 
 	vec3 sun_pos = vec3(10000);
 	vec3 sun_color = vec3(0.8, 0.9, 1.0);
@@ -513,7 +458,7 @@ void main() {
 
 					Buffer(Luminosity) luminosity = get_buffer(Luminosity, push_constant.luminosity_id);
 					f32 c_pi = 3.1415;
-					f32 DOFApertureRadius = 0.1;
+					f32 DOFApertureRadius = 0.04;
 					f32 DOFFocalLength = luminosity.focal_depth;
 
 					vec3 fwdVector = dir;
