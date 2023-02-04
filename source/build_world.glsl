@@ -4,12 +4,14 @@
 #include "region.glsl"
 #include "transform.glsl"
 #include "voxel.glsl"
+#include "noise.glsl"
 
 struct BuildRegionPush {
 	BufferId region_id;
 	BufferId transform_id;
 	ImageId perlin_id;
 	ImageId worley_id;
+	BufferId mersenne_id;
 };
 
 decl_push_constant(BuildRegionPush)
@@ -82,7 +84,7 @@ void main() {
 	}
 
 	if(change.id == 0) {
-		if(world_position.y > height - 1 && world_position.y < height + 1) {
+		if(world_position.y == i32(height)) {
 			change.id = u16(2);
 		} else if(world_position.y > height - 10 && world_position.y < height) {
 			change.id = u16(4);
@@ -90,6 +92,17 @@ void main() {
 			change.id = u16(3);
 		} else {
 			change.id = u16(1);
+		}
+
+		if(f32(random(push_constant.mersenne_id)) / f32(~0u) > 0.99 && world_position.y == i32(height) + 1) {
+			change.id = u16(6);
+			
+			VoxelChange upper;
+			upper.region_data = region.reserve;
+			upper.id = u16(6);
+			upper.position = local_position + ivec3(0, 1, 0);
+			
+			voxel_change(upper);
 		}
 	}
 	

@@ -56,13 +56,11 @@ void main() {
 	vec4 history_color = imageLoad(history_image, pos);
 
 	vec4 dir = imageLoad(dir_image, pos);
-	vec4 position = imageLoad(pos_image, pos);
 	vec4 history_dir = imageLoad(history_dir_image, pos);
-	vec4 history_position = imageLoad(history_pos_image, pos);
 
 	vec4 color;
 
-	if(dir == history_dir && distance(position.xyz, history_position.xyz) < 2 * 0.1 && all(lessThan(rigidbody.velocity, vec3(0.5))) && all(greaterThan(rigidbody.velocity, vec3(-0.5)))) {
+	if(dir == history_dir && all(lessThan(rigidbody.velocity, vec3(0.5))) && all(greaterThan(rigidbody.velocity, vec3(-0.5)))) {
 		color = mix(current_color, history_color, 0.9); 
 	} else {
 		color = current_color;
@@ -70,7 +68,6 @@ void main() {
 		
 	imageStore(resolve_image, pos, color);
 	imageStore(history_dir_image, pos, dir);
-	imageStore(history_pos_image, pos, position);
 }
 
 #endif

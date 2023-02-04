@@ -25,15 +25,14 @@ void main() {
 	
 	region.observer_position = ivec3(vec3(transforms.data[0].position.xyz));
 
-	ivec3 diff = region.floating_origin - region.observer_position;
-
-	if(!region.first || length(vec3(diff)) > f32(VIEW_DISTANCE)) {
+	if(distance(region.floating_origin, region.observer_position) > VIEW_DISTANCE) {
 		region.dirty = true;
 		region.rebuild = true;
 	} else{
 		return;
 	}
-	region.first = true;
+	
+	ivec3 diff = region.floating_origin - region.observer_position;
 
 	ivec3 from_position = ivec3(gl_GlobalInvocationID.xyz);
 	ivec3 to_position = from_position + diff;

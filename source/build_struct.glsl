@@ -19,6 +19,11 @@ layout (local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
 void main() {
 	Buffer(Region) region = get_buffer(Region, push_constant.region_id);
 
+	if(!region.rebuild) {
+		return;
+	}
+
+
 
 	ivec3 local_position = ivec3(gl_GlobalInvocationID);
 	ivec3 lod_position = local_position * 2; 

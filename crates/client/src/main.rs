@@ -41,7 +41,7 @@ const REGION_SIZE: usize = 512;
 const CHUNK_SIZE: usize = 64;
 const AXIS_MAX_CHUNKS: usize = 4;
 const LOD: usize = 6;
-const PREPASS_SCALE: usize = 2;
+const PREPASS_SCALE: usize = 1;
 
 pub type Vertex = (f32, f32, f32);
 pub type Color = [f32; 4];
@@ -128,7 +128,7 @@ fn main() {
     let mut event_loop = EventLoop::new();
 
     let window = WindowBuilder::new()
-        .with_title("Hexane | FPS 0")
+        .with_title("Hexane | Frame time: 0 ms")
         .with_inner_size(winit::dpi::PhysicalSize {
             width: 1920 / 2,
             height: 1080 / 2,
@@ -176,7 +176,7 @@ fn main() {
 
     let mut pipeline_compiler = device.create_pipeline_compiler(PipelineCompilerInfo {
         //default language for shader compiler is glsl
-        compiler: ShaderCompiler::glslc(default()),
+        //compiler: ShaderCompiler::glslc(default()),
         source_path: &source_path,
         asset_path: &shader_asset_path,
         ..default()
@@ -688,6 +688,7 @@ fn main() {
     let vertex_count = Cell::new(0);
 
     let input_buffer = || input_buffer;
+    let entity_buffer = || entity_buffer;
     let luminosity_buffer = || luminosity_buffer;
     let mersenne_buffer = || mersenne_buffer;
     let transform_buffer = || transform_buffer;
@@ -756,7 +757,15 @@ fn main() {
                 profiling::scope!("draw executable", "ev");
 
                 if let Some(e) = &executable {
-                    window.set_title(&format!("Hexane | FPS {}", e.fps()));
+                    let mut ms = 1000.0 * (1.0 / e.fps() as f64);
+
+                    if(ms.is_infinite()) {
+                        ms = 0.0;
+                    }
+
+                    let ms = ms as usize;
+
+                    window.set_title(&format!("Hexane | Frame time: {} ms", ms));
                 }
 
                 if !cursor_captured {
@@ -1383,6 +1392,7 @@ fn main() {
                         Buffer(&mersenne_buffer, BufferAccess::ComputeShaderReadWrite),
                         Buffer(&world_buffer, BufferAccess::ComputeShaderReadWrite),
                         Buffer(&luminosity_buffer, BufferAccess::ComputeShaderReadWrite),
+                        Buffer(&entity_buffer, BufferAccess::ComputeShaderReadWrite),
                     ],
                     task: |commands| {
                         commands.set_pipeline(&input_pipeline)?;
@@ -1398,6 +1408,7 @@ fn main() {
                                 world_buffer: (world_buffer)(),
                                 camera_buffer: (camera_buffer)(),
                                 luminosity_buffer: (luminosity_buffer)(),
+                                entity_buffer: (entity_buffer)(),
                             },
                             pipeline: &input_pipeline,
                         })?;
@@ -1421,6 +1432,7 @@ fn main() {
                                     perlin_image: (perlin_image)(),
                                     transform_buffer: (transform_buffer)(),
                                     world_buffer: (world_buffer)(),
+                                    mersenne_buffer: (mersenne_buffer)(),
                                 },
                                 pipeline: &move_world_pipeline,
                             })?;
@@ -1440,6 +1452,7 @@ fn main() {
                         Buffer(&transform_buffer, BufferAccess::ComputeShaderReadWrite),
                         Image(&perlin_image, ImageAccess::ComputeShaderReadWrite),
                         Image(&worley_image, ImageAccess::ComputeShaderReadWrite),
+                        Buffer(&mersenne_buffer, BufferAccess::ComputeShaderReadWrite),
                     ],
                     task: |commands| {
                             commands.set_pipeline(&build_world_pipeline)?;
@@ -1450,6 +1463,7 @@ fn main() {
                                     worley_image: (worley_image)(),
                                     transform_buffer: (transform_buffer)(),
                                     world_buffer: (world_buffer)(),
+                                    mersenne_buffer: (mersenne_buffer)(),
                                 },
                                 pipeline: &build_world_pipeline,
                             })?;
@@ -1477,6 +1491,7 @@ fn main() {
                                 perlin_image: (perlin_image)(),
                                 transform_buffer: (transform_buffer)(),
                                 worley_image: (worley_image)(),
+                                mersenne_buffer: (mersenne_buffer)(),
                                 world_buffer: (world_buffer)(),
                             },
                             pipeline: &box_pipeline,
@@ -1507,6 +1522,7 @@ fn main() {
                                 transform_buffer: (transform_buffer)(),
                                 worley_image: (worley_image)(),
                                 world_buffer: (world_buffer)(),
+                                    mersenne_buffer: (mersenne_buffer)(),
                             },
                             pipeline: &after_world_pipeline,
                         })?;
@@ -1558,6 +1574,7 @@ fn main() {
                                 transform_buffer: (transform_buffer)(),
                                 worley_image: (worley_image)(),
                                 world_buffer: (world_buffer)(),
+                                    mersenne_buffer: (mersenne_buffer)(),
                             },
                             pipeline: &after_build_struct_pipeline,
                         })?;
@@ -1615,6 +1632,7 @@ fn main() {
                         Image(&perlin_image, ImageAccess::ComputeShaderReadWrite),
                         Image(&prepass_image, ImageAccess::ComputeShaderReadWrite),
                         Buffer(&luminosity_buffer, BufferAccess::ComputeShaderReadWrite),
+                        Buffer(&entity_buffer, BufferAccess::ComputeShaderReadWrite),
                     ],
                     task: |commands| {
                         commands.set_pipeline(&rtx_pipeline)?;
@@ -1631,11 +1649,16 @@ fn main() {
                                 dir_image: (dir_image)(),
                                 pos_image: (pos_image)(),
                                 luminosity_buffer: (luminosity_buffer)(),
+                                entity_buffer: (entity_buffer)(),
                             },
                             pipeline: &rtx_pipeline,
                         })?;
 
-                        commands.dispatch(30000, 1, 1)?;
+                        const WORK_GROUP_SIZE: usize = 32;
+
+                        let group_x = ((resolution.get().0 as f32 * resolution.get().0 as f32) / PREPASS_SCALE as f32 / WORK_GROUP_SIZE as f32).ceil() as usize;
+                        
+                        commands.dispatch(group_x, 1, 1)?;
 
                         Ok(())
                     },
@@ -1955,6 +1978,7 @@ pub struct RtxPush {
     pub dir_image: Image,
     pub pos_image: Image,
     pub luminosity_buffer: Buffer,
+    pub entity_buffer: Buffer,
 }
 
 #[derive(Clone, Copy)]
@@ -1996,6 +2020,7 @@ pub struct InputPush {
     pub world_buffer: Buffer,
     pub camera_buffer: Buffer,
     pub luminosity_buffer: Buffer,
+    pub entity_buffer: Buffer,
 }
 #[derive(Clone, Copy)]
 #[repr(C)]
@@ -2019,6 +2044,7 @@ pub struct BuildWorldPush {
     pub transform_buffer: Buffer,
     pub perlin_image: Image,
     pub worley_image: Image,
+    pub mersenne_buffer: Buffer,
 }
 
 #[derive(Clone, Copy)]

@@ -243,6 +243,26 @@ bool ray_trace(in out TraceState trace_state) {
 			trace_state.color.xyz *= mix(vec3(107, 84, 40) / 256, vec3(64, 41, 5) / 256, noise_factor);
 		}
 
+		if(ray_hit.id == 6 || trace_state.ray_state.ray.medium == u16(6)) {
+			Ray ray;
+			ray.direction = trace_state.ray_state.ray.direction;
+			ray.region_id = push_constant.region_id;
+			ray.origin = vec3(floor(f32(REGION_SIZE / 2))) + fract(ray_hit.destination);
+			ray.result_i = trace_state.ray_state.ray.result_i;
+			ray.medium = u16(ray_hit.id);
+			ray.max_distance = VIEW_DISTANCE;
+			ray.true_dir = trace_state.ray_state.ray.true_dir;
+			ray.aperture_pos = trace_state.ray_state.ray.aperture_pos;
+			ray.minimum = vec3(0);
+			ray.maximum = vec3(REGION_SIZE);
+			trace_state.prev_id = u16(trace_state.ray_state.ray.medium);
+			trace_state.prev_dist = ray_hit.dist;
+			ray_cast_start(ray, trace_state.ray_state);
+			trace_state.ray_state.initial_dist = ray_hit.total_dist;
+			trace_state.rays++;
+			return false;
+			
+		}
 		vec4 ambient = voxel_ao(
 			region.data,
 			ray_hit.back_step, 

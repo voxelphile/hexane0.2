@@ -1,5 +1,7 @@
 #define BLOCK_ID_AIR 1
 #define BLOCK_ID_WATER 5
+#define BLOCK_ID_PORTAL 6
+
 
 f32 terminal_velocity(u16 id) {
 	switch(u32(id)) {
@@ -17,6 +19,7 @@ bool is_solid(u16 id) {
 	switch(u32(id)) {
 		case BLOCK_ID_AIR:
 		case BLOCK_ID_WATER:
+		case BLOCK_ID_PORTAL:
 			return false;
 	}
 

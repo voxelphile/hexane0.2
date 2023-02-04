@@ -122,6 +122,10 @@ Box get_swept_broadphase_box(Box a, vec3 velocity) {
 	return b;
 }
 
+bool inside_of(Box subject, Box outer) {
+	return all(greaterThanEqual(subject.position, outer.position)) && all(lessThanEqual(subject.position + subject.dimensions * 0.5, outer.position + outer.dimensions));
+}
+
 struct AxisData {
 	vec3 normals;
 	f32 entry_time;
@@ -307,6 +311,20 @@ void main() {
 	query.position = i32vec3(player.position.xyz);
 
 	voxel_query(query);
+	
+	VoxelQuery query2;
+	query2.region_data = region.data;
+	query2.position = i32vec3(player.position.xyz) + i32vec3(0, 1, 0);
+
+	voxel_query(query2);
+
+	Box portal;
+	portal.dimensions = vec3(1, 2, 1);
+	portal.position = vec3(i32vec3(player.position.xyz));
+
+	if(query.id == u16(6) && query2.id == u16(6) && inside_of(player, portal)) {
+		transform.position.xyz = region.floating_origin + fract(player.position.xyz);	
+	}
 
 	f32 rot_rate = exp2(1);
 	

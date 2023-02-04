@@ -113,7 +113,11 @@ void main() {
 		do {
 			Ray ray;
 			ray.region_id = push_constant.region_id;
-			ray.origin = ray_hit.destination;
+			if(u16(ray_hit.id) == u16(6)) {
+				ray.origin = vec3(floor(f32(REGION_SIZE / 2))) + fract(ray_hit.destination);
+			} else {
+				ray.origin = ray_hit.destination;
+			}
 			ray.medium = u16(ray_hit.id);
 			ray.direction = -dir;
 			ray.max_distance = VIEW_DISTANCE; 
@@ -128,6 +132,10 @@ void main() {
 			while(ray_cast_drive(ray_state)) {}
 
 			success = ray_cast_complete(ray_state, ray_hit);
+
+			if(u16(ray_hit.id) == u16(6)) {
+				success = false;
+			}
 		} while(success && !is_solid(u16(ray_hit.id)));
 	
 
