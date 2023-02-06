@@ -36,18 +36,6 @@ void main() {
 	ivec3 local_position = ivec3(gl_GlobalInvocationID);
 	ivec3 world_position = region.floating_origin - ivec3(vec3(REGION_SIZE / 2)) + local_position;
 
-	if(!region.block_set) {
-	VoxelChange block;
-	block.region_data = region.blocks;
-		block.id = u16(1);
-	block.position = local_position;
-		
-	if(local_position == vec3(0)) {
-		block.id = u16(2);
-	}
-	voxel_change(block);
-	}
-
 	VoxelQuery query;
 	query.region_data = region.reserve;
 	query.position = local_position;
@@ -125,6 +113,18 @@ void main() {
 	}
 */
 	voxel_change(change);
+	
+	if(!region.block_set) {
+	VoxelChange block;
+	block.region_data = region.blocks;
+		block.id = u16(1);
+	block.position = local_position;
+	if(f32(random(push_constant.mersenne_id)) / f32(~0u) > 0.9) {
+		block.id = u16(2);
+	}
+	voxel_change(block);
+	}
+
 }
 
 #endif

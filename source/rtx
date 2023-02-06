@@ -1,0 +1,111 @@
+#define MAX_TRACE 32
+#define fragment
+#define TRACE_STATE_INITIAL 0
+#define TRACE_STATE_MAX_DIST_REACHED 1
+#define TRACE_STATE_OUT_OF_BOUNDS 2
+#define TRACE_STATE_VOXEL_FOUND 3
+
+struct TraceState {
+	RayState ray_state;
+	RayHit block_hit;
+	RayHit voxel_hit;
+	i32 count;
+}
+
+struct TraceHit {
+	RayHit block_hit;
+	RayHit voxel_hit;
+} 
+
+void ray_trace_start(Ray ray, out TraceState state) {
+	state.id = TRACE_STATE_INITIAL;
+	state.count = 0;
+	state.block_hit.id = u16(ray.medium);
+	state.destination = ray.origin;
+
+	ray_cast_start(ray, state.ray_state);
+}
+
+bool ray_trace_complete(in TraceState state, out TraceHit hit) {
+	
+}
+
+bool ray_trace_drive(TraceState state) {
+	if(state.count > MAX_TRACE) {
+		return false;
+	}
+
+	ray.origin = state.block_hit.destination - state.block_hit.normal * EPSILON;
+	ray.medium = u16(state.block_hit.id);
+
+	ray_cast_start(ray, state.ray_state);
+
+	while(ray_cast_drive(state.ray_state)) {}
+
+	bool success = ray_cast_complete(state.ray_state, state.block_hit);
+	
+	f32 dist = VIEW_DISTANCE;
+	if(success) {
+		dist = state.block_hit.dist;
+	}
+
+	if(success && is_solid(u16(state.ray_state.ray.medium))) {
+		ou = true;
+		Ray inner;
+		RayHit inner_hit;
+		RayState inner_state;
+		inner.region_data = region.blocks;
+		inner.max_distance = distance(state.block_hit.ray.origin, state.block_hit.destination) * BLOCK_DETAIL; 
+		inner.minimum = vec3(0);
+		inner.maximum = vec3(BLOCK_DETAIL);
+		inner.direction = normalize(focusPos - aperturePos);
+		inner.origin = fract(state.block_hit.ray.origin) * BLOCK_DETAIL;
+		inner.medium = u16(1);
+	
+		ray_cast_start(inner, inner_state);
+
+		while(true) {
+			while(ray_cast_drive(inner_state)) {}
+
+			hit = ray_cast_complete(inner_state, inner_hit);
+			
+			if(inner_state.id == RAY_STATE_OUT_OF_BOUNDS) {
+				inner_state.id = RAY_STATE_INITIAL;
+				inner.region_data = region.blocks;
+				inner.max_distance = 50; 
+				inner.minimum = vec3(0);
+				inner.maximum = vec3(BLOCK_DETAIL);
+				inner.direction = normalize(focusPos - aperturePos);
+				inner.origin = wrap(inner_state.map_pos);
+				inner.medium = u16(1);
+	
+				f32 d = inner_state.dist + inner_state.initial_dist;
+				ray_cast_start(inner, inner_state);
+				inner_state.initial_dist = d;
+
+				continue;
+			}
+
+			if(hit) {
+				state.voxel_hit = inner_hit; 
+			}
+
+			break;
+		};
+	}
+
+	switch(state.ray_state.id) {
+		case RAY_STATE_MAX_DIST_REACHED:
+			state.id = TRACE_STATE_MAX_DIST_REACHED;
+			break;
+		case RAY_STATE_OUT_OF_BOUNDS:
+			state.id = TRACE_STATE_OUT_OF_BOUNDS;
+			break;
+	}
+
+	if(hit) {
+		state.id = TRACE_STATE_VOXEL_FOUND;
+	}
+
+	return hit && success;
+}

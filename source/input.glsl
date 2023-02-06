@@ -9,6 +9,7 @@
 #include "voxel.glsl"
 #include "camera.glsl"
 #include "raycast.glsl"
+#include "rtx.glsl"
 #include "transform.glsl"
 #include "luminosity.glsl"
 
@@ -92,8 +93,35 @@ void main() {
 	
 	if(inp.ray_cast_counter > 0.4) {
 		inp.ray_cast_counter = 0;
+
+		vec2 screenPos = vec2(0);
+		vec4 far = camera.inv_projection * vec4(screenPos, 1, 1);
+		far /= far.w;
+
+		vec3 dir = -(compute_transform_matrix(region_transform) * vec4(normalize(far.xyz), 0)).xyz;
+	
+		TraceHit hit;
+		
+		TraceState state;
+
+		Trace trace;
+		trace.origin = region_transform.position.xyz;
+		trace.direction = dir;
+		trace.region_data = region.data;
+		trace.block_data = region.blocks;
+
+		ray_trace_start(trace, state);
+
+		while(ray_trace_drive(state)) {}
+
+		bool success = ray_trace_complete(state, hit);
+
 		Buffer(Luminosity) luminosity = get_buffer(Luminosity, push_constant.luminosity_id);
-			luminosity.target_focal_depth = 10;
+		if(success) {
+			luminosity.target_focal_depth = distance(region_transform.position.xyz, hit.block_hit.ray.origin) + hit.voxel_hit.dist / BLOCK_DETAIL;
+		} else {
+			luminosity.target_focal_depth = VIEW_DISTANCE;
+		}	
 	}
 
 	inp.ray_cast_counter += delta_time;

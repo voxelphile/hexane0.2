@@ -184,9 +184,9 @@ fn main() {
 
     use ShaderType::*;
 
-    let rtx_pipeline = pipeline_compiler
+    let draw_pipeline = pipeline_compiler
         .create_graphics_pipeline(GraphicsPipelineInfo {
-            shaders: [Shader(Vertex, "fx", &[]), Shader(Fragment, "rtx", &[])],
+            shaders: [Shader(Vertex, "fx", &[]), Shader(Fragment, "draw", &[])],
             color: [gpu::prelude::Color {
                 format: Format::Rgba32Sfloat,
                 blend: None,
@@ -897,7 +897,7 @@ fn main() {
                             .refresh_compute_pipeline(&input_pipeline)
                             .unwrap();
                         pipeline_compiler
-                            .refresh_graphics_pipeline(&rtx_pipeline)
+                            .refresh_graphics_pipeline(&draw_pipeline)
                             .unwrap();
                         pipeline_compiler
                             .refresh_compute_pipeline(&noise_pipeline)
@@ -1646,7 +1646,7 @@ fn main() {
 
                         commands.set_resolution(resolution)?;
 
-                        commands.set_pipeline(&rtx_pipeline)?;
+                        commands.set_pipeline(&draw_pipeline)?;
 
                         commands.start_rendering(Render {
                             color: [Attachment {
@@ -1676,7 +1676,7 @@ fn main() {
                                 luminosity_buffer: (luminosity_buffer)(),
                                 entity_buffer: (entity_buffer)(),
                             },
-                            pipeline: &rtx_pipeline,
+                            pipeline: &draw_pipeline,
                         })?;
 
 
