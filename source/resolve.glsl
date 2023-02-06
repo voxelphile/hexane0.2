@@ -1,5 +1,4 @@
 #version 450
-//Credit to Gabe Rundlett, original source from gvox engine
 
 #define EULER 2.71828
 #define MAX_TRACE 16

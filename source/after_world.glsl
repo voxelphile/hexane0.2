@@ -26,6 +26,7 @@ void main() {
 		return;
 	}
 	region.dirty = false;
+	region.block_set = true;
 
 	ImageId temp = region.reserve;
 	region.reserve = region.data;

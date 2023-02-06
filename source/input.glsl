@@ -90,72 +90,20 @@ void main() {
 		inp.first = true;
 	}
 	
-	if(inp.ray_cast_counter > 0.1) {
+	if(inp.ray_cast_counter > 0.4) {
 		inp.ray_cast_counter = 0;
-		vec2 screenPos = vec2(0);
-		vec4 far = camera.inv_projection * vec4(screenPos, 1, 1);
-		far /= far.w;
-		vec4 near = camera.inv_projection * vec4(screenPos, 0, 1);
-		near /= near.w;
-		vec3 origin = (compute_transform_matrix(region_transform) * near).xyz;
-		vec3 dir = (compute_transform_matrix(region_transform) * vec4(normalize(far.xyz), 0)).xyz;
-	
-		query.position = ivec3(region_transform.position.xyz);
-
-		voxel_query(query);
-
-		RayHit ray_hit;
-		ray_hit.destination = origin;
-		ray_hit.id = u16(query.id);
-		ray_hit.dist = 0;
-		bool success;
-		
-		do {
-			Ray ray;
-			ray.region_id = push_constant.region_id;
-			if(u16(ray_hit.id) == u16(6)) {
-				ray.origin = vec3(floor(f32(REGION_SIZE / 2))) + fract(ray_hit.destination);
-			} else {
-				ray.origin = ray_hit.destination;
-			}
-			ray.medium = u16(ray_hit.id);
-			ray.direction = -dir;
-			ray.max_distance = VIEW_DISTANCE; 
-			ray.minimum = vec3(0);
-			ray.maximum = vec3(REGION_SIZE);
-
-			RayState ray_state;
-
-			ray_cast_start(ray, ray_state);
-			ray_state.initial_dist = ray_hit.dist;
-
-			while(ray_cast_drive(ray_state)) {}
-
-			success = ray_cast_complete(ray_state, ray_hit);
-
-			if(u16(ray_hit.id) == u16(6)) {
-				success = false;
-			}
-		} while(success && !is_solid(u16(ray_hit.id)));
-	
-
 		Buffer(Luminosity) luminosity = get_buffer(Luminosity, push_constant.luminosity_id);
-
-		if(success) {
-			luminosity.target_focal_depth = ray_hit.dist;
-		} else {
-			luminosity.target_focal_depth = VIEW_DISTANCE;
-		}
+			luminosity.target_focal_depth = 10;
 	}
 
 	inp.ray_cast_counter += delta_time;
 
 	if(inp.last_action_time > 0.15 && (entity_input.action1 || entity_input.action2)) {
 		
-		vec2 screenPos = vec2(0);
+		/*vec2 screenPos = vec2(0);
 		vec4 far = camera.inv_projection * vec4(screenPos, 1, 1);
 		far /= far.w;
-		vec4 near = camera.inv_projection * vec4(screenPos, 0, 1);
+		vec4 near = camera.inv_projection * vec4(screenPos, -1, 1);
 		near /= near.w;
 		vec3 origin = (compute_transform_matrix(region_transform) * near).xyz;
 		vec3 dir = (compute_transform_matrix(region_transform) * vec4(normalize(far.xyz), 0)).xyz;
@@ -165,12 +113,12 @@ void main() {
 		voxel_query(query);
 
 		RayHit ray_hit;
-		ray_hit.destination = origin;
+		ray_hit.destination = region_transform.position.xyz;
 		ray_hit.id = u16(query.id);
 		bool success;
 		do {
 			Ray ray;
-			ray.region_id = push_constant.region_id;
+			ray.region_data = region.data;
 			ray.origin = ray_hit.destination;
 			ray.medium = u16(ray_hit.id);
 			ray.direction = -dir;
@@ -206,7 +154,7 @@ void main() {
 			region.rebuild = true;
 			voxel_change(change);
 		}
-		
+		*/
 	}
 	
 	inp.last_action_time += delta_time;

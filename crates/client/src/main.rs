@@ -40,7 +40,7 @@ const REALLY_LARGE_SIZE: usize = 200_000_000;
 const REGION_SIZE: usize = 512;
 const CHUNK_SIZE: usize = 64;
 const AXIS_MAX_CHUNKS: usize = 4;
-const LOD: usize = 6;
+const LOD: usize = 3;
 const PREPASS_SCALE: usize = 2;
 
 pub type Vertex = (f32, f32, f32);
@@ -185,8 +185,13 @@ fn main() {
     use ShaderType::*;
 
     let rtx_pipeline = pipeline_compiler
-        .create_compute_pipeline(ComputePipelineInfo {
-            shader: Shader(Compute, "rtx", &[]),
+        .create_graphics_pipeline(GraphicsPipelineInfo {
+            shaders: [Shader(Vertex, "fx", &[]), Shader(Fragment, "rtx", &[])],
+            color: [gpu::prelude::Color {
+                format: Format::Rgba32Sfloat,
+                blend: None,
+            }],
+            depth: None,
             ..default()
         })
         .expect("failed to create pipeline");
@@ -892,7 +897,7 @@ fn main() {
                             .refresh_compute_pipeline(&input_pipeline)
                             .unwrap();
                         pipeline_compiler
-                            .refresh_compute_pipeline(&rtx_pipeline)
+                            .refresh_graphics_pipeline(&rtx_pipeline)
                             .unwrap();
                         pipeline_compiler
                             .refresh_compute_pipeline(&noise_pipeline)
@@ -1624,18 +1629,38 @@ fn main() {
                 
                executor.add(Task {
                     resources: [
-                        Buffer(&camera_buffer, BufferAccess::ComputeShaderReadOnly),
-                        Buffer(&info_buffer, BufferAccess::ComputeShaderReadOnly),
-                        Buffer(&transform_buffer, BufferAccess::ComputeShaderReadOnly),
+                        Image(&prepass_image, ImageAccess::ColorAttachment),
+                        Buffer(&camera_buffer, BufferAccess::ShaderReadOnly),
+                        Buffer(&info_buffer, BufferAccess::ShaderReadOnly),
+                        Buffer(&transform_buffer, BufferAccess::ShaderReadOnly),
                         Buffer(&world_buffer, BufferAccess::ShaderReadOnly),
-                        Buffer(&mersenne_buffer, BufferAccess::ComputeShaderReadWrite),
-                        Image(&perlin_image, ImageAccess::ComputeShaderReadWrite),
-                        Image(&prepass_image, ImageAccess::ComputeShaderReadWrite),
-                        Buffer(&luminosity_buffer, BufferAccess::ComputeShaderReadWrite),
-                        Buffer(&entity_buffer, BufferAccess::ComputeShaderReadWrite),
+                        Buffer(&mersenne_buffer, BufferAccess::ShaderReadWrite),
+                        Image(&perlin_image, ImageAccess::ShaderReadWrite),
+                        Buffer(&luminosity_buffer, BufferAccess::ShaderReadWrite),
+                        Buffer(&entity_buffer, BufferAccess::ShaderReadWrite),
                     ],
                     task: |commands| {
+                        let (width, height) = resolution.get();
+
+                        let resolution = (width / PREPASS_SCALE as u32, height / PREPASS_SCALE as u32);
+
+                        commands.set_resolution(resolution)?;
+
                         commands.set_pipeline(&rtx_pipeline)?;
+
+                        commands.start_rendering(Render {
+                            color: [Attachment {
+                                image: 0,
+                                load_op: LoadOp::Clear,
+                                clear: Clear::Color(0.0, 0.0, 0.0, 0.0),
+                            }],
+                            depth: None,
+                            render_area: RenderArea {
+                                width: width / PREPASS_SCALE as u32,
+                                height: height / PREPASS_SCALE as u32,
+                                ..default()
+                            },
+                        })?;
 
                         commands.push_constant(PushConstant {
                             data: RtxPush {
@@ -1654,12 +1679,10 @@ fn main() {
                             pipeline: &rtx_pipeline,
                         })?;
 
-                        const WORK_GROUP_SIZE: usize = 32;
 
-                        let group_x = ((resolution.get().0 as f32 * resolution.get().0 as f32) / PREPASS_SCALE as f32 / WORK_GROUP_SIZE as f32).ceil() as usize;
-                        
-                        commands.dispatch(group_x, 1, 1)?;
+                        commands.draw(gpu::prelude::Draw { vertex_count: 3 })?;
 
+                        commands.end_rendering();
                         Ok(())
                     },
                 });

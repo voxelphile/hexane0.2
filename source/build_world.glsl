@@ -36,6 +36,18 @@ void main() {
 	ivec3 local_position = ivec3(gl_GlobalInvocationID);
 	ivec3 world_position = region.floating_origin - ivec3(vec3(REGION_SIZE / 2)) + local_position;
 
+	if(!region.block_set) {
+	VoxelChange block;
+	block.region_data = region.blocks;
+		block.id = u16(1);
+	block.position = local_position;
+		
+	if(local_position == vec3(0)) {
+		block.id = u16(2);
+	}
+	voxel_change(block);
+	}
+
 	VoxelQuery query;
 	query.region_data = region.reserve;
 	query.position = local_position;
@@ -95,6 +107,7 @@ void main() {
 			change.id = u16(1);
 		}
 
+		/*
 		if(f32(random(push_constant.mersenne_id)) / f32(~0u) > 0.99 && world_position.y == i32(height) + 1) {
 			change.id = u16(6);
 			
@@ -104,13 +117,13 @@ void main() {
 			upper.position = local_position + ivec3(0, 1, 0);
 			
 			voxel_change(upper);
-		}
+		}*/
 	}
-	
+/*	
 	if(change.id == 1 && world_position.y < water_height && world_position.y >= height) {
 		change.id = u16(5);
 	}
-
+*/
 	voxel_change(change);
 }
 

@@ -78,7 +78,7 @@ col.rgb /= total_weight;
 	vec3 mapped = mix(
 			vec3(1.0) - exp(-hdrColor.rgb * luminosity.exposure),
 			ACESFilm(hdrColor.rgb),
-			0.5
+			0.4
 		);
 	
 	const float gamma = 2.2;

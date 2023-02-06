@@ -1,7 +1,8 @@
 #define MAX_STEP_COUNT 512
 
 struct Ray {
-	BufferId region_id;
+	ImageId region_data;
+	i32 max_lod;
 	vec3 origin;
 	vec3 direction;
 	vec3 true_dir;
@@ -42,18 +43,29 @@ struct RayHit {
 };
 
 
-void ray_cast_start(Ray ray, out RayState state) {
+void ray_cast_start(inout Ray ray, out RayState state) {
 	ray.direction = normalize(ray.direction);
 
 	vec3 delta_dist = abs(vec3(length(ray.direction)) / ray.direction);
 	
 	state.id = RAY_STATE_INITIAL;
 	state.map_pos = ray.origin;
-	state.mask = bvec3(false);
+	state.mask = bvec3(uvec3(-1 * clamp(ray.direction, -1, 0)));
 	state.dist = 0;
 	state.initial_dist = 0;
 	state.block_id = u16(0);
 	state.ray = ray;
+
+	VoxelQuery query;
+	query.region_data = ray.region_data;
+	query.position = ivec3(state.map_pos);
+	
+	bool voxel_found = voxel_query(query);
+
+	if (voxel_found && query.id != state.ray.medium) {
+		state.id = RAY_STATE_VOXEL_FOUND;
+		state.block_id = query.id;
+	}
 }
 
 bool ray_cast_complete(inout RayState state, out RayHit hit) {
@@ -80,25 +92,28 @@ bool ray_cast_complete(inout RayState state, out RayHit hit) {
 }
 
 bool ray_cast_drive(inout RayState state) {
-	Buffer(Region) region = get_buffer(Region, state.ray.region_id);
-	
+	if(state.id != RAY_STATE_INITIAL) {
+		return false;
+	}
+
 	vec3 s = sign(state.ray.direction);
 	vec3 s01 = max(s, 0.);
 	vec3 ird = 1.0 / state.ray.direction;
 
-	bool in_chunk = all(greaterThanEqual(state.map_pos, vec3(state.ray.minimum))) && all(lessThan(state.map_pos, vec3(state.ray.maximum)));
 
-	if(!in_chunk) {
-		state.id = RAY_STATE_OUT_OF_BOUNDS;
-		return false;
+	if(state.initial_dist + state.dist > state.ray.max_distance) {
+		state.id = RAY_STATE_MAX_DIST_REACHED;
+		return false;	
 	}
 
+
+	/*
 	int lod = 0;
 	float voxel = 1;
 	VoxelQuery query;
 	bool voxel_found = false;
-	for(lod = LOD; lod >= 1; lod--) {
-		query.region_data = region.lod[lod - 1];
+	for(lod = state.ray.max_lod; lod >= 1; lod--) {
+		query.region_data = state.ray.lod[lod];
 		voxel = pow(2, lod);
 		query.position = ivec3(state.map_pos / voxel);
 
@@ -108,7 +123,8 @@ bool ray_cast_drive(inout RayState state) {
 	}
 		
 	voxel = pow(2, lod);
-
+	*/
+	float voxel = 1;
 	vec3 t_max = ird * (voxel * s01 - mod(state.map_pos, voxel));
 
 	state.mask = lessThanEqual(t_max.xyz, min(t_max.yzx, t_max.zxy));
@@ -118,18 +134,19 @@ bool ray_cast_drive(inout RayState state) {
 	state.dist += c_dist;
 		
 	state.map_pos += 4e-4 * s * vec3(state.mask);
-
-	if(state.initial_dist + state.dist > state.ray.max_distance) {
-		state.id = RAY_STATE_MAX_DIST_REACHED;
-		return false;	
+	
+	bool in_chunk = all(greaterThanEqual(state.map_pos, vec3(state.ray.minimum))) && all(lessThan(state.map_pos, vec3(state.ray.maximum)));
+	if(!in_chunk) {
+		state.id = RAY_STATE_OUT_OF_BOUNDS;
+		return false;
 	}
 	
-	query.region_data = region.data;
+	VoxelQuery query;
+	query.region_data = state.ray.region_data;
 	query.position = ivec3(state.map_pos);
 
-	voxel_found = voxel_query(query);
+	bool voxel_found = voxel_query(query);
 
-	//1 is air
 	if (voxel_found && query.id != state.ray.medium) {
 		state.id = RAY_STATE_VOXEL_FOUND;
 		state.block_id = query.id;
