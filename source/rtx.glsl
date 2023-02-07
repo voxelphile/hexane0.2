@@ -30,13 +30,14 @@ struct TraceHit {
 	RayHit voxel_hit;
 }; 
 
-f32 wrap(f32 n) {
+f32 wrap(f32 o, f32 n) {
 	const float m = BLOCK_DETAIL;
-	return n >= 0 ? mod(n, m) : mod(mod(n, m + m), m);
+	n -= o;
+	return n >= 0 ? mod(n, m) : mod(mod(n, m + m), m) + o;
 }
 
-vec3 wrap(vec3 n) {
-	return vec3(wrap(n.x), wrap(n.y), wrap(n.z));
+vec3 wrap(vec3 o, vec3 n) {
+	return vec3(wrap(o.x, n.x), wrap(o.y, n.y), wrap(o.z, n.z));
 }
 
 void ray_trace_start(Trace trace, out TraceState state) {
@@ -102,16 +103,18 @@ bool ray_trace_drive(inout TraceState state) {
 	}
 
 	bool hit = false;
+	f32 smudge = 1e-1;
 
 	if(is_solid(u16(state.block_hit.ray.medium))) {
+		f32 block_start = state.block_hit.ray.medium * BLOCK_DETAIL;
 		Ray inner;
 		RayState inner_state;
 		inner.region_data = state.block_data;
-		inner.max_distance = distance(state.block_hit.ray.origin, state.block_hit.destination) * BLOCK_DETAIL; 
-		inner.minimum = vec3(0);
-		inner.maximum = vec3(BLOCK_DETAIL);
+		inner.max_distance = distance(state.block_hit.ray.origin, state.block_hit.destination) * BLOCK_DETAIL - smudge * sqrt(f32(3)); 
+		inner.minimum = vec3(0, 0, block_start);
+		inner.maximum = inner.minimum + BLOCK_DETAIL;
 		inner.direction = state.ray_state.ray.direction;
-		inner.origin = fract(state.block_hit.ray.origin) * BLOCK_DETAIL;
+		inner.origin = inner.minimum + fract(state.block_hit.ray.origin) * BLOCK_DETAIL;
 		inner.medium = u16(1);
 	
 		ray_cast_start(inner, inner_state);
@@ -124,11 +127,11 @@ bool ray_trace_drive(inout TraceState state) {
 			if(inner_state.id == RAY_STATE_OUT_OF_BOUNDS) {
 				inner_state.id = RAY_STATE_INITIAL;
 				inner.region_data = state.block_data;
-				inner.max_distance = 50; 
-				inner.minimum = vec3(0);
-				inner.maximum = vec3(BLOCK_DETAIL);
+				inner.max_distance = distance(state.block_hit.ray.origin, state.block_hit.destination) * BLOCK_DETAIL - smudge * sqrt(f32(3)); 
+				inner.minimum = vec3(0, 0, block_start);
+				inner.maximum = inner.minimum + BLOCK_DETAIL;
 				inner.direction = state.ray_state.ray.direction;
-				inner.origin = wrap(inner_state.map_pos);
+				inner.origin = wrap(inner.minimum, inner_state.map_pos);
 				inner.medium = u16(1);
 	
 				f32 d = inner_state.dist + inner_state.initial_dist;
@@ -179,12 +182,6 @@ vec3 path_trace(Path path) {
 	if(success) {
 		u32 id = u32(hit.block_hit.ray.medium);
 		f32 noise_factor = 0.5;
-		if(id == 0) {
-			color = vec3(1, 0, 1);
-		}
-		if(id == 1337) {
-			color = vec3(0, 0, 1);
-		}
 		if(id == 2) {
 			color *= mix(vec3(170, 255, 21) / 256, vec3(34, 139, 34) / 256, noise_factor);
 		}

@@ -1,4 +1,8 @@
+#define BLOCK_ID_VOID 0
 #define BLOCK_ID_AIR 1
+#define BLOCK_ID_GRASS 2
+#define BLOCK_ID_STONE 3
+#define BLOCK_ID_DIRT 4
 #define BLOCK_ID_WATER 5
 #define BLOCK_ID_PORTAL 6
 

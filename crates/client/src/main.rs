@@ -42,6 +42,8 @@ const CHUNK_SIZE: usize = 64;
 const AXIS_MAX_CHUNKS: usize = 4;
 const LOD: usize = 3;
 const PREPASS_SCALE: usize = 2;
+const MAX_BLOCKS: usize = 16;
+const BLOCK_DETAIL: usize = 8;
 
 pub type Vertex = (f32, f32, f32);
 pub type Color = [f32; 4];
@@ -486,7 +488,7 @@ fn main() {
 
     let mut chunk_images = vec![];
 
-    for _ in 0..3 {
+    for _ in 0..2 {
         chunk_images.push(
             device
                 .create_image(ImageInfo {
@@ -498,6 +500,16 @@ fn main() {
                 .expect("failed to create depth image"),
         );
     }
+        chunk_images.push(
+            device
+                .create_image(ImageInfo {
+                    extent: ImageExtent::ThreeDim(BLOCK_DETAIL, BLOCK_DETAIL, BLOCK_DETAIL * MAX_BLOCKS),
+                    usage: ImageUsage::TRANSFER_DST,
+                    format: Format::R16Uint,
+                    ..default()
+                })
+                .expect("failed to create depth image"),
+        );
         for lod in 1..=LOD {
             let lod1 = 2i32.pow(lod as _) as usize;
             let lod_size = REGION_SIZE / (lod1);

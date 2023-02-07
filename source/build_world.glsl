@@ -114,14 +114,24 @@ void main() {
 */
 	voxel_change(change);
 	
-	if(!region.block_set) {
+	Image(3D, u16) block_data = get_image(3D, u16, region.blocks);
+	
+	if(!region.block_set && all(lessThan(local_position, ivec3(imageSize(block_data))))) {
 	VoxelChange block;
 	block.region_data = region.blocks;
-		block.id = u16(1);
+	block.id = u16(1);
 	block.position = local_position;
-	if(f32(random(push_constant.mersenne_id)) / f32(~0u) > 0.9) {
+	
+	if(local_position.z >= BLOCK_DETAIL * BLOCK_ID_GRASS 
+			&& local_position.z < BLOCK_DETAIL * (BLOCK_ID_GRASS + 1)
+			&& local_position.y < 1) {
 		block.id = u16(2);
 	}
+	if(local_position.z >= BLOCK_DETAIL * BLOCK_ID_DIRT 
+			&& local_position.z < BLOCK_DETAIL * (BLOCK_ID_DIRT + 1)) {
+		block.id = u16(2);
+	}
+
 	voxel_change(block);
 	}
 
