@@ -278,6 +278,13 @@ fn main() {
         })
         .expect("failed to create pipeline");
     
+    let build_bound_pipeline = pipeline_compiler
+        .create_compute_pipeline(ComputePipelineInfo {
+            shader: Shader(Compute, "build_initial_bound", &[]),
+            ..default()
+        })
+        .expect("failed to create pipeline");
+    
     let move_world_pipeline = pipeline_compiler
         .create_compute_pipeline(ComputePipelineInfo {
             shader: Shader(Compute, "move_world", &[]),
@@ -534,6 +541,14 @@ fn main() {
         })
         .expect("failed to create buffer");
     
+    let bounding_buffer = device
+        .create_buffer(BufferInfo {
+            size: 1000000,
+            debug_name: "Staging Buffer",
+            ..default()
+        })
+        .expect("failed to create buffer");
+    
     let entity_buffer = device
         .create_buffer(BufferInfo {
             size: 100000,
@@ -697,6 +712,7 @@ fn main() {
     let info = Cell::new(Info::default());
 
     let basic_update = Cell::new(true);
+    let block_update = Cell::new(true);
     let noise_update = Cell::new(true);
     let world_update = Cell::new(true);
 
@@ -705,6 +721,7 @@ fn main() {
     let vertex_count = Cell::new(0);
 
     let input_buffer = || input_buffer;
+    let bounding_buffer = || bounding_buffer;
     let entity_buffer = || entity_buffer;
     let luminosity_buffer = || luminosity_buffer;
     let mersenne_buffer = || mersenne_buffer;
@@ -1523,6 +1540,30 @@ fn main() {
                         Ok(())
                     },
                 });
+                
+                executor.add(Task {
+                    resources: [
+                        Buffer(&world_buffer, BufferAccess::ComputeShaderReadWrite),
+                        Buffer(&bounding_buffer, BufferAccess::ComputeShaderReadWrite),
+                    ],
+                    task: |commands| {
+                        if(block_update.get()) {
+                        commands.set_pipeline(&build_bound_pipeline)?;
+
+                        commands.push_constant(PushConstant {
+                            data: BuildBoundingPush {
+                                world_buffer: (world_buffer)(),
+                                bounding_buffer: (bounding_buffer)(),
+                            },
+                            pipeline: &build_bound_pipeline,
+                        })?;
+
+                        commands.dispatch(MAX_BLOCKS, 1, 1)?;
+                        }
+                        block_update.set(false);
+                        Ok(())
+                    },
+                });
 
                 executor.add(Task {
                     resources: [
@@ -2080,6 +2121,12 @@ pub struct BuildWorldPush {
     pub perlin_image: Image,
     pub worley_image: Image,
     pub mersenne_buffer: Buffer,
+}
+#[derive(Clone, Copy)]
+#[repr(C)]
+pub struct BuildBoundingPush {
+    pub world_buffer: Buffer,
+    pub bounding_buffer: Buffer,
 }
 
 #[derive(Clone, Copy)]
