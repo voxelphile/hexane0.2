@@ -1651,6 +1651,7 @@ fn main() {
                         Buffer(&transform_buffer, BufferAccess::ComputeShaderReadWrite),
                         Buffer(&rigidbody_buffer, BufferAccess::ComputeShaderReadWrite),
                         Buffer(&world_buffer, BufferAccess::ComputeShaderReadWrite),
+                        Buffer(&bounding_buffer, BufferAccess::ComputeShaderReadOnly),
                     ],
                     task: |commands| {
                         commands.set_pipeline(&physics_pipeline)?;
@@ -1665,6 +1666,7 @@ fn main() {
                                     transform_buffer: (transform_buffer)(),
                                     rigidbody_buffer: (rigidbody_buffer)(),
                                     world_buffer: (world_buffer)(),
+                                    bounding_buffer: (bounding_buffer)(),
                                 },
                                 pipeline: &physics_pipeline,
                             })?;
@@ -2106,6 +2108,7 @@ pub struct PhysicsPush {
     pub transform_buffer: Buffer,
     pub rigidbody_buffer: Buffer,
     pub world_buffer: Buffer,
+    pub bounding_buffer: Buffer,
 }
 #[derive(Clone, Copy)]
 #[repr(C)]

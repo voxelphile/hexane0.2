@@ -7,6 +7,7 @@
 #include "region.glsl"
 #include "voxel.glsl"
 #include "aabb.glsl"
+#include "bounding.glsl"
 
 struct PhysicsPush {
 	f32 fixed_time;
@@ -14,6 +15,7 @@ struct PhysicsPush {
 	BufferId transform_id;
 	BufferId rigidbody_id;
 	BufferId region_id;
+	BufferId bounding_id;
 };
 
 decl_push_constant(PhysicsPush)
@@ -150,6 +152,7 @@ void main() {
 	Buffer(Transforms) transforms = get_buffer(Transforms, push_constant.transform_id);
 	Buffer(Rigidbodies) rigidbodies = get_buffer(Rigidbodies, push_constant.rigidbody_id);
 	Buffer(Region) region = get_buffer(Region, push_constant.region_id);
+	Buffer(Bounding) bounding = get_buffer(Bounding, push_constant.bounding_id);
 
 	if(transforms.physics) {
 		return;
@@ -204,10 +207,6 @@ void main() {
 		block.dimensions = vec3(1);
 		vec3 velocity = data[i].velocity + data[i].acceleration * fixed_time;
 		
-		f32 clip = 0.05;
-		Box inner_clip;
-		inner_clip.position = block.position + clip;
-		inner_clip.dimensions = block.dimensions - 2 * clip;
 
 		Box broadphase = get_swept_broadphase_box(player, velocity);	
 
@@ -223,23 +222,33 @@ void main() {
 		if (!voxel_found || !is_solid(query.id)) {
 			continue;
 		}
+	
+		
+		for(i32 a = 0; a < bounding.bounds[query.id].box_count; a++) {
+
+		Box bounding_box = bounding.bounds[query.id].boxes[a]; 
+		bounding_box.position += block.position;
+
+		f32 clip = 0.05;
+		Box inner_clip;
+		inner_clip.position = bounding_box.position + clip;
+		inner_clip.dimensions = bounding_box.dimensions - 2 * clip;
 		
 		while(aabb_check(inner_clip, player) && velocity.y <= 0) {
 			player.position.y += 1e-1;
 			transform.position.y += 1e-1;
 		}
-
-
+		
 		CollisionResponse response;
-		if(swept_aabb(player, block, velocity, response)) {
+		if(swept_aabb(player, bounding_box, velocity, response)) {
 			query.position = ivec3(query.position) + ivec3(response.normal);
 			bool voxel_found = voxel_query(query);
 
 			if(voxel_found && is_solid(query.id)) {
-				continue;
+				break;
 			}
 			if(response.entry_time > fixed_time) {
-				continue;
+				break;
 			}
 
 			if(response.entry_time >= data[i].entry_time) {
@@ -249,8 +258,9 @@ void main() {
 
 			data[i].entry_time = max(data[i].entry_time, response.entry_time);
 
-			data[i].block = block;
+			data[i].block = bounding_box;
 			}	
+		}
 		}
 		}
 	}

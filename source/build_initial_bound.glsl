@@ -18,6 +18,7 @@ decl_push_constant(BuildRegionPush)
 layout (local_size_x = 1) in;
 
 void main() {
+	return;
 	Buffer(Region) region = get_buffer(Region, push_constant.region_id);
 	Buffer(Bounding) bounding = get_buffer(Bounding, push_constant.bounding_id);
 
