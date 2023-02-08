@@ -18,7 +18,6 @@ decl_push_constant(BuildRegionPush)
 layout (local_size_x = 1) in;
 
 void main() {
-	return;
 	Buffer(Region) region = get_buffer(Region, push_constant.region_id);
 	Buffer(Bounding) bounding = get_buffer(Bounding, push_constant.bounding_id);
 
@@ -141,8 +140,8 @@ void main() {
 
 		//create an AABB out of the data
 		Box box;
-		box.position = vec3(start);
-		box.dimensions = vec3((end - start) + 1);
+		box.position = vec3(start) / BLOCK_DETAIL;
+		box.dimensions = vec3((end - start) + 1) / BLOCK_DETAIL;
 
 		//add the AABB to the "database" for this block
 		i32 box_id = bounding.bounds[id].box_count;

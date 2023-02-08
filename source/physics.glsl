@@ -163,7 +163,7 @@ void main() {
 	ivec3 diff = region.floating_origin - region.observer_position;
 	eye_transform.position.xyz = vec3(REGION_SIZE / 2) - vec3(diff);
 	eye_transform.position.xyz += transforms.data[0].position.xyz - region.observer_position;
-	eye_transform.position.xyz -= vec3(0.4, 0.2, 0.4);
+	eye_transform.position.xyz -= vec3(0.4, 1.8, 0.4);
 	Rigidbody rigidbody = rigidbodies.data[0];
 
 	rigidbody.on_ground = false;
