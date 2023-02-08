@@ -1,4 +1,4 @@
-#define MAX_BOXES 10
+#define MAX_BOXES 16
 
 struct Bound {
 	i32 box_count;

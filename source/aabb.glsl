@@ -1,3 +1,8 @@
+struct Box4 {
+	vec4 position;
+	vec4 dimensions;
+	vec4 velocity;
+};
 struct Box {
 	vec3 position;
 	vec3 dimensions;

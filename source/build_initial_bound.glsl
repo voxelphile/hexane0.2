@@ -28,63 +28,34 @@ void main() {
 
 	bool visited[BLOCK_DETAIL][BLOCK_DETAIL][BLOCK_DETAIL];
 
+	//set all visited to false
+	for(int x = 0; x < BLOCK_DETAIL; x++) {
+	for(int y = 0; y < BLOCK_DETAIL; y++) {
+	for(int z = 0; z < BLOCK_DETAIL; z++) {
+		visited[x][y][z] = false;		
+	}
+	}
+	}
+
 	ivec3 start = ivec3(0);
 
 	bool in_bounds = true;
 	do {
-		ivec3 end = start;
+		//find the first block that is solid and has not been visited
+		while(in_bounds) {
+			VoxelQuery query;
+			query.region_data = region.blocks;
+			query.position = block_start + start;
 
-		for(int i = 0; i < 3; i++) {
-			int j = (i + 1) % 3;
-			int k = (i + 2) % 3;
+			voxel_query(query);
 
-			bool proceed = true;
-			
-			do {
-				for(int x = start[j]; x <= end[j] && proceed; x++) {
-				for(int y = start[k]; y <= end[k] && proceed; y++) {
-	
-				VoxelQuery query;
-				query.region_data = region.blocks;
-				query.position = block_start + end;
-		
-				voxel_query(query);
-
-				if(query.id != u16(2) || visited
-					[query.position.x]
-					[query.position.y]
-					[query.position.z]
-						== true) {
-					proceed = false;
-					break;
-				} else {
-					visited
-						[query.position.x]
-						[query.position.y]
-						[query.position.z]
-						= true;
-				}
+			if(query.id == u16(2) && visited
+					[start.x]
+					[start.y]
+					[start.z]
+						== false) {
+				break;
 			}
-			}
-		
-			proceed = proceed && end[i] < BLOCK_DETAIL - 1;
-
-			if(proceed) {
-				end[i]++;
-			}	
-			} while(proceed);
-		}
-
-		Box box;
-		box.position = vec3(start);
-		box.dimensions = vec3(end - start);
-
-		i32 box_id = atomicAdd(bounding.bounds[id].box_count, 1);
-		bounding.bounds[id].boxes[box_id] = box;
-
-		bool voxel_found = false;
-
-		do {
 			start[0]++;
 			if(start[0] >= BLOCK_DETAIL) {
 				start[0] = 0;
@@ -96,16 +67,87 @@ void main() {
 			}
 			if(start[2] >= BLOCK_DETAIL) {
 				in_bounds = false;
-				break;
 			}
-			VoxelQuery query;
-			query.region_data = region.blocks;
-			query.position = start;
+		};
 
-			voxel_query(query);
+		//if in bounds, continue
+		if(in_bounds) {
+		ivec3 end = start;
 
-			voxel_found = query.id == 2;
-		} while(!voxel_found);
+		//for every dimension, walk along that dimension and "consume" solid blocks that have not been visited.
+		//if a block is not solid, go to the next dimension
+		for(int i = 0; i < 3; i++) {
+			int j = (i + 1) % 3;
+			int k = (i + 2) % 3;
+
+			bool proceed = true;
+			
+			while(proceed) {
+				for(int x = start[j]; x <= end[j] && proceed; x++) {
+				for(int y = start[k]; y <= end[k] && proceed; y++) {
+	
+				ivec3 probe = end;
+				probe[j] = x;
+				probe[k] = y;
+				VoxelQuery query;
+				query.region_data = region.blocks;
+				query.position = block_start + probe;
+		
+				voxel_query(query);
+
+				if(query.id != u16(2) || visited
+					[probe.x]
+					[probe.y]
+					[probe.z]
+						== true) {
+					proceed = false;
+					break;
+				}
+				}
+				}
+			
+				proceed = proceed && end[i] < BLOCK_DETAIL - 1;
+				
+				if(!proceed) {
+					continue;
+				}
+
+				ivec3 probe = end;
+				probe[i]++;
+
+				VoxelQuery query;
+				query.region_data = region.blocks;
+				query.position = block_start + probe;
+
+				voxel_query(query);
+
+				proceed = proceed && query.id == 2;
+
+				if(proceed) {
+					end = probe;
+				}
+			}
+		}
+
+		//mark all blocks between start and end as visited
+		for(int x = start.x; x <= end.x; x++) {
+		for(int y = start.y; y <= end.y; y++) {
+		for(int z = start.z; z <= end.z; z++) {
+			visited[x][y][z] = true;		
+		}
+		}
+		}
+
+		//create an AABB out of the data
+		Box box;
+		box.position = vec3(start);
+		box.dimensions = vec3((end - start) + 1);
+
+		//add the AABB to the "database" for this block
+		i32 box_id = bounding.bounds[id].box_count;
+		bounding.bounds[id].box_count++;
+		bounding.bounds[id].boxes[box_id] = box;
+		}
 	} while(in_bounds);
 }
 
