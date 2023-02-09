@@ -2,6 +2,7 @@
 
 #include "hexane.glsl"
 #include "region.glsl"
+#include "blocks.glsl"
 #include "transform.glsl"
 #include "voxel.glsl"
 #include "noise.glsl"
@@ -19,7 +20,7 @@ decl_push_constant(BuildRegionPush)
 
 #ifdef compute
 
-layout (local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+layout (local_size_x = 1) in;
 
 
 
@@ -29,32 +30,18 @@ void main() {
 	Buffer(Region) region = get_buffer(Region, push_constant.region_id);
 	Buffer(Transforms) transforms = get_buffer(Transforms, push_constant.transform_id);
 
-	if(!region.dirty) 
-	{
-		return;
+	Image(3D, u16) block_data = get_image(3D, u16, region.blocks);
+
+	VoxelData data;
+	for(int x = 0; x < BLOCK_DETAIL; x++) {
+	for(int y = 0; y < BLOCK_DETAIL / 2; y++) {
+	for(int z = 0; z < BLOCK_DETAIL; z++) {
+		data.voxels[x][y][z] = u16(2);
 	}
-	
-	region.floating_origin = region.observer_position;
-	
-	ivec3 local_position = ivec3(gl_GlobalInvocationID);
-	ivec3 world_position = region.floating_origin - ivec3(vec3(REGION_SIZE / 2)) + local_position;
-
-	VoxelQuery query;
-	query.region_data = region.reserve;
-	query.position = local_position;
-
-	if(voxel_query(query)) {
-		return;
+	}
 	}
 
-	VoxelChange change;
-	change.region_data = region.reserve;
-	change.id = world_gen(world_position, push_constant.region_id, push_constant.perlin_id, push_constant.worley_id);
-	change.position = local_position;
-	
-	voxel_change(change);
-	
-
+	region.rando_id = block_hashtable_insert(push_constant.region_id, data);
 }
 
 #endif

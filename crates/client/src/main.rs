@@ -42,7 +42,7 @@ const CHUNK_SIZE: usize = 64;
 const AXIS_MAX_CHUNKS: usize = 4;
 const LOD: usize = 3;
 const PREPASS_SCALE: usize = 2;
-const MAX_BLOCKS: usize = 16;
+const MAX_BLOCKS: usize = 256;
 const BLOCK_DETAIL: usize = 8;
 
 pub type Vertex = (f32, f32, f32);
@@ -267,6 +267,13 @@ fn main() {
     let after_build_struct_pipeline = pipeline_compiler
         .create_compute_pipeline(ComputePipelineInfo {
             shader: Shader(Compute, "after_build_struct", &[]),
+            ..default()
+        })
+        .expect("failed to create pipeline");
+    
+    let build_blocks_pipeline = pipeline_compiler
+        .create_compute_pipeline(ComputePipelineInfo {
+            shader: Shader(Compute, "build_blocks", &[]),
             ..default()
         })
         .expect("failed to create pipeline");
@@ -559,7 +566,7 @@ fn main() {
     
     let luminosity_buffer = device
         .create_buffer(BufferInfo {
-            size: 10000,
+            size: 100000,
             debug_name: "Staging Buffer",
             ..default()
         })
@@ -586,7 +593,7 @@ fn main() {
 
     let world_buffer = device
         .create_buffer(BufferInfo {
-            size: 100000,
+            size: 1000000,
             debug_name: "General Buffer",
             ..default()
         })
@@ -1480,6 +1487,34 @@ fn main() {
                     },
                 });
 
+                executor.add(Task {
+                    resources: [
+                        Buffer(&world_buffer, BufferAccess::ComputeShaderReadWrite),
+                        Buffer(&transform_buffer, BufferAccess::ComputeShaderReadWrite),
+                        Image(&perlin_image, ImageAccess::ComputeShaderReadWrite),
+                        Image(&worley_image, ImageAccess::ComputeShaderReadWrite),
+                        Buffer(&mersenne_buffer, BufferAccess::ComputeShaderReadWrite),
+                    ],
+                    task: |commands| {
+                        if(block_update.get()){
+                            commands.set_pipeline(&build_blocks_pipeline)?;
+
+                            commands.push_constant(PushConstant {
+                                data: BuildWorldPush {
+                                    perlin_image: (perlin_image)(),
+                                    worley_image: (worley_image)(),
+                                    transform_buffer: (transform_buffer)(),
+                                    world_buffer: (world_buffer)(),
+                                    mersenne_buffer: (mersenne_buffer)(),
+                                },
+                                pipeline: &build_blocks_pipeline,
+                            })?;
+
+                            commands.dispatch(MAX_BLOCKS, 1, 1)?;
+                    }
+                        Ok(())
+                    },
+                });
                 executor.add(Task {
                     resources: [
                         Buffer(&world_buffer, BufferAccess::ComputeShaderReadWrite),

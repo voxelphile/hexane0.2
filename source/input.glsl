@@ -51,7 +51,7 @@ decl_buffer(
 #ifdef compute
 
 #define HUMAN_FACTOR 7.3
-#define ENABLE_FLIGHT false
+#define ENABLE_FLIGHT true
 
 layout (local_size_x = 256) in;
 
@@ -79,12 +79,18 @@ void main() {
 	ivec3 diff = region.floating_origin - region.observer_position;
 	region_transform.position.xyz = vec3(REGION_SIZE / 2) - vec3(diff);
 	region_transform.position.xyz += transforms.data[0].position.xyz - region.observer_position;
+	
+	vec2 screenPos = vec2(0);
+	vec4 far = camera.inv_projection * vec4(screenPos, 1, 1);
+	far /= far.w;
+
+	vec3 dir = -(compute_transform_matrix(region_transform) * vec4(normalize(far.xyz), 0)).xyz;
 		
 	VoxelQuery query;
 	query.region_data = region.data;
 
 	if(!inp.first){
-		transform.position.xyz = vec3(128, 50, 128);
+		transform.position.xyz = vec3(128, 200, 128);
 		inp.last_position = transform.position.xyz;
 		rigidbody.velocity.xyz = vec3(0);
 		inp.target_rotation.xyz = vec3(-3.14 / 2.0 + 0.1, 0, 0);
@@ -94,12 +100,6 @@ void main() {
 	if(inp.ray_cast_counter > 0.4) {
 		inp.ray_cast_counter = 0;
 
-		vec2 screenPos = vec2(0);
-		vec4 far = camera.inv_projection * vec4(screenPos, 1, 1);
-		far /= far.w;
-
-		vec3 dir = -(compute_transform_matrix(region_transform) * vec4(normalize(far.xyz), 0)).xyz;
-	
 		TraceHit hit;
 		
 		TraceState state;
@@ -127,42 +127,24 @@ void main() {
 	inp.ray_cast_counter += delta_time;
 
 	if(inp.last_action_time > 0.15 && (entity_input.action1 || entity_input.action2)) {
+		/*
+		TraceHit hit;
 		
-		/*vec2 screenPos = vec2(0);
-		vec4 far = camera.inv_projection * vec4(screenPos, 1, 1);
-		far /= far.w;
-		vec4 near = camera.inv_projection * vec4(screenPos, -1, 1);
-		near /= near.w;
-		vec3 origin = (compute_transform_matrix(region_transform) * near).xyz;
-		vec3 dir = (compute_transform_matrix(region_transform) * vec4(normalize(far.xyz), 0)).xyz;
-	
-		query.position = ivec3(region_transform.position.xyz);
+		TraceState state;
 
-		voxel_query(query);
+		Trace trace;
+		trace.origin = region_transform.position.xyz;
+		trace.direction = dir;
+		trace.region_data = region.data;
+		trace.block_data = region.blocks;
+		trace.region_id = push_constant.region_id;
 
-		RayHit ray_hit;
-		ray_hit.destination = region_transform.position.xyz;
-		ray_hit.id = u16(query.id);
-		bool success;
-		do {
-			Ray ray;
-			ray.region_data = region.data;
-			ray.origin = ray_hit.destination;
-			ray.medium = u16(ray_hit.id);
-			ray.direction = -dir;
-			ray.max_distance = 10; 
-			ray.minimum = vec3(0);
-			ray.maximum = vec3(REGION_SIZE);
+		ray_trace_start(trace, state);
 
-			RayState ray_state;
+		while(ray_trace_drive(state)) {}
 
-			ray_cast_start(ray, ray_state);
-
-			while(ray_cast_drive(ray_state)) {}
-
-			success = ray_cast_complete(ray_state, ray_hit);
-		} while(success && !is_solid(u16(ray_hit.id)));
-
+		bool success = ray_trace_complete(state, hit);
+		
 		if(success) {
 
 			inp.last_action_time = 0;
@@ -170,13 +152,16 @@ void main() {
 			VoxelChange change;
 			change.region_data = region.data;
 
+			vec3 origin = hit.approach_hit.destination.xyz;
+			vec3 normal = hit.approach_hit.normal.xyz;
+
 			if(entity_input.action1) {
-				change.id = u16(1);
-				change.position = ivec3(vec3(ray_hit.destination.xyz - vec3(ray_hit.normal.xyz) * 0.5));
+				change.id = u16(BLOCK_ID_AIR);
+				change.position = ivec3(vec3(origin - normal * 0.5));
 			}
 			if(entity_input.action2) {
-				change.id = u16(3);
-				change.position = ivec3(vec3(ray_hit.destination.xyz + vec3(ray_hit.normal.xyz) * 0.5));
+				change.id = u16(BLOCK_ID_STONE);
+				change.position = ivec3(vec3(origin + normal * 0.5));
 			}
 				
 			region.rebuild = true;
@@ -187,7 +172,7 @@ void main() {
 	
 	inp.last_action_time += delta_time;
 
-	f32 step_distance = HUMAN_FACTOR * mix(0.64, 0.74, f32(random(push_constant.mersenne_id)) / f32(~0u));
+	f32 step_distance = HUMAN_FACTOR * mix(0.5, 0.64, f32(random(push_constant.mersenne_id)) / f32(~0u));
 
 	if(distance(inp.last_position, transform.position.xyz) > step_distance && rigidbody.on_ground) {
 		ivec3 diff = region.floating_origin - region.observer_position;
@@ -300,13 +285,13 @@ void main() {
 
 	f32 coyote_time = 0.3;
 
-	if(input_axis.y == 1 && ((!inp.jumping && inp.coyote_counter < coyote_time) || in_water)) {
-		rigidbody.velocity.y += 10;
+	if(input_axis.y == 1 && (( inp.coyote_counter < coyote_time) || in_water)) {
+		rigidbody.velocity.y = 13;
 		inp.jumping = true;
 	}
 
 	if(ENABLE_FLIGHT) {
-		transform.position.xyz += direction.xyz * 1000 * delta_time;
+		transform.position.xyz += direction.xyz * 100 * delta_time;
 	}
 	
 	transforms.data[0] = transform;

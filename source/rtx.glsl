@@ -52,7 +52,7 @@ void ray_trace_start(Trace trace, out TraceState state) {
 	
 	state.id = TRACE_STATE_INITIAL;
 	state.count = 0;
-	state.block_hit.id = u16(1);
+	state.block_hit.id = u16(BLOCK_ID_AIR);
 	state.block_hit.destination = ray.origin;
 	state.block_hit.normal = ivec3(0);
 	state.region_data = trace.region_data;
@@ -87,6 +87,7 @@ bool ray_trace_drive(inout TraceState state) {
 
 	while(ray_cast_drive(state.ray_state)) {}
 
+
 	bool success = ray_cast_complete(state.ray_state, state.block_hit);
 
 	switch(state.ray_state.id) {
@@ -119,20 +120,13 @@ bool ray_trace_drive(inout TraceState state) {
 	
 		ray_cast_start(inner, inner_state);
 
-		while(true) {
+		for(int i = 0; i < 10; i++)  {
 			while(ray_cast_drive(inner_state)) {}
 
 			hit = ray_cast_complete(inner_state, state.voxel_hit);
 			
 			if(inner_state.id == RAY_STATE_OUT_OF_BOUNDS) {
-				inner_state.id = RAY_STATE_INITIAL;
-				inner.region_data = state.block_data;
-				inner.max_distance = distance(state.block_hit.ray.origin, state.block_hit.destination) * BLOCK_DETAIL - smudge * sqrt(f32(3)); 
-				inner.minimum = vec3(0, 0, block_start);
-				inner.maximum = inner.minimum + BLOCK_DETAIL;
-				inner.direction = state.ray_state.ray.direction;
 				inner.origin = wrap(inner.minimum, inner_state.map_pos);
-				inner.medium = u16(1);
 	
 				f32 d = inner_state.dist + inner_state.initial_dist;
 				ray_cast_start(inner, inner_state);
@@ -182,8 +176,8 @@ vec3 path_trace(Path path) {
 	if(success) {
 		u32 id = u32(hit.block_hit.ray.medium);
 		f32 noise_factor = 0.5;
-		if(id == 2) {
-			color *= mix(vec3(170, 255, 21) / 256, vec3(34, 139, 34) / 256, noise_factor);
+		color *= mix(vec3(170, 255, 21) / 256, vec3(34, 139, 34) / 256, noise_factor);
+		/*if(id == 2) {
 		}
 		if(id == 3) {
 			color *= mix(vec3(135) / 256, vec3(80) / 256, noise_factor);
@@ -191,7 +185,7 @@ vec3 path_trace(Path path) {
 
 		if(id == 4) {
 			color *= mix(vec3(107, 84, 40) / 256, vec3(64, 41, 5) / 256, noise_factor);
-		}
+		}*/
 
 		Ao ao;
 		ao.region_data = path.block_data;

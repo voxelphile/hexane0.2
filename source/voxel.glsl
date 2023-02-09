@@ -22,8 +22,6 @@ f32 terminal_velocity(u16 id) {
 bool is_solid(u16 id) {
 	switch(u32(id)) {
 		case BLOCK_ID_AIR:
-		case BLOCK_ID_WATER:
-		case BLOCK_ID_PORTAL:
 			return false;
 	}
 
@@ -59,7 +57,7 @@ bool voxel_query(inout VoxelQuery query) {
 		return false;
 	}
 
-	return query.id != 0;
+	return query.id != BLOCK_ID_VOID;
 }
 
 struct VoxelChange {

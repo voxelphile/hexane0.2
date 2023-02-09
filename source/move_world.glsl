@@ -59,7 +59,7 @@ void main() {
 	VoxelChange change2;
 	change2.region_data = region.data;
 	change2.position = from_position;
-	change2.id = u16(0);
+	change2.id = u16(BLOCK_ID_VOID);
 
 	voxel_change(change2);
 }

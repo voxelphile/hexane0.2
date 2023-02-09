@@ -3,6 +3,7 @@
 #include "hexane.glsl"
 #include "region.glsl"
 #include "voxel.glsl"
+#include "blocks.glsl"
 #include "camera.glsl"
 #include "raycast.glsl"
 #include "transform.glsl"
@@ -36,6 +37,7 @@ void main() {
 	Buffer(Transforms) transforms = get_buffer(Transforms, push_constant.transform_id);
 	Buffer(Region) region = get_buffer(Region, push_constant.region_id);
 	Image(3D, u32) perlin_img = get_image(3D, u32, push_constant.perlin_id);
+	Image(2D, f32) dir_img = get_image(2D, f32, push_constant.dir_id);
 
 	Transform region_transform = transforms.data[0];
 	ivec3 diff = region.floating_origin - region.observer_position;
@@ -51,7 +53,8 @@ void main() {
 	Buffer(Luminosity) luminosity = get_buffer(Luminosity, push_constant.luminosity_id);
 	f32 c_pi = 3.1415;
 	f32 DOFApertureRadius = 0.04;
-	f32 DOFFocalLength = luminosity.focal_depth;
+	//TODO fix this
+	f32 DOFFocalLength = 10;
 
 	vec3 fwdVector = dir;
         vec3 rightVector = (vec4(1, 0, 0, 0) * inverse(compute_transform_matrix(region_transform))).xyz;
@@ -96,11 +99,14 @@ void main() {
 	float t = -(dot(rstart, focalPlane.xyz) + focalPlane.w) / dot(rdir, focalPlane.xyz);
         vec3 focusPos = rstart + rdir * t;
 
+
 	Path path;
 	path.origin = aperturePos.xyz;
 	path.direction = normalize(focusPos - aperturePos);
 	path.region_data = region.data;
 	path.block_data = region.blocks;
+
+	imageStore(dir_img, ivec2(gl_FragCoord.xy), vec4(-dir, 0));
 
 	result = vec4(path_trace(path), 1);
 }

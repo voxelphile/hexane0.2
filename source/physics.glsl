@@ -143,7 +143,7 @@ void swap(inout i32 a, inout i32 b) {
 	b = temp;
 }
 
-#define ENABLE_PHYSICS true
+#define ENABLE_PHYSICS false
 
 void main() {
 	if(gl_GlobalInvocationID != uvec3(0) || !ENABLE_PHYSICS) 
