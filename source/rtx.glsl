@@ -20,6 +20,7 @@ struct TraceState {
 	i32 count;
 	RayState ray_state;
 	RayHit block_hit;
+	RayHit approach_hit;
 	RayHit voxel_hit;
 	ImageId region_data;
 	ImageId block_data;
@@ -28,6 +29,7 @@ struct TraceState {
 struct TraceHit {
 	RayHit block_hit;
 	RayHit voxel_hit;
+	RayHit approach_hit;
 }; 
 
 f32 wrap(f32 o, f32 n) {
@@ -63,6 +65,7 @@ void ray_trace_start(Trace trace, out TraceState state) {
 
 bool ray_trace_complete(in TraceState state, out TraceHit hit) {
 	hit.block_hit = state.block_hit;
+	hit.approach_hit = state.approach_hit;
 	hit.voxel_hit = state.voxel_hit;
 
 	return state.id == TRACE_STATE_VOXEL_FOUND;
@@ -79,6 +82,8 @@ bool ray_trace_drive(inout TraceState state) {
 	}
 
 	state.count++;
+
+	state.approach_hit = state.block_hit;
 
 	state.ray_state.ray.origin = state.block_hit.destination + vec3(state.block_hit.normal) * EPSILON;
 	state.ray_state.ray.medium = u16(state.block_hit.id);
@@ -99,10 +104,10 @@ bool ray_trace_drive(inout TraceState state) {
 			break;
 	}
 	
-	if(!success) {	
+	if(!success) {
 		return false;
 	}
-
+	
 	bool hit = false;
 	f32 smudge = 1e-1;
 
@@ -120,7 +125,7 @@ bool ray_trace_drive(inout TraceState state) {
 	
 		ray_cast_start(inner, inner_state);
 
-		for(int i = 0; i < 10; i++)  {
+		while(true)  {
 			while(ray_cast_drive(inner_state)) {}
 
 			hit = ray_cast_complete(inner_state, state.voxel_hit);
@@ -196,6 +201,7 @@ vec3 path_trace(Path path) {
 		vec4 ambient = voxel_ao(ao);
 		
 		color *= 0.75 + 0.25 * mix(mix(ambient.z, ambient.w, hit.voxel_hit.uv.x), mix(ambient.y, ambient.x, hit.voxel_hit.uv.x), hit.voxel_hit.uv.y);
+		color = mod(vec3(hit.voxel_hit.destination), 8) / 8;
 	} else {
 		color = vec3(0.1, 0.2, 1.0);
 	}
