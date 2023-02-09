@@ -80,7 +80,7 @@ bool ray_trace_drive(inout TraceState state) {
 
 	state.count++;
 
-	state.ray_state.ray.origin = state.block_hit.destination - vec3(state.block_hit.normal) * EPSILON;
+	state.ray_state.ray.origin = state.block_hit.destination + vec3(state.block_hit.normal) * EPSILON;
 	state.ray_state.ray.medium = u16(state.block_hit.id);
 
 	ray_cast_start(state.ray_state.ray, state.ray_state);
