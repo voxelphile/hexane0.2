@@ -32,16 +32,6 @@ void main() {
 
 	Image(3D, u16) block_data = get_image(3D, u16, region.blocks);
 
-	VoxelData data;
-	for(int x = 0; x < BLOCK_DETAIL; x++) {
-	for(int y = 0; y < BLOCK_DETAIL / 3; y++) {
-	for(int z = 0; z < BLOCK_DETAIL; z++) {
-			data.voxels[x][y][z] = u16(2);
-	}
-	}
-	}
-
-	region.rando_id = block_hashtable_insert(push_constant.region_id, data);
 }
 
 #endif

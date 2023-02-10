@@ -8,7 +8,7 @@ struct Block {
 #define VIEW_DISTANCE 128
 #define LOD 3
 #define BLOCK_DETAIL 8
-#define MAX_BLOCKS 256
+#define MAX_BLOCKS 1024
 
 decl_buffer(
 	Region,

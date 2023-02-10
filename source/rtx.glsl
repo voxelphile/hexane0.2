@@ -113,19 +113,6 @@ bool ray_trace_drive(inout TraceState state) {
 		RayState sub_state = state.ray_state;
 		sub_state.ray.medium = u16(state.block_hit.id);
 		RayHit sub_hit = state.block_hit;
-		Ray traversal = state.ray_state.ray;
-
-		traversal.origin = sub_hit.destination - vec3(sub_hit.normal) * EPSILON;
-		traversal.medium = u16(sub_hit.id);
-
-		RayState traversal_state;
-		RayHit traversal_hit;
-
-		ray_cast_start(traversal, traversal_state);
-
-		while(ray_cast_drive(traversal_state)) {}
-
-		//no complete needed since we are only using traversal_state
 
 		vec3 origin = sub_hit.destination - vec3(sub_hit.normal) * EPSILON;
 		f32 block_start = sub_hit.id * BLOCK_DETAIL;
@@ -137,7 +124,7 @@ bool ray_trace_drive(inout TraceState state) {
 		inner.maximum = inner.minimum + BLOCK_DETAIL;
 		inner.direction = state.ray_state.ray.direction;
 		inner.origin = inner.minimum + fract(origin) * BLOCK_DETAIL;
-		inner.medium = u16(1);
+		inner.medium = u16(0);
 	
 		ray_cast_start(inner, inner_state);
 
@@ -165,6 +152,11 @@ bool ray_trace_drive(inout TraceState state) {
 				inner_state.initial_dist = d;
 
 				continue;
+			}
+
+			if(!hit) {
+				state.ray_state = sub_state;
+				state.block_hit = sub_hit;
 			}
 
 			break;
@@ -206,10 +198,10 @@ vec3 path_trace(Path path) {
 	vec3 color = vec3(1);
 
 	if(success) {
-		u32 id = u32(hit.block_hit.ray.medium);
+		u32 id = u32(hit.voxel_hit.id);
 		f32 noise_factor = 0.5;
-		color *= mix(vec3(170, 255, 21) / 256, vec3(34, 139, 34) / 256, noise_factor);
-		/*if(id == 2) {
+		if(id == 2) {
+			color *= mix(vec3(170, 255, 21) / 256, vec3(34, 139, 34) / 256, noise_factor);
 		}
 		if(id == 3) {
 			color *= mix(vec3(135) / 256, vec3(80) / 256, noise_factor);
@@ -217,7 +209,7 @@ vec3 path_trace(Path path) {
 
 		if(id == 4) {
 			color *= mix(vec3(107, 84, 40) / 256, vec3(64, 41, 5) / 256, noise_factor);
-		}*/
+		}
 
 		Ao ao;
 		ao.region_data = path.block_data;
@@ -228,8 +220,6 @@ vec3 path_trace(Path path) {
 		vec4 ambient = voxel_ao(ao);
 		
 		color *= 0.75 + 0.25 * mix(mix(ambient.z, ambient.w, hit.voxel_hit.uv.x), mix(ambient.y, ambient.x, hit.voxel_hit.uv.x), hit.voxel_hit.uv.y);
-		color = mod(vec3(hit.voxel_hit.destination), 8) / 8;
-		//color = abs(hit.voxel_hit.normal);
 	} else {
 		color = vec3(0.1, 0.2, 1.0);
 	}

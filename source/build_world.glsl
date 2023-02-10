@@ -4,6 +4,7 @@
 #include "region.glsl"
 #include "transform.glsl"
 #include "voxel.glsl"
+#include "blocks.glsl"
 #include "noise.glsl"
 #include "worldgen.glsl"
 

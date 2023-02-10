@@ -19,10 +19,7 @@ struct RtxPush {
 	BufferId transform_id;
 	BufferId region_id;
 	BufferId mersenne_id;
-	ImageId perlin_id;
-	ImageId prepass_id;
 	ImageId dir_id;
-	ImageId pos_id;
 	BufferId luminosity_id;
 	BufferId entity_id;
 };
@@ -36,7 +33,6 @@ void main() {
 	Buffer(Camera) camera = get_buffer(Camera, push_constant.camera_id);
 	Buffer(Transforms) transforms = get_buffer(Transforms, push_constant.transform_id);
 	Buffer(Region) region = get_buffer(Region, push_constant.region_id);
-	Image(3D, u32) perlin_img = get_image(3D, u32, push_constant.perlin_id);
 	Image(2D, f32) dir_img = get_image(2D, f32, push_constant.dir_id);
 
 	Transform region_transform = transforms.data[0];
@@ -54,7 +50,7 @@ void main() {
 	f32 c_pi = 3.1415;
 	f32 DOFApertureRadius = 0.04;
 	//TODO fix this
-	f32 DOFFocalLength = 10;
+	f32 DOFFocalLength = clamp(luminosity.focal_depth, 1, VIEW_DISTANCE);
 
 	vec3 fwdVector = dir;
         vec3 rightVector = (vec4(1, 0, 0, 0) * inverse(compute_transform_matrix(region_transform))).xyz;

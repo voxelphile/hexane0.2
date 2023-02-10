@@ -42,7 +42,7 @@ const CHUNK_SIZE: usize = 64;
 const AXIS_MAX_CHUNKS: usize = 4;
 const LOD: usize = 3;
 const PREPASS_SCALE: usize = 2;
-const MAX_BLOCKS: usize = 256;
+const MAX_BLOCKS: usize = 1024;
 const BLOCK_DETAIL: usize = 8;
 
 pub type Vertex = (f32, f32, f32);
@@ -1433,7 +1433,6 @@ fn main() {
                         Buffer(&mersenne_buffer, BufferAccess::ComputeShaderReadWrite),
                         Buffer(&world_buffer, BufferAccess::ComputeShaderReadWrite),
                         Buffer(&luminosity_buffer, BufferAccess::ComputeShaderReadWrite),
-                        Buffer(&entity_buffer, BufferAccess::ComputeShaderReadWrite),
                     ],
                     task: |commands| {
                         commands.set_pipeline(&input_pipeline)?;
@@ -1449,7 +1448,6 @@ fn main() {
                                 world_buffer: (world_buffer)(),
                                 camera_buffer: (camera_buffer)(),
                                 luminosity_buffer: (luminosity_buffer)(),
-                                entity_buffer: (entity_buffer)(),
                             },
                             pipeline: &input_pipeline,
                         })?;
@@ -1725,8 +1723,7 @@ fn main() {
                         Buffer(&transform_buffer, BufferAccess::ShaderReadOnly),
                         Buffer(&world_buffer, BufferAccess::ShaderReadOnly),
                         Buffer(&mersenne_buffer, BufferAccess::ShaderReadWrite),
-                        Image(&perlin_image, ImageAccess::ShaderReadWrite),
-                        Buffer(&luminosity_buffer, BufferAccess::ShaderReadWrite),
+                        Buffer(&luminosity_buffer, BufferAccess::ShaderReadOnly),
                         Buffer(&entity_buffer, BufferAccess::ShaderReadWrite),
                     ],
                     task: |commands| {
@@ -1759,10 +1756,7 @@ fn main() {
                                 transform_buffer: (transform_buffer)(),
                                 world_buffer: (world_buffer)(),
                                 mersenne_buffer: (mersenne_buffer)(),
-                                perlin_image: (perlin_image)(),
-                                prepass_image: (prepass_image)(),
                                 dir_image: (dir_image)(),
-                                pos_image: (pos_image)(),
                                 luminosity_buffer: (luminosity_buffer)(),
                                 entity_buffer: (entity_buffer)(),
                             },
@@ -2086,10 +2080,7 @@ pub struct RtxPush {
     pub transform_buffer: Buffer,
     pub world_buffer: Buffer,
     pub mersenne_buffer: Buffer,
-    pub perlin_image: Image,
-    pub prepass_image: Image,
     pub dir_image: Image,
-    pub pos_image: Image,
     pub luminosity_buffer: Buffer,
     pub entity_buffer: Buffer,
 }
@@ -2133,7 +2124,6 @@ pub struct InputPush {
     pub world_buffer: Buffer,
     pub camera_buffer: Buffer,
     pub luminosity_buffer: Buffer,
-    pub entity_buffer: Buffer,
 }
 #[derive(Clone, Copy)]
 #[repr(C)]

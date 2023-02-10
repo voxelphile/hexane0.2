@@ -31,7 +31,7 @@ uint voxel_hash(in VoxelData data) {
 	return hash;
 }
 
-VoxelData voxel_data(BufferId region_id, uint slot) {
+VoxelData voxel_data(BufferId region_id, u16 slot) {
 	Buffer(Region) region = get_buffer(Region, region_id);
 	Image(3D, u16) block_data = get_image(3D, u16, region.blocks);
 
@@ -63,12 +63,14 @@ u16 block_hashtable_insert(
 	while(true) {
 		uint prev = atomicCompSwap(region.hash_table[slot].hash, 0, hash);
 		if(prev == 0 || prev == hash) {
+			if(prev == 0) {
 			for(int x = 0; x < BLOCK_DETAIL; x++) {
 			for(int y = 0; y < BLOCK_DETAIL; y++) {
 			for(int z = 0; z < BLOCK_DETAIL; z++) {
 				ivec3 pos = ivec3(x, y, z) + ivec3(0, 0, slot * BLOCK_DETAIL);
 
 				imageStore(block_data, pos, u32vec4(data.voxels[x][y][z]));
+			}
 			}
 			}
 			}

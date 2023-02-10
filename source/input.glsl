@@ -6,6 +6,7 @@
 #include "noise.glsl"
 #include "sound.glsl"
 #include "region.glsl"
+#include "blocks.glsl"
 #include "voxel.glsl"
 #include "camera.glsl"
 #include "raycast.glsl"
@@ -51,7 +52,7 @@ decl_buffer(
 #ifdef compute
 
 #define HUMAN_FACTOR 7.3
-#define ENABLE_FLIGHT true
+#define ENABLE_FLIGHT false
 
 layout (local_size_x = 256) in;
 
@@ -117,8 +118,9 @@ void main() {
 		bool success = ray_trace_complete(state, hit);
 
 		Buffer(Luminosity) luminosity = get_buffer(Luminosity, push_constant.luminosity_id);
+		luminosity.target_focal_depth = VIEW_DISTANCE;
 		if(success) {
-			luminosity.target_focal_depth = distance(region_transform.position.xyz, hit.block_hit.ray.origin) + hit.voxel_hit.dist / BLOCK_DETAIL;
+			luminosity.target_focal_depth = hit.block_hit.dist + hit.voxel_hit.dist / BLOCK_DETAIL;
 		} else {
 			luminosity.target_focal_depth = VIEW_DISTANCE;
 		}	
@@ -127,7 +129,6 @@ void main() {
 	inp.ray_cast_counter += delta_time;
 
 	if(inp.last_action_time > 0.15 && (entity_input.action1 || entity_input.action2)) {
-		/*
 		TraceHit hit;
 		
 		TraceState state;
@@ -137,7 +138,6 @@ void main() {
 		trace.direction = dir;
 		trace.region_data = region.data;
 		trace.block_data = region.blocks;
-		trace.region_id = push_constant.region_id;
 
 		ray_trace_start(trace, state);
 
@@ -155,19 +155,20 @@ void main() {
 			vec3 origin = hit.approach_hit.destination.xyz;
 			vec3 normal = hit.approach_hit.normal.xyz;
 
-			if(entity_input.action1) {
-				change.id = u16(BLOCK_ID_AIR);
-				change.position = ivec3(vec3(origin - normal * 0.5));
-			}
 			if(entity_input.action2) {
-				change.id = u16(BLOCK_ID_STONE);
-				change.position = ivec3(vec3(origin + normal * 0.5));
-			}
-				
+				VoxelData data = voxel_data(push_constant.region_id, u16(hit.block_hit.id));
+
+				ivec3 v = ivec3(hit.voxel_hit.destination + vec3(hit.voxel_hit.normal) * 0.5) % BLOCK_DETAIL;
+				data.voxels[v.x][v.y][v.z] = u16(3);
+
+				change.id = block_hashtable_insert(push_constant.region_id, data);
+				change.position = ivec3(hit.block_hit.destination - vec3(hit.block_hit.normal) * 0.5);
+
 			region.rebuild = true;
 			voxel_change(change);
+			}
+				
 		}
-		*/
 	}
 	
 	inp.last_action_time += delta_time;
