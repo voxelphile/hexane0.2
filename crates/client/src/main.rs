@@ -1510,7 +1510,7 @@ fn main() {
                                 pipeline: &build_blocks_pipeline,
                             })?;
 
-                            commands.dispatch(MAX_BLOCKS, 1, 1)?;
+                            commands.dispatch(1, 1, 1)?;
                     }
                         Ok(())
                     },

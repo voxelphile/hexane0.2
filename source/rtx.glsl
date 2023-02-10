@@ -83,9 +83,7 @@ bool ray_trace_drive(inout TraceState state) {
 
 	state.count++;
 
-	state.approach_hit = state.block_hit;
-
-	state.ray_state.ray.origin = state.block_hit.destination + vec3(state.block_hit.normal) * EPSILON;
+	state.ray_state.ray.origin = state.block_hit.destination - vec3(state.block_hit.normal) * EPSILON;
 	state.ray_state.ray.medium = u16(state.block_hit.id);
 
 	ray_cast_start(state.ray_state.ray, state.ray_state);
@@ -107,20 +105,38 @@ bool ray_trace_drive(inout TraceState state) {
 	if(!success) {
 		return false;
 	}
-	
+
 	bool hit = false;
 	f32 smudge = 1e-1;
 
-	if(is_solid(u16(state.block_hit.ray.medium))) {
-		f32 block_start = state.block_hit.ray.medium * BLOCK_DETAIL;
+	if(is_solid(u16(state.block_hit.id))) {
+		RayState sub_state = state.ray_state;
+		sub_state.ray.medium = u16(state.block_hit.id);
+		RayHit sub_hit = state.block_hit;
+		Ray traversal = state.ray_state.ray;
+
+		traversal.origin = sub_hit.destination - vec3(sub_hit.normal) * EPSILON;
+		traversal.medium = u16(sub_hit.id);
+
+		RayState traversal_state;
+		RayHit traversal_hit;
+
+		ray_cast_start(traversal, traversal_state);
+
+		while(ray_cast_drive(traversal_state)) {}
+
+		//no complete needed since we are only using traversal_state
+
+		vec3 origin = sub_hit.destination - vec3(sub_hit.normal) * EPSILON;
+		f32 block_start = sub_hit.id * BLOCK_DETAIL;
 		Ray inner;
 		RayState inner_state;
 		inner.region_data = state.block_data;
-		inner.max_distance = distance(state.block_hit.ray.origin, state.block_hit.destination) * BLOCK_DETAIL - smudge * sqrt(f32(3)); 
+		inner.max_distance = 100; 
 		inner.minimum = vec3(0, 0, block_start);
 		inner.maximum = inner.minimum + BLOCK_DETAIL;
 		inner.direction = state.ray_state.ray.direction;
-		inner.origin = inner.minimum + fract(state.block_hit.ray.origin) * BLOCK_DETAIL;
+		inner.origin = inner.minimum + fract(origin) * BLOCK_DETAIL;
 		inner.medium = u16(1);
 	
 		ray_cast_start(inner, inner_state);
@@ -131,9 +147,20 @@ bool ray_trace_drive(inout TraceState state) {
 			hit = ray_cast_complete(inner_state, state.voxel_hit);
 			
 			if(inner_state.id == RAY_STATE_OUT_OF_BOUNDS) {
-				inner.origin = wrap(inner.minimum, inner_state.map_pos);
-	
-				f32 d = inner_state.dist + inner_state.initial_dist;
+				ray_cast_body(sub_state);
+
+				ray_cast_check(sub_state);
+				
+				bool success = ray_cast_complete(sub_state, sub_hit);
+
+				if(success && sub_hit.id != state.block_hit.id) {
+					break;
+				}
+
+				origin = sub_hit.destination - vec3(sub_hit.normal) * EPSILON;
+				inner.origin = inner.minimum + fract(origin) * BLOCK_DETAIL;
+
+				f32 d = state.voxel_hit.total_dist;
 				ray_cast_start(inner, inner_state);
 				inner_state.initial_dist = d;
 
@@ -142,7 +169,7 @@ bool ray_trace_drive(inout TraceState state) {
 
 			break;
 		};
-	}
+	} 
 	
 	if(hit) {
 		state.id = TRACE_STATE_VOXEL_FOUND;
@@ -202,6 +229,7 @@ vec3 path_trace(Path path) {
 		
 		color *= 0.75 + 0.25 * mix(mix(ambient.z, ambient.w, hit.voxel_hit.uv.x), mix(ambient.y, ambient.x, hit.voxel_hit.uv.x), hit.voxel_hit.uv.y);
 		color = mod(vec3(hit.voxel_hit.destination), 8) / 8;
+		//color = abs(hit.voxel_hit.normal);
 	} else {
 		color = vec3(0.1, 0.2, 1.0);
 	}
