@@ -1,4 +1,16 @@
 #define HASH_START 2166136261
+#define BLOCK_ID_VOID 0
+#define BLOCK_ID_AIR 1
+
+bool is_solid(u16 id) {
+	switch(u32(id)) {
+		case BLOCK_ID_AIR:
+			return false;
+	}
+
+	return true;
+
+}
 
 uint tumble_fnv(uint hash, uint data) {
 	hash ^= data;
@@ -23,10 +35,12 @@ uint voxel_hash(in VoxelData data) {
 	for(int x = 0; x < BLOCK_DETAIL; x++) {
 	for(int y = 0; y < BLOCK_DETAIL; y++) {
 	for(int z = 0; z < BLOCK_DETAIL; z++) {
-		hash = hashfn(hash + u32(data.voxels[x][y][z])); 
+		hash = tumble_fnv(hash, u32(data.voxels[x][y][z])); 
 	}
 	}
 	}
+
+	hash = hashfn(hash);
 
 	return hash;
 }
@@ -39,7 +53,11 @@ VoxelData voxel_data(BufferId region_id, u16 slot) {
 	for(int x = 0; x < BLOCK_DETAIL; x++) {
 	for(int y = 0; y < BLOCK_DETAIL; y++) {
 	for(int z = 0; z < BLOCK_DETAIL; z++) {
-		data.voxels[x][y][z] = u16(imageLoad(block_data, ivec3(x,y,z) + ivec3(0, 0, slot * BLOCK_DETAIL)).r);  
+		if(slot != BLOCK_ID_AIR && slot != BLOCK_ID_VOID) {
+			data.voxels[x][y][z] = u16(imageLoad(block_data, ivec3(x,y,z) + ivec3(0, 0, slot * BLOCK_DETAIL)).r);  
+		} else {	
+			data.voxels[x][y][z] = u16(0);
+		}	
 	}
 	}
 	}

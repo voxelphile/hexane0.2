@@ -23,6 +23,10 @@ struct ResolvePush {
 	ImageId history_dir_id;
 	ImageId history_pos_id;
 	BufferId rigidbody_id;
+	BufferId info_id;
+	BufferId camera_id;
+	BufferId transform_id;
+	BufferId region_id;
 };
 
 decl_push_constant(ResolvePush)
@@ -40,6 +44,9 @@ void main() {
 	Image(2D, f32) history_dir_image = get_image(2D, f32, push_constant.history_dir_id);
 	Image(2D, f32) history_pos_image = get_image(2D, f32, push_constant.history_pos_id);
 	Buffer(Rigidbodies) rigidbodies = get_buffer(Rigidbodies, push_constant.rigidbody_id);
+	Buffer(Transforms) transforms = get_buffer(Transforms, push_constant.transform_id);
+	Buffer(Region) region = get_buffer(Region, push_constant.region_id);
+	Buffer(Camera) camera = get_buffer(Camera, push_constant.camera_id);
 
 	i32vec2 size = i32vec2(imageSize(prepass_image));
 	i32vec2 pos = i32vec2(gl_GlobalInvocationID.xy);
@@ -48,25 +55,9 @@ void main() {
 		return;
 	}
 
-	Rigidbody rigidbody = rigidbodies.data[0];
+	vec4 color = imageLoad(prepass_image, pos);
 
-	vec4 current_color = imageLoad(prepass_image, pos);
-	
-	vec4 history_color = imageLoad(history_image, pos);
-
-	vec4 dir = imageLoad(dir_image, pos);
-	vec4 history_dir = imageLoad(history_dir_image, pos);
-
-	vec4 color;
-
-	if(dir == history_dir && all(lessThan(rigidbody.velocity, vec3(0.5))) && all(greaterThan(rigidbody.velocity, vec3(-0.5)))) {
-		color = mix(current_color, history_color, 0.9); 
-	} else {
-		color = current_color;
-	}
-		
-	imageStore(resolve_image, pos, color);
-	imageStore(history_dir_image, pos, dir);
+	imageStore(resolve_image, pos, vec4(color.rgb, 1));
 }
 
 #endif

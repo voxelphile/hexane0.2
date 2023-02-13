@@ -5,6 +5,7 @@
 #include "info.glsl"
 #include "transform.glsl"
 #include "region.glsl"
+#include "blocks.glsl"
 #include "voxel.glsl"
 #include "aabb.glsl"
 #include "bounding.glsl"
@@ -330,10 +331,6 @@ void main() {
 	if(query.id == u16(6) && query2.id == u16(6) && inside_of(player, portal)) {
 		transform.position.xyz = region.floating_origin + fract(player.position.xyz);	
 	}
-
-	f32 rot_rate = exp2(1);
-	
-	rigidbody.velocity.xyz = mix(rigidbody.velocity.xyz, min(rigidbody.velocity.xyz, vec3(terminal_velocity(query.id))), exp2(-rot_rate * push_constant.fixed_time));
 
 	transforms.data[0] = transform;
 	rigidbodies.data[0] = rigidbody;

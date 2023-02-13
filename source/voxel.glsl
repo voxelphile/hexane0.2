@@ -1,33 +1,4 @@
-#define BLOCK_ID_VOID 0
-#define BLOCK_ID_AIR 1
-#define BLOCK_ID_GRASS 2
-#define BLOCK_ID_STONE 3
-#define BLOCK_ID_DIRT 4
-#define BLOCK_ID_WATER 5
-#define BLOCK_ID_PORTAL 6
-
-
-f32 terminal_velocity(u16 id) {
-	switch(u32(id)) {
-		case BLOCK_ID_AIR:
-			return 54;
-		case BLOCK_ID_WATER:
-			return 10;
-	}
-
-	return 0;
-
-}
-
-bool is_solid(u16 id) {
-	switch(u32(id)) {
-		case BLOCK_ID_AIR:
-			return false;
-	}
-
-	return true;
-
-}
+#define VOXEL_ID_VOID 0
 
 struct VoxelQuery {
 	//input
@@ -57,7 +28,7 @@ bool voxel_query(inout VoxelQuery query) {
 		return false;
 	}
 
-	return query.id != BLOCK_ID_VOID;
+	return query.id != 0;
 }
 
 struct VoxelChange {

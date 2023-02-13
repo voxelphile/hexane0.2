@@ -40,8 +40,9 @@ u16 world_gen(ivec3 world_position, BufferId region_id, ImageId perlin_id, Image
 	}
 
 	if(id == u16(BLOCK_ID_VOID)) {
+		VoxelData data = voxel_data(region_id, u16(BLOCK_ID_AIR));
+
 		if(world_position.y == i32(height)) {
-			VoxelData data;
 			for(int x = 0; x < BLOCK_DETAIL; x++) {
 			for(int y = 0; y < BLOCK_DETAIL / 3; y++) {
 			for(int z = 0; z < BLOCK_DETAIL; z++) {
@@ -52,7 +53,6 @@ u16 world_gen(ivec3 world_position, BufferId region_id, ImageId perlin_id, Image
 
 			id = block_hashtable_insert(region_id, data);
 		} else if(world_position.y > height - 10 && world_position.y < height) {
-			VoxelData data;
 			for(int x = 0; x < BLOCK_DETAIL; x++) {
 			for(int y = 0; y < BLOCK_DETAIL; y++) {
 			for(int z = 0; z < BLOCK_DETAIL; z++) {
@@ -63,7 +63,6 @@ u16 world_gen(ivec3 world_position, BufferId region_id, ImageId perlin_id, Image
 
 			id = block_hashtable_insert(region_id, data);
 		} else if(world_position.y < height) {
-			VoxelData data;
 			for(int x = 0; x < BLOCK_DETAIL; x++) {
 			for(int y = 0; y < BLOCK_DETAIL; y++) {
 			for(int z = 0; z < BLOCK_DETAIL; z++) {

@@ -1,0 +1,63 @@
+
+	/*vec3 history_dir = imageLoad(history_dir_image, pos).xyz;
+	vec3 history_position = imageLoad(history_pos_image, pos).xyz;
+
+	vec3 color = info.xyz;
+
+	vec3 position = plane + dir * info.a;
+
+	vec4 p = (camera.projection * inverse(compute_transform_matrix(transforms.data[1])) * vec4(history_position, 1));
+	p /= p.w;
+	p *= 0.5;
+	p += 0.5;
+	ivec2 p2 = ivec2(p.xy * vec2(size));
+/*
+	i32 radius = 1;
+	vec3 neighborhood_min = vec3(1000);
+	vec3 neighborhood_max = vec3(-1000);
+	for(i32 x = -radius; x <= radius; x++) {
+	for(i32 y = -radius; y <= radius; y++) {
+		ivec2 p6 = pos + ivec2(x, y);
+
+		vec3 neighborhood_color = imageLoad(prepass_image, p6).xyz;
+
+		neighborhood_max = max(neighborhood_max, neighborhood_color);
+		neighborhood_min = min(neighborhood_min, neighborhood_color);
+	}
+	}
+	
+	radius = 3;
+	ivec2 p4 = p2;
+	ivec2 off;
+	f32 final_dist = 10000;
+	for(i32 x = -radius; x <= radius; x++) {
+	for(i32 y = -radius; y <= radius; y++) {
+		ivec2 p3 = p2 + ivec2(x, y);
+
+		if(min(p3, size) != p3 || max(p3, ivec2(0)) != p3) {
+			continue;
+		}
+
+		history_position = imageLoad(history_pos_image, p3).xyz;
+		f32 dist = length(history_position - position);
+
+		if(dist < final_dist) {
+			p4 = p3;
+			off = ivec2(x, y);
+			final_dist = dist;	
+		}
+	}
+	}
+
+	f32 pixel_acceptance = 1.0;
+	if(p.x > 0 && p.x < 1 && p.y > 0 && p.y < 1 && p.z > -0.5) {
+		if(final_dist < 0.02) {
+			vec3 history_color = imageLoad(history_image, p4).xyz;
+			color = mix(
+				color, 
+				clamp(history_color, neighborhood_min, neighborhood_max),
+				0.9
+			);	
+		}
+	}
+	*/

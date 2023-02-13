@@ -933,6 +933,9 @@ fn main() {
                             .refresh_compute_pipeline(&input_pipeline)
                             .unwrap();
                         pipeline_compiler
+                            .refresh_compute_pipeline(&resolve_pipeline)
+                            .unwrap();
+                        pipeline_compiler
                             .refresh_graphics_pipeline(&draw_pipeline)
                             .unwrap();
                         pipeline_compiler
@@ -1057,7 +1060,7 @@ fn main() {
                         })
                         .expect("failed to create depth image"),
                 );
-                history_pos_img.set(
+                pos_img.set(
                     device
                         .create_image(ImageInfo {
                             extent: ImageExtent::TwoDim(
@@ -1757,6 +1760,7 @@ fn main() {
                                 world_buffer: (world_buffer)(),
                                 mersenne_buffer: (mersenne_buffer)(),
                                 dir_image: (dir_image)(),
+                                pos_image: (pos_image)(),
                                 luminosity_buffer: (luminosity_buffer)(),
                                 entity_buffer: (entity_buffer)(),
                             },
@@ -1790,6 +1794,10 @@ fn main() {
                                 history_dir_image: (history_dir_image)(),
                                 history_pos_image: (history_pos_image)(),
                                 rigidbody_buffer: (rigidbody_buffer)(),
+                                info_buffer: (info_buffer)(),
+                                camera_buffer: (camera_buffer)(),
+                                transform_buffer: (transform_buffer)(),
+                                world_buffer: (world_buffer)(),
                             },
                             pipeline: &resolve_pipeline,
                         })?;
@@ -2081,6 +2089,7 @@ pub struct RtxPush {
     pub world_buffer: Buffer,
     pub mersenne_buffer: Buffer,
     pub dir_image: Image,
+    pub pos_image: Image,
     pub luminosity_buffer: Buffer,
     pub entity_buffer: Buffer,
 }
@@ -2096,6 +2105,10 @@ pub struct ResolvePush {
     pub history_dir_image: Image,
     pub history_pos_image: Image,
     pub rigidbody_buffer: Buffer,
+    pub info_buffer: Buffer,
+    pub camera_buffer: Buffer,
+    pub transform_buffer: Buffer,
+    pub world_buffer: Buffer,
 }
 #[derive(Clone, Copy)]
 #[repr(C)]

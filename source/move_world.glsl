@@ -2,6 +2,7 @@
 
 #include "hexane.glsl"
 #include "region.glsl"
+#include "blocks.glsl"
 #include "transform.glsl"
 #include "voxel.glsl"
 

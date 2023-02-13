@@ -80,12 +80,13 @@ void main() {
 	ivec3 diff = region.floating_origin - region.observer_position;
 	region_transform.position.xyz = vec3(REGION_SIZE / 2) - vec3(diff);
 	region_transform.position.xyz += transforms.data[0].position.xyz - region.observer_position;
+	transforms.data[1] = region_transform;
 	
 	vec2 screenPos = vec2(0);
 	vec4 far = camera.inv_projection * vec4(screenPos, 1, 1);
 	far /= far.w;
 
-	vec3 dir = -(compute_transform_matrix(region_transform) * vec4(normalize(far.xyz), 0)).xyz;
+	vec3 dir = (compute_transform_matrix(region_transform) * vec4(normalize(far.xyz), 0)).xyz;
 		
 	VoxelQuery query;
 	query.region_data = region.data;
@@ -110,6 +111,7 @@ void main() {
 		trace.direction = dir;
 		trace.region_data = region.data;
 		trace.block_data = region.blocks;
+		trace.max_distance = VIEW_DISTANCE;
 
 		ray_trace_start(trace, state);
 
@@ -120,7 +122,7 @@ void main() {
 		Buffer(Luminosity) luminosity = get_buffer(Luminosity, push_constant.luminosity_id);
 		luminosity.target_focal_depth = VIEW_DISTANCE;
 		if(success) {
-			luminosity.target_focal_depth = hit.block_hit.dist + hit.voxel_hit.dist / BLOCK_DETAIL;
+			luminosity.target_focal_depth = hit.block_hit.total_dist + hit.voxel_hit.dist / BLOCK_DETAIL;
 		} else {
 			luminosity.target_focal_depth = VIEW_DISTANCE;
 		}	
@@ -138,6 +140,7 @@ void main() {
 		trace.direction = dir;
 		trace.region_data = region.data;
 		trace.block_data = region.blocks;
+		trace.max_distance = 5;
 
 		ray_trace_start(trace, state);
 
@@ -164,10 +167,21 @@ void main() {
 				change.id = block_hashtable_insert(push_constant.region_id, data);
 				change.position = ivec3(hit.block_hit.destination - vec3(hit.block_hit.normal) * 0.5);
 
-			region.rebuild = true;
-			voxel_change(change);
+			}
+			
+			if(entity_input.action1) {
+				VoxelData data = voxel_data(push_constant.region_id, u16(hit.block_hit.id));
+
+				ivec3 v = ivec3(hit.voxel_hit.destination - vec3(hit.voxel_hit.normal) * 0.5) % BLOCK_DETAIL;
+				data.voxels[v.x][v.y][v.z] = u16(0);
+
+				change.id = block_hashtable_insert(push_constant.region_id, data);
+				change.position = ivec3(hit.block_hit.destination - vec3(hit.block_hit.normal) * 0.5);
+
 			}
 				
+			region.rebuild = true;
+			voxel_change(change);
 		}
 	}
 	
@@ -191,7 +205,7 @@ void main() {
 
 	f32 sens = 0.002;
 
-	inp.target_rotation.xy -= -(entity_input.look.yx) * sens;
+	inp.target_rotation.xy -= (entity_input.look.yx) * sens;
 
 	inp.target_rotation.x = clamp(inp.target_rotation.x, -3.14 / 2.0 + EPSILON, 3.14 / 2.0 - EPSILON);
 	if(entity_input.look.xy != vec2(0)) {
@@ -208,7 +222,7 @@ void main() {
 
 	input_axis.x = i32(entity_input.left) - i32(entity_input.right);
 	input_axis.y = i32(entity_input.up) - i32(entity_input.down);
-	input_axis.z = i32(entity_input.backward) - i32(entity_input.forward);
+	input_axis.z = i32(entity_input.forward) - i32(entity_input.backward);
 
 	mat4 orientation = mat4(
 			cos(transform.rotation.y),
@@ -282,7 +296,7 @@ void main() {
 	query.position = ivec3(region_transform.position.xyz);
 	voxel_query(query);
 
-	bool in_water = query.id == BLOCK_ID_WATER;
+	bool in_water = query.id == 1337 && false;
 
 	f32 coyote_time = 0.3;
 
